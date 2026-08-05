@@ -34,6 +34,7 @@ TypeScript + Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어 �
 | [React 대시보드](architecture/frontend.md) | UI를 개발·배포할 때 | Vite 개발 서버, FastAPI 운영 제공 |
 | [책상 제어와 안전](architecture/desk-safety.md) | 높이·릴레이 제어를 구현할 때 | 제어 상태, STOP 우선순위, 하드웨어 경계 |
 | [구현 순서](implementation/roadmap.md) | 개발 계획을 세울 때 | 2~3개월 단계와 완료 조건 |
+| [작업 목록](tasks/README.md) | 실제 구현을 시작할 때 | 번호순 작업, 선행 조건, 검증과 완료 기준 |
 
 ## 설계 결정
 
@@ -46,6 +47,9 @@ TypeScript + Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어 �
   핵심 서비스 클래스는 필요한 객체를 생성자로 전달받는다.
 - 클래스는 장치 I/O, 최신 상태 보관, 정책 판단을 분리한다.
 - Vision 추론처럼 이벤트 루프를 오래 점유하는 작업은 thread executor에서 실행한다.
+- 물리 웹캠은 카메라별 FFmpeg publisher가 열어 MediaMTX에 RTSP로 발행한다.
+  Python은 `RtspFrameSource`로 스트림만 읽으며 별도 업로더를 만들지 않는다.
+- EMQX, MediaMTX와 FFmpeg publisher는 Python singleton이 아닌 외부 인프라다.
 - `DeskController`만 릴레이 명령을 결정하고, ESP32의 독립 안전 제한은 유지한다.
 - 현재 critical task 실패는 readiness를 내리는 데까지만 처리한다. 실제 ESP32
   STOP 보장은 Desk 제어 루프 구현 단계에서 추가한다.
@@ -59,6 +63,7 @@ TypeScript + Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어 �
 - 확정된 책상 물리 최대 높이 118cm와 기본 운영 범위 75~118cm
 - 릴레이 펄스 시간, watchdog, timeout, STOP 조건
 - ESP32의 연결 끊김·상하한·펄스 만료 보호
+- 인증 없이 사용하는 로컬 EMQX의 MQTT TCP 주소 `127.0.0.1:1883`
 
 이 문서는 새 구조를 정의한다. 기존 동작 계약의 기준 문서는
 `/srv/smart-desk/docs/MQTT_PROTOCOL.md`, `SAFETY.md`, `HTTP_API.md`다. 단, 기존

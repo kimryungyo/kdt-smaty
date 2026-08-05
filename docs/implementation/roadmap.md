@@ -11,9 +11,11 @@
 
 완료 조건: worker 하나에서 앱이 시작·종료되고 React build와 health API가 동작한다.
 
-## 1단계: 안전한 책상 제어 — 다음 작업
+## 1단계: MQTT 기반과 안전한 책상 제어 — 다음 작업
 
-- `DeskHeightMonitor`, `SegmentDecoder`, `RelayClient`, `DeskController`를 구현한다.
+- 인증 없는 EMQX에 연결하는 `MqttClient`와 토픽·메시지 계약을 구현한다.
+- `SerialLineSource`, `DeskHeightMonitor`, `SegmentDecoder`, `RelayClient`,
+  `DeskController`를 구현한다.
 - 기존 MQTT 토픽·JSON·높이 범위·ESP32 보호를 그대로 연결한다.
 - 목표, HOLD, STOP, 센서 만료, 서버 종료 단위 테스트를 만든다.
 
@@ -27,11 +29,12 @@
 
 완료 조건: 브라우저에서 실제 높이·Desk 상태를 보고 안전한 수동/목표 제어를 할 수 있다.
 
-## 3단계: Vision 파이프라인
+## 3단계: 영상 인프라와 Vision 파이프라인
 
-- 카메라별 `CameraFrameSource`와 `FramePreprocessor`를 구현한다.
+- MediaMTX와 카메라별 FFmpeg publisher를 별도 인프라로 구성한다.
+- Python 업로더 없이 카메라별 `RtspFrameSource`와 `FramePreprocessor`를 구현한다.
 - 자세, 얼굴, 재실 detector와 `VisionStateService`를 연결한다.
-- 카메라 읽기와 추론이 FastAPI·Desk 제어 이벤트 루프를 막지 않는지 확인한다.
+- RTSP 읽기와 추론이 FastAPI·Desk 제어 이벤트 루프를 막지 않는지 확인한다.
 
 완료 조건: 최신 Vision 상태와 미리보기를 제공하고, 카메라/추론 오류를
 `UNKNOWN` 또는 오류 상태로 안전하게 표시한다.
@@ -61,3 +64,7 @@
 | 실물 검증 | ESP32 펄스, Arduino 높이, STOP, 장애 조건 |
 
 실물 책상 이동은 단위·계약·통합 테스트를 통과한 뒤에만 수행한다.
+
+각 단계의 실행 가능한 세부 체크리스트는 [작업 목록](../tasks/README.md)을
+기준으로 한다. roadmap은 큰 단계와 목표를 설명하고, `docs/tasks/`는 실제 작업
+순서와 완료 증거를 관리한다.

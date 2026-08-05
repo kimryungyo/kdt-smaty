@@ -9,6 +9,7 @@
 smart-desk-fin/
 ├── src/smart_desk/       Python FastAPI 애플리케이션
 ├── frontend/             React + TypeScript + Vite 대시보드
+├── infra/                향후 MediaMTX·FFmpeg 실행 설정
 ├── tests/                Python 단위·통합 테스트
 ├── docs/                 설계와 구현 문서
 ├── pyproject.toml        Python 패키지·의존성·pytest 설정
@@ -16,6 +17,10 @@ smart-desk-fin/
 ├── .gitignore            Git 제외 파일 기준
 └── README.md             설치·실행·검증 진입 문서
 ```
+
+`infra/`는 아직 생성되지 않은 예정 영역이며
+[05. MediaMTX 영상 인프라](tasks/05-media-pipeline.md)에서 실제 설정과 함께
+추가한다. 사용하지 않는 빈 폴더만 미리 만들지는 않는다.
 
 ## 루트 파일
 
@@ -157,6 +162,8 @@ frontend/src/
 | `docs/architecture/component-design.md` | 앞으로 구현할 Desk·Vision·애플리케이션 클래스 책임을 정의한다. |
 | `docs/architecture/desk-safety.md` | 책상 제어 상태, STOP 우선순위와 ESP32 안전 경계를 정의한다. |
 | `docs/implementation/roadmap.md` | 2~3개월 구현 순서와 단계별 완료 조건을 정리한다. |
+| `docs/tasks/README.md` | 번호가 붙은 실행 작업 문서와 현재 진행 순서를 안내한다. |
+| `docs/tasks/01-*.md` ~ `08-*.md` | 기능별 선행 조건, 작업 목록, 검증과 완료 기준을 제공한다. |
 
 ## 예정 기능 영역
 
@@ -165,13 +172,18 @@ Desk, Vision, MQTT와 자동화는 아직 생성되지 않았다. 구현할 때�
 
 ```text
 src/smart_desk/modules/
-├── desk/          높이 수신, 목표·수동 제어, ESP32 명령
-├── vision/        카메라, 전처리, 얼굴·자세·재실 판정
+├── mqtt/          EMQX 연결, 발행·구독과 토픽
+├── serial/        Arduino 시리얼 라인 수신
+├── desk/          높이 해석, 목표·수동 제어, ESP32 명령
+├── vision/        RTSP 프레임, 전처리, 얼굴·자세·재실 판정
 ├── automation/    Vision·프로필을 이용한 목표 높이 결정
 ├── profiles/      프로필 모델과 영속 저장
-├── mqtt/          MQTT 연결과 외부 메시지 handler
 └── wled/          선택적 LED 장치 연동
 ```
+
+MediaMTX와 카메라별 FFmpeg publisher는 `modules/`에 넣지 않는다. 구현 단계에서
+`infra/compose.yaml`, `infra/mediamtx.yml`과 운영 문서로 관리한다. Python에는
+MediaMTX 업로더를 만들지 않고 `modules/vision/`의 `RtspFrameSource`만 둔다.
 
 기능 클래스의 필드와 메서드는 [컴포넌트 설계](architecture/component-design.md),
 책상 제어 구현은 [책상 제어와 안전](architecture/desk-safety.md)을 먼저 따른다.

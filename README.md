@@ -3,6 +3,8 @@
 SMART DESK를 단일 FastAPI 프로세스와 `asyncio` 기반으로 재구성하는 프로젝트다.
 현재 단계는 설정, singleton container, task 관리와 애플리케이션 수명주기를
 제공하는 기본 골조다. 실제 MQTT·카메라·책상 장치는 아직 연결하지 않는다.
+영상은 카메라별 FFmpeg publisher가 MediaMTX에 발행하고 Python은 RTSP를 읽는
+구조로 구현할 예정이다.
 
 ## 개발 환경
 
@@ -84,4 +86,5 @@ cd frontend && npm run build
 
 전체 폴더와 파일 책임은 [프로젝트 구조](docs/PROJECT_STRUCTURE.md), 설계와 구현
 순서는 [설계 문서](docs/README.md), 프런트엔드 실행 방식은
-[React 대시보드](docs/architecture/frontend.md)에서 확인한다.
+[React 대시보드](docs/architecture/frontend.md)에서 확인한다. 실제 구현은
+[번호순 작업 목록](docs/tasks/README.md)을 따른다.
