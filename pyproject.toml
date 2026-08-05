@@ -30,3 +30,6 @@ addopts = "-q"
 asyncio_mode = "auto"
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "mqtt_integration: 로컬 MQTT broker가 필요한 통합 테스트",
+]

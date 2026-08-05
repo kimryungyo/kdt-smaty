@@ -11,8 +11,10 @@
 - `src/smart_desk/core/container.py`: singleton container와 공유 자원 등록
 - `src/smart_desk/core/lifecycle.py`: 공유 자원 시작·종료와 FastAPI lifespan
 - `src/smart_desk/core/task_manager.py`: 이름 기반 async 작업과 critical 실패 기록
+- `src/smart_desk/modules/mqtt/client.py`: EMQX 연결·재연결과 메시지 전달
 
-기능 컴포넌트가 추가되면 `bootstrap.py`에서 생성하고 `AppContainer`에 등록한다.
+`MqttClient`는 `bootstrap.py`에서 생성해 첫 번째 lifecycle resource로 등록한다.
+이후 기능 컴포넌트도 같은 위치에서 생성하고 `AppContainer`에 연결한다.
 
 ## 단기 프로젝트 실행 기준
 
@@ -38,21 +40,23 @@ class AppContainer:
     settings: Settings
     runtime: RuntimeState
     task_manager: TaskManager
+    mqtt: MqttClient
+
+    # 아래 필드는 이후 작업에서 추가한다.
     desk: DeskController
     height_monitor: DeskHeightMonitor
     vision: VisionStateService
     profiles: ProfileRepository
-    mqtt: MqttClient
 
 def get_desk() -> DeskController: ...
 def get_vision() -> VisionStateService: ...
 def get_mqtt() -> MqttClient: ...
 ```
 
-위 기능 필드는 향후 구현 형태다. 현재 container에는 설정, runtime,
-`TaskManager`와 lifecycle resource 목록만 있다. container가 직접 `start()`나
-`shutdown()`을 제공하지 않으며 `core/lifecycle.py`가 등록된 자원의 수명주기를
-관리한다.
+현재 container에는 설정, runtime, `TaskManager`, `MqttClient`와 lifecycle
+resource 목록이 있다. Desk부터 profiles까지는 향후 구현 필드다. container가
+직접 `start()`나 `shutdown()`을 제공하지 않으며 `core/lifecycle.py`가 등록된
+자원의 수명주기를 관리한다.
 
 FastAPI route와 MQTT handler 같은 진입점은 함수 내부에서 `get_*()`를 직접
 호출한다. `Depends` 사용은 필수가 아니다. 반면 `DeskController` 같은 핵심
@@ -106,7 +110,7 @@ thread, 추론은 executor로 넘기고 제어 루프는 짧게 끝나도록 유
 ## 공유 상태 규칙
 
 - 갱신 작업만 내부 가변 상태를 쓴다.
-- 외부 소비자는 불변 snapshot을 받는다.
+- 연결 여부 같은 단순 값은 동기 메서드로, 복합 상태는 불변 snapshot으로 받는다.
 - 같은 event loop 안의 snapshot 교체는 짧은 `asyncio.Lock`, 카메라 thread와
   공유하는 최신 프레임은 짧은 `threading.Lock`으로 보호한다.
 - I/O, 추론, MQTT publish를 lock 안에서 기다리지 않는다.
@@ -131,8 +135,8 @@ supervisor는 기본 골조에 추가하지 않는다. Desk 컴포넌트를 구�
 
 실제 대기나 네트워크 I/O가 있는 `start()`, `stop()`, `publish()`,
 `read_line()`은 async로 둔다. 이미 메모리에 교체된 불변 상태를 읽는
-`get_snapshot()`과 `get_latest_frame()`은 동기 메서드로 둔다. getter 안에서
-네트워크 요청이나 재접속을 수행하지 않는다.
+`get_snapshot()`, `get_latest_frame()`과 MQTT 연결 여부를 읽는 `is_connected()`는
+동기 메서드로 둔다. getter 안에서 네트워크 요청이나 재접속을 수행하지 않는다.
 
 `DeskController.stop()`은 제어 루프의 수명주기 종료에만 사용한다. 사용자의
 정지 명령과 안전 중단은 `stop_motion(reason)`으로 구분한다. `RelayClient`는

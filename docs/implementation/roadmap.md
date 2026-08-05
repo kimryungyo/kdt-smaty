@@ -11,9 +11,9 @@
 
 완료 조건: worker 하나에서 앱이 시작·종료되고 React build와 health API가 동작한다.
 
-## 1단계: MQTT 기반과 안전한 책상 제어 — 다음 작업
+## 1단계: MQTT 기반과 안전한 책상 제어 — 진행 중
 
-- 인증 없는 EMQX에 연결하는 `MqttClient`와 토픽·메시지 계약을 구현한다.
+- 인증 없는 EMQX에 연결하는 `MqttClient`와 토픽·메시지 계약을 구현했다.
 - `SerialLineSource`, `DeskHeightMonitor`, `SegmentDecoder`, `RelayClient`,
   `DeskController`를 구현한다.
 - 기존 MQTT 토픽·JSON·높이 범위·ESP32 보호를 그대로 연결한다.

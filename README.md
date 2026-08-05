@@ -1,10 +1,10 @@
 # SMART DESK FIN
 
 SMART DESK를 단일 FastAPI 프로세스와 `asyncio` 기반으로 재구성하는 프로젝트다.
-현재 단계는 설정, singleton container, task 관리와 애플리케이션 수명주기를
-제공하는 기본 골조다. 실제 MQTT·카메라·책상 장치는 아직 연결하지 않는다.
-영상은 카메라별 FFmpeg publisher가 MediaMTX에 발행하고 Python은 RTSP를 읽는
-구조로 구현할 예정이다.
+설정, singleton container, task 관리와 애플리케이션 수명주기 위에 로컬 EMQX와
+연결하는 비동기 MQTT 기반까지 구현했다. 카메라·책상 장치 모듈은 아직 연결하지
+않았다. 영상은 카메라별 FFmpeg publisher가 MediaMTX에 발행하고 Python은 RTSP를
+읽는 구조로 구현할 예정이다.
 
 ## 개발 환경
 
@@ -28,7 +28,8 @@ npm ci
 
 ## 개발 실행
 
-터미널 하나에서 FastAPI를 실행한다.
+로컬 EMQX가 `127.0.0.1:1883`에서 실행 중인지 확인한 뒤 FastAPI를 실행한다.
+최초 MQTT 연결과 구독을 완료하지 못하면 애플리케이션도 시작하지 않는다.
 
 하드웨어 singleton 중복 생성을 막기 위해 Uvicorn worker는 반드시 하나만
 사용한다.
@@ -82,6 +83,14 @@ curl http://127.0.0.1:9090/health/ready
 .venv/bin/python -m pytest
 .venv/bin/python -m compileall -q src tests
 cd frontend && npm run build
+```
+
+기본 테스트는 MQTT broker 없이 실행된다. 로컬 EMQX와 실제 QoS 1 발행·구독 및
+재연결·재구독까지 확인하려면 다음 명령을 추가로 실행한다.
+
+```bash
+SMART_DESK_RUN_MQTT_INTEGRATION=1 \
+  .venv/bin/python -m pytest -m mqtt_integration
 ```
 
 전체 폴더와 파일 책임은 [프로젝트 구조](docs/PROJECT_STRUCTURE.md), 설계와 구현

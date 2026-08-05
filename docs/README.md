@@ -7,9 +7,9 @@ FastAPI 프로세스와 `asyncio` 기반 구조로 단순화한다.
 ## 현재 구현 단계
 
 설정, `AppContainer`, 공유 자원 수명주기, `TaskManager`, 구조화 로그와 FastAPI
-health API까지 기본 골조가 구현되어 있다. Desk, Vision, MQTT 같은 기능
-컴포넌트는 아직 구현하지 않았으며 문서의 해당 내용은 설계 초안이다. React +
-TypeScript + Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어 있다.
+health API에 더해 EMQX 연결·발행·구독·재연결을 담당하는 `MqttClient`까지
+구현되어 있다. Desk와 Vision 컴포넌트는 아직 설계 초안이다. React + TypeScript
++ Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어 있다.
 
 | 구현 영역 | 현재 코드 |
 | --- | --- |
@@ -19,6 +19,7 @@ TypeScript + Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어 �
 | singleton container | `src/smart_desk/core/container.py` |
 | 시작·종료 | `src/smart_desk/core/lifecycle.py` |
 | async 작업 감독 | `src/smart_desk/core/task_manager.py` |
+| MQTT 연결과 메시지 전달 | `src/smart_desk/modules/mqtt` |
 | 상태 확인 | `src/smart_desk/api/routes/health.py` |
 | React 개발 소스 | `frontend/src` |
 | React 정적 제공 | `src/smart_desk/frontend.py` |

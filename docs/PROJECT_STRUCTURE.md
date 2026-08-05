@@ -27,7 +27,7 @@ smart-desk-fin/
 | 경로 | 역할 |
 | --- | --- |
 | `README.md` | 개발 환경 설치, FastAPI·React 실행, 운영 build와 전체 검증 명령을 안내한다. |
-| `pyproject.toml` | Python 버전, FastAPI·Pydantic 의존성, 개발 의존성과 pytest 설정을 관리한다. |
+| `pyproject.toml` | Python 버전, FastAPI·Pydantic·aiomqtt 의존성, 개발 의존성과 pytest 설정을 관리한다. |
 | `.env.example` | 서버, MQTT, 책상 범위, 카메라, React 정적 제공 환경변수의 이름과 기본 예시를 제공한다. |
 | `.gitignore` | `.env`, 가상환경, Python cache, React `node_modules`·`dist` 등 생성 파일을 제외한다. |
 
@@ -100,6 +100,22 @@ HTTP 요청 검증과 애플리케이션 서비스 호출을 담당한다.
 함수 안에서 `get_*()`로 singleton 서비스를 조회할 수 있지만, 장치 제어 정책을
 직접 구현하지 않는다.
 
+### `modules/mqtt/`
+
+EMQX와 통신하는 프로세스 공용 MQTT transport다. 토픽별 JSON 의미나 책상 제어
+정책은 포함하지 않고, 각 기능 모듈이 등록한 handler로 수신 메시지를 전달한다.
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/__init__.py` | 기능 모듈을 묶는 Python 패키지를 선언한다. |
+| `src/smart_desk/modules/mqtt/__init__.py` | MQTT 공개 타입·오류와 singleton 조회 함수 `get_mqtt()`를 노출한다. |
+| `src/smart_desk/modules/mqtt/client.py` | 연결·재연결, exact-topic 구독, 발행과 메시지 전달을 관리한다. |
+| `src/smart_desk/modules/mqtt/models.py` | aiomqtt에 의존하지 않는 최소 수신 메시지와 handler 타입을 정의한다. |
+| `src/smart_desk/modules/mqtt/topics.py` | 기존 서버·ESP32와 호환되는 MQTT 토픽 문자열을 한곳에 둔다. |
+
+handler는 MQTT 시작 전에 등록한다. 최초 연결·구독 실패는 애플리케이션 시작
+실패로 처리하고, 시작 후 단절에는 같은 process에서 자동 재연결·재구독한다.
+
 ## React 대시보드
 
 `frontend/`는 Python 패키지와 분리된 독립 Node.js 프로젝트다. 개발 시 Vite가
@@ -145,7 +161,9 @@ frontend/src/
 | `tests/unit/test_container.py` | container 설치 전 접근, 동일 인스턴스 반환과 중복 설치 차단을 검증한다. |
 | `tests/unit/test_lifecycle.py` | 공유 자원의 명시적 시작·안전 종료 순서를 검증한다. |
 | `tests/unit/test_task_manager.py` | async 작업 중복 차단과 critical 실패 callback을 검증한다. |
+| `tests/unit/test_mqtt_client.py` | broker 없이 MQTT 연결·발행·수신·재연결과 입력 검증을 확인한다. |
 | `tests/integration/test_application.py` | FastAPI lifespan, health API, React 정적 제공과 SPA fallback을 검증한다. |
+| `tests/integration/test_mqtt_emqx.py` | 로컬 EMQX에서 실제 QoS 1 왕복과 재연결·재구독을 선택적으로 검증한다. |
 
 순수 상태전이와 검증은 `tests/unit/`, FastAPI·MQTT·시리얼처럼 둘 이상의 경계를
 연결하는 검증은 `tests/integration/`에 둔다.
@@ -169,14 +187,14 @@ frontend/src/
 | `docs/tasks/README.md` | 번호가 붙은 실행 작업 문서와 현재 진행 순서를 안내한다. |
 | `docs/tasks/01-*.md` ~ `08-*.md` | 기능별 선행 조건, 작업 목록, 검증과 완료 기준을 제공한다. |
 
-## 예정 기능 영역
+## 기능 영역
 
-Desk, Vision, MQTT와 자동화는 아직 생성되지 않았다. 구현할 때는 다음 형태를
-기본으로 하되, 실제 파일이 생기기 전 빈 폴더는 만들지 않는다.
+MQTT는 구현했으며 Desk, Vision과 자동화는 아직 생성되지 않았다. 이후 기능은
+다음 형태를 기본으로 하되, 실제 파일이 생기기 전 빈 폴더는 만들지 않는다.
 
 ```text
 src/smart_desk/modules/
-├── mqtt/          EMQX 연결, 발행·구독과 토픽
+├── mqtt/          EMQX 연결, 발행·구독과 토픽 (구현 완료)
 ├── serial/        Arduino 시리얼 라인 수신
 ├── desk/          높이 해석, 목표·수동 제어, ESP32 명령
 ├── vision/        RTSP 프레임, 전처리, 얼굴·자세·재실 판정
