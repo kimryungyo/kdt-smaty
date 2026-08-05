@@ -9,6 +9,7 @@ from smart_desk.core.exceptions import (
     ContainerAlreadyInitializedError,
     ContainerNotInitializedError,
 )
+from smart_desk.modules.mqtt import get_mqtt
 
 
 def test_get_container_requires_installation() -> None:
@@ -21,6 +22,7 @@ def test_installed_container_is_returned_as_same_instance() -> None:
     install_container(container)
 
     assert get_container() is container
+    assert get_mqtt() is container.mqtt
 
 
 def test_container_cannot_be_installed_twice() -> None:
@@ -30,4 +32,3 @@ def test_container_cannot_be_installed_twice() -> None:
 
     with pytest.raises(ContainerAlreadyInitializedError):
         install_container(second)
-

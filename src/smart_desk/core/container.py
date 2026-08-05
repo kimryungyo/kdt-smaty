@@ -14,6 +14,7 @@ from smart_desk.core.task_manager import TaskManager
 
 if TYPE_CHECKING:
     from smart_desk.config.settings import Settings
+    from smart_desk.modules.mqtt.client import MqttClient
 
 
 class LifecycleResource(Protocol):
@@ -41,6 +42,7 @@ class AppContainer:
     settings: Settings
     runtime: RuntimeState
     task_manager: TaskManager
+    mqtt: MqttClient
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
 
@@ -83,4 +85,3 @@ def reset_container() -> None:
 
     global _container
     _container = None
-

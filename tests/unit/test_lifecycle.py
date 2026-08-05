@@ -1,10 +1,10 @@
 """공유 자원의 시작·안전 종료 순서 테스트."""
 
-from smart_desk.bootstrap import build_container
 from smart_desk.config.settings import Settings
-from smart_desk.core.container import ResourceRegistration
+from smart_desk.core.container import AppContainer, ResourceRegistration
 from smart_desk.core.lifecycle import shutdown_application, start_application
-from smart_desk.core.runtime import ApplicationStatus
+from smart_desk.core.runtime import ApplicationStatus, RuntimeState
+from smart_desk.core.task_manager import TaskManager
 
 
 class FakeResource:
@@ -23,11 +23,17 @@ class FakeResource:
 
 async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     events: list[str] = []
-    container = build_container(Settings(environment="test", _env_file=None))
+    mqtt = FakeResource("mqtt", events)
+    container = AppContainer(
+        settings=Settings(environment="test", _env_file=None),
+        runtime=RuntimeState(),
+        task_manager=TaskManager(),
+        mqtt=mqtt,  # type: ignore[arg-type]
+    )
     container.register(
         ResourceRegistration(
             name="mqtt",
-            resource=FakeResource("mqtt", events),
+            resource=mqtt,
             startup_order=10,
             shutdown_order=10,
         )
@@ -46,4 +52,3 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
 
     assert events == ["start:mqtt", "start:desk", "stop:desk", "stop:mqtt"]
     assert container.runtime.snapshot().status is ApplicationStatus.STOPPED
-
