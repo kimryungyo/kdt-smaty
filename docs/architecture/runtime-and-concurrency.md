@@ -18,7 +18,8 @@
 
 - Uvicorn worker는 하나만 사용한다. 별도 process lock이나 전용 supervisor는 두지 않는다.
 - HTTP·MQTT·책상 제어의 I/O 동시성은 같은 프로세스의 `asyncio` task로 처리한다.
-- 카메라 읽기·YOLO처럼 blocking 또는 연산이 무거운 작업만 `asyncio.to_thread()`로 넘긴다.
+- RTSP 프레임 읽기·YOLO처럼 blocking 또는 연산이 무거운 작업만 전용 thread나
+  `asyncio.to_thread()`로 넘긴다.
 - FastAPI 의존성 주입 framework를 추가하지 않고 route 안에서 `get_*()`를 호출한다.
 - 설정은 시작 시 한 번 읽으며 실행 중 갱신 기능을 만들지 않는다.
 
@@ -41,10 +42,11 @@ class AppContainer:
     height_monitor: DeskHeightMonitor
     vision: VisionStateService
     profiles: ProfileRepository
-    mqtt: MqttService
+    mqtt: MqttClient
 
 def get_desk() -> DeskController: ...
 def get_vision() -> VisionStateService: ...
+def get_mqtt() -> MqttClient: ...
 ```
 
 위 기능 필드는 향후 구현 형태다. 현재 container에는 설정, runtime,
@@ -75,8 +77,9 @@ FastAPI lifespan에서 컨테이너를 시작하고 종료한다. 개별 장기 
 `TaskManager`에 이름과 critical 여부를 지정해 등록한다.
 
 ```text
-시작: 설정 → MQTT → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → 카메라 → Vision → API 제공
-종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → MQTT/시리얼/카메라 해제
+사전 인프라: EMQX → MediaMTX → 카메라별 FFmpeg publisher
+애플리케이션 시작: 설정 → MQTT → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → RTSP 입력 → Vision → API 제공
+애플리케이션 종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → MQTT/시리얼/RTSP 해제
 ```
 
 초기화 실패 시 HTTP 서버만 남긴 채 제어 루프를 계속 실행하지 않는다. 특히
@@ -88,21 +91,24 @@ Desk 시작이 실패하거나 센서 상태가 불명확하면 릴레이 STOP�
 | --- | --- | --- |
 | MQTT 수신 | async 네트워크 루프 | 서비스/장치 상태 |
 | 높이 수신 | async 시리얼 또는 전용 thread | `HeightSnapshot` |
-| 카메라 캡처 | 전용 thread 또는 비차단 어댑터 | `FrameSnapshot` |
+| RTSP 프레임 수신 | 전용 thread 또는 blocking I/O 어댑터 | `FrameSnapshot` |
 | 전처리 | async 주기 작업 | 전처리 프레임 |
 | YOLO·얼굴 추론 | `asyncio.to_thread()` 또는 executor | detector 결과 |
 | Desk 제어 | async 주기 작업 | `DeskSnapshot` |
 | 자동화 | 상태 변경 이벤트 또는 짧은 주기 작업 | 자동화 상태 |
 
-OpenCV의 `read()`와 YOLO 추론을 이벤트 루프에서 직접 실행하면 HTTP 요청과
-STOP 처리가 늦어질 수 있다. 이 작업들은 executor로 넘기고, 제어 루프는 짧게
-끝나도록 유지한다.
+OpenCV 또는 FFmpeg 기반 RTSP `read()`와 YOLO 추론을 이벤트 루프에서 직접
+실행하면 HTTP 요청과 STOP 처리가 늦어질 수 있다. RTSP 읽기는 카메라별 전용
+thread, 추론은 executor로 넘기고 제어 루프는 짧게 끝나도록 유지한다. 물리
+웹캠은 외부 FFmpeg publisher가 소유하므로 Python 카메라 객체의 종료가 장치를
+직접 해제하지는 않는다.
 
 ## 공유 상태 규칙
 
 - 갱신 작업만 내부 가변 상태를 쓴다.
 - 외부 소비자는 불변 snapshot을 받는다.
-- snapshot 교체는 짧은 `asyncio.Lock`으로 보호한다.
+- 같은 event loop 안의 snapshot 교체는 짧은 `asyncio.Lock`, 카메라 thread와
+  공유하는 최신 프레임은 짧은 `threading.Lock`으로 보호한다.
 - I/O, 추론, MQTT publish를 lock 안에서 기다리지 않는다.
 - `DeskController`는 별도 command lock으로 명령 상태전이를 직렬화한다.
 
@@ -118,4 +124,16 @@ STOP 처리가 늦어질 수 있다. 이 작업들은 executor로 넘기고, 제
 critical 작업이 예기치 않게 종료되면 현재 `TaskManager`는 애플리케이션을
 `FAILED`로 바꿔 readiness를 내린다. generic shutdown coordinator나 별도 process
 supervisor는 기본 골조에 추가하지 않는다. Desk 컴포넌트를 구현할 때 해당 제어
-루프의 `finally`와 `stop()`에서 ESP32 STOP을 보장한다.
+루프의 `finally`, 수명주기 `stop()`과 명령용 `stop_motion()`에서 ESP32 STOP을
+보장한다.
+
+## I/O와 상태 조회 시그니처
+
+실제 대기나 네트워크 I/O가 있는 `start()`, `stop()`, `publish()`,
+`read_line()`은 async로 둔다. 이미 메모리에 교체된 불변 상태를 읽는
+`get_snapshot()`과 `get_latest_frame()`은 동기 메서드로 둔다. getter 안에서
+네트워크 요청이나 재접속을 수행하지 않는다.
+
+`DeskController.stop()`은 제어 루프의 수명주기 종료에만 사용한다. 사용자의
+정지 명령과 안전 중단은 `stop_motion(reason)`으로 구분하며, `RelayClient`도
+수명주기 `stop()`과 ESP32 명령 `send_stop()`을 구분한다.

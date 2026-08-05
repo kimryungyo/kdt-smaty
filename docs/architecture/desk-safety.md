@@ -8,7 +8,7 @@
 
 ```text
 FastAPI / Automation
-        │ set_target, hold, stop
+        │ set_target, hold, stop_motion
         ▼
 DeskController
   ├─ 목표 범위·센서 신선도·상태전이 검증
@@ -59,7 +59,7 @@ UP 차단 기준을 적용해야 한다.
 - 수동 HOLD는 watchdog 안에 갱신되지 않으면 STOP한다.
 - 새 목표, 재실/자세 불확실, Vision 신선도 만료, MQTT 오류, 센서 오류는 진행 중
   이동을 STOP한다.
-- 서버 종료, task 취소, 예외 처리 경로에서 `RelayClient.stop()`을 호출한다.
+- 서버 종료, task 취소, 예외 처리 경로에서 `RelayClient.send_stop()`을 호출한다.
 - `RelayClient.pulse()`는 `DeskController`만 호출한다.
 
 ## 대시보드 수동 조절
@@ -67,7 +67,7 @@ UP 차단 기준을 적용해야 한다.
 ```text
 버튼 누름 → hold_up() 또는 hold_down()
 누르는 동안 → 같은 HOLD 요청을 주기적으로 반복
-버튼 놓음 → stop()
+버튼 놓음 → stop_motion("사용자 요청")
 요청 단절 → DeskController watchdog → STOP
 ```
 

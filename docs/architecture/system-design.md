@@ -15,10 +15,10 @@ Browser ─ HTTP ─┐
                 ▼
           FastAPI application
                 │
-   ┌────────────┼─────────────────────────┐
-   │            │                         │
-   ▼            ▼                         ▼
-Dashboard   Automation              MQTT service
+     ┌────────────┼─────────────────────────┐
+     │            │                         │
+     ▼            ▼                         ▼
+Dashboard   Automation               MQTT client
 service     service                   │       │
    │            │                      ESP32   WLED
    │            ▼
@@ -30,12 +30,25 @@ service     service                   │       │
    └──────► VisionStateService ◄── FaceRecognizer / PostureDetector
                                       ▲
                                       │
-                             FramePreprocessor ◄── CameraFrameSource
+                             FramePreprocessor ◄── RtspFrameSource
 ```
 
 각 상자는 같은 프로세스의 객체다. 객체 사이의 호출은 메모리 안에서 직접
 이뤄지고, ESP32·Arduino·WLED 같은 외부 장치와의 경계에서만 MQTT, 시리얼,
 HTTP를 사용한다.
+
+영상 입력은 Python 프로세스 밖에서 다음 경로로 준비한다.
+
+```text
+USB webcam ─ FFmpeg publisher ─ RTSP ─ MediaMTX
+                                         ├─ WebRTC/HLS ─ Browser
+                                         └─ RTSP ─ RtspFrameSource ─ Vision
+```
+
+FFmpeg가 물리 카메라를 단독으로 열고 카메라별 RTSP 경로에 영상을 발행한다.
+Python은 `/dev/video*`를 직접 열거나 MediaMTX에 프레임을 업로드하지 않고 RTSP를
+읽는다. MediaMTX와 FFmpeg는 `AppContainer` singleton이 아니라 별도 인프라
+프로세스이며, Python 애플리케이션이 재시작되어도 독립적으로 동작할 수 있다.
 
 Uvicorn은 worker 하나로 실행한다. 하나의 worker 안에서 HTTP, MQTT, 높이 갱신과
 제어 작업이 여러 async task로 함께 동작한다. 단기 프로젝트 범위에서는
@@ -71,7 +84,7 @@ physical devices and files
 | --- | --- | --- |
 | 최신 센서 높이와 수신 시각 | `DeskHeightMonitor` | `get_snapshot()` |
 | 목표, 이동 방향, 제어 상태 | `DeskController` | 명령 메서드, `get_snapshot()` |
-| 카메라 최신 프레임 | `CameraFrameSource` | `get_latest_frame()` |
+| 카메라 최신 프레임 | `RtspFrameSource` | `get_latest_frame()` |
 | 전처리 프레임 | `FramePreprocessor` | `get_latest_frame()` |
 | 얼굴·자세·재실 결과 | 각 detector와 `VisionStateService` | `get_snapshot()` |
 | 프로필과 영속 설정 | `ProfileRepository` | 조회·저장 메서드 |
@@ -83,6 +96,8 @@ physical devices and files
 
 - 프로세스 간 Python 객체 공유
 - 브라우저의 MQTT 직접 연결
+- Python에서 물리 웹캠을 직접 여는 동시에 FFmpeg도 같은 장치를 여는 구조
+- Python `MediaMtxUploader` 또는 프레임 업로드 API
 - Dashboard나 Vision에서의 릴레이 직접 제어
 - 프레임을 무제한으로 쌓는 큐 기반 영상 파이프라인
 
