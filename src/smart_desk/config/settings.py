@@ -37,7 +37,10 @@ class MqttSettings(BaseModel):
 
     host: str = "127.0.0.1"
     port: int = Field(default=1883, ge=1, le=65535)
+    client_id: str = Field(default="smart-desk-server", min_length=1)
     keepalive_seconds: int = Field(default=30, ge=5, le=300)
+    operation_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    reconnect_interval_seconds: float = Field(default=2.0, gt=0, le=30)
 
 
 class DeskSettings(BaseModel):

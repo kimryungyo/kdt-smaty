@@ -14,6 +14,25 @@ def test_nested_environment_variable_is_loaded(monkeypatch: pytest.MonkeyPatch) 
     assert settings.server.port == 9191
 
 
+def test_mqtt_environment_variables_are_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SMART_DESK_MQTT__CLIENT_ID", "test-mqtt-client")
+    monkeypatch.setenv("SMART_DESK_MQTT__OPERATION_TIMEOUT_SECONDS", "3.5")
+    monkeypatch.setenv("SMART_DESK_MQTT__RECONNECT_INTERVAL_SECONDS", "1.5")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.mqtt.client_id == "test-mqtt-client"
+    assert settings.mqtt.operation_timeout_seconds == 3.5
+    assert settings.mqtt.reconnect_interval_seconds == 1.5
+
+
+def test_empty_mqtt_client_id_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SMART_DESK_MQTT__CLIENT_ID", "")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
 def test_multiple_workers_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SMART_DESK_SERVER__WORKERS", "2")
 
