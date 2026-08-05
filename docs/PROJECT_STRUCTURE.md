@@ -161,6 +161,10 @@ frontend/src/
 | `docs/architecture/frontend.md` | React 개발·build·FastAPI 운영 제공 방식을 설명한다. |
 | `docs/architecture/component-design.md` | 앞으로 구현할 Desk·Vision·애플리케이션 클래스 책임을 정의한다. |
 | `docs/architecture/desk-safety.md` | 책상 제어 상태, STOP 우선순위와 ESP32 안전 경계를 정의한다. |
+| `docs/guides/README.md` | 새 작업을 계획하거나 구조를 제안할 때 읽는 판단 기준의 진입점이다. |
+| `docs/guides/project-principles.md` | 단기 소규모 범위, 우선순위와 과도한 구조를 피하는 기준을 정의한다. |
+| `docs/guides/design-decision-guide.md` | 클래스·모듈·async·singleton 경계를 선택하는 기준을 제공한다. |
+| `docs/guides/planning-and-delivery-guide.md` | 작업 계획, 검증, 완료와 커밋 단위를 정하는 기준을 제공한다. |
 | `docs/implementation/roadmap.md` | 2~3개월 구현 순서와 단계별 완료 조건을 정리한다. |
 | `docs/tasks/README.md` | 번호가 붙은 실행 작업 문서와 현재 진행 순서를 안내한다. |
 | `docs/tasks/01-*.md` ~ `08-*.md` | 기능별 선행 조건, 작업 목록, 검증과 완료 기준을 제공한다. |

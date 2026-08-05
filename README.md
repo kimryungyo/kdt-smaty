@@ -87,4 +87,5 @@ cd frontend && npm run build
 전체 폴더와 파일 책임은 [프로젝트 구조](docs/PROJECT_STRUCTURE.md), 설계와 구현
 순서는 [설계 문서](docs/README.md), 프런트엔드 실행 방식은
 [React 대시보드](docs/architecture/frontend.md)에서 확인한다. 실제 구현은
-[번호순 작업 목록](docs/tasks/README.md)을 따른다.
+[번호순 작업 목록](docs/tasks/README.md)을 따른다. 새 기능이나 구조를 계획할
+때는 [계획 및 설계 가이드](docs/guides/README.md)를 먼저 확인한다.

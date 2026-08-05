@@ -3,6 +3,10 @@
 기본 골조 이후 작업을 2~3개월 안에 시연 가능한 순서로 정리한다. 번호순으로
 진행하며, 각 문서의 완료 조건을 충족한 뒤 다음 작업으로 넘어간다.
 
+새 작업을 추가하거나 기존 작업의 구조를 크게 바꾸기 전에는
+[계획 및 설계 가이드](../guides/README.md)를 먼저 확인한다. 특히 단기 프로젝트
+범위를 넘는 계층·프로세스·framework를 추가할 때는 필요 근거를 명시한다.
+
 ## 진행 순서
 
 | 순서 | 작업 | 예상 기간 | 상태 |
@@ -37,6 +41,7 @@
 
 ## 문서 관계
 
+- 계획·설계 판단 기준: [계획 및 설계 가이드](../guides/README.md)
 - 큰 단계와 일정: [구현 순서](../implementation/roadmap.md)
 - 클래스 책임과 시그니처: [컴포넌트 설계](../architecture/component-design.md)
 - async와 singleton: [실행과 동시성](../architecture/runtime-and-concurrency.md)
