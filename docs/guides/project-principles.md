@@ -39,7 +39,7 @@ SMART DESK FIN은 2~3개월 안에 실제 장치를 연결해 시연하는 소�
 | 객체 공유 | `AppContainer`와 명시적 `get_*()` | DI framework, service locator package |
 | 내부 통신 | 생성자로 받은 객체의 직접 메서드 호출 | 내부 event bus, 추가 MQTT 왕복 |
 | 실행 단위 | 단일 Python 프로세스 | 기능별 microservice |
-| 상태 전달 | 최신 불변 snapshot | 범용 상태 저장소, 무제한 event history |
+| 상태 전달 | 단순 값은 property·메서드, 실제 복합 상태만 snapshot | 모든 클래스의 관성적인 snapshot DTO |
 | 설정 | Pydantic Settings와 `.env` | 동적 설정 서버, 관리자 설정 UI |
 | 영속 저장 | 작은 JSON 파일 또는 필요한 최소 저장 방식 | 요구가 없는 DB·ORM 계층 |
 | 영상 | FFmpeg → MediaMTX, Python RTSP reader | Python 프레임 uploader |
@@ -60,6 +60,17 @@ SMART DESK FIN은 2~3개월 안에 실제 장치를 연결해 시연하는 소�
 “나중에 필요할 수 있음”, “일반적으로 이렇게 함”, “더 전문적으로 보임”만으로는
 복잡도를 추가하지 않는다.
 
+### 사용자 확인이 필요한 경우
+
+현재 요구만으로 필요성이 분명하지 않은 snapshot·result wrapper·base class·
+factory·registry·queue·background task 또는 새 외부 의존성을 제안할 때는 바로
+확정하거나 구현하지 않는다. 더 단순한 방법과 추가 구조가 해결하는 구체적인
+문제를 함께 제시하고 사용자 확인을 받은 뒤 반영한다.
+
+안전상 반드시 필요한 보호, 요청된 기능을 구현하는 직접 코드와 이미 합의된 구조는
+매번 다시 확인하지 않는다. 확인의 목적은 사소한 결정을 멈추는 것이 아니라,
+불필요한 구조가 계획에 조용히 포함되는 것을 막는 것이다.
+
 ## 과도한 구조의 신호
 
 다음 상황이 보이면 구현 전에 더 단순한 방법을 다시 검토한다.
@@ -68,6 +79,7 @@ SMART DESK FIN은 2~3개월 안에 실제 장치를 연결해 시연하는 소�
 - 구현체가 하나뿐인데 교체 가능성을 위해 여러 계층을 통과한다.
 - 단일 프로세스 객체 호출을 메시지 broker나 내부 event bus로 우회한다.
 - 사용하지 않는 폴더, interface, DTO 또는 repository를 미리 만든다.
+- 단순한 bool·값 하나를 반환하기 위해 별도 snapshot이나 result 객체를 만든다.
 - 단순 상태 조회가 불필요하게 async이거나 네트워크 요청을 수행한다.
 - 하나의 기능을 이해하려면 여러 generic helper를 추적해야 한다.
 - 실제 장애 사례 없이 retry, cache, queue와 supervisor를 중첩한다.

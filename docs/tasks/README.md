@@ -31,7 +31,10 @@
   소유한다.
 - FastAPI route와 event handler만 `get_*()`를 사용하고, 핵심 클래스 간 의존성은
   생성자로 전달한다.
-- I/O는 async, 메모리 snapshot getter는 sync로 작성한다.
+- I/O는 async로 작성하고 단순 상태 하나는 동기 property나 메서드로 제공한다.
+  여러 값을 같은 시점에 전달해야 하는 실제 소비자가 있을 때만 snapshot을 만든다.
+- 현재 요구에 없는 wrapper·DTO·base class·manager 같은 구조는 미리 추가하지
+  않는다. 필요성이 애매하면 선택 이유와 단순한 대안을 제시하고 사용자 확인을 받는다.
 - MQTT 명령은 QoS 1, `retain=false`를 기본으로 해 broker에 마지막 명령을
   보관하지 않으며 기존 ESP32 계약을 먼저 보존한다.
 - 실제 책상 이동은 가짜 어댑터 테스트와 STOP 검증을 통과한 뒤 제한된 범위에서만
