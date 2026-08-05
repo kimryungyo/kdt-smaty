@@ -31,13 +31,16 @@ class MqttClient:
         qos: Qos = 1,
         retain: bool = False,
     ) -> None: ...
-    def get_snapshot(self) -> MqttSnapshot: ...
+    def is_connected(self) -> bool: ...
 ```
 
-handler는 bootstrap에서 등록하고 재연결할 때 자동으로 다시 구독한다. 명령
-메시지가 broker에 남지 않도록 `retain` 기본값은 `False`로 둔다. payload JSON
-검증은 각 기능의 `messages.py`가 담당하고 `MqttClient`는 `dict`를 직접 받지
-않는다.
+handler는 bootstrap에서 등록하고 재연결할 때 자동으로 다시 구독한다. `retain`은
+broker가 토픽의 마지막 메시지를 보관해 새 구독자에게 전달하는 옵션이다. 오래된
+명령이 다시 전달되지 않도록 기본값은 `False`로 두며, clean session과는 별개로
+취급한다. payload JSON 검증은 각 기능의 `messages.py`가 담당하고 `MqttClient`는
+`dict`를 직접 받지 않는다. 연결 여부와 마지막 오류는 `_connected`,
+`_last_error` 내부 필드로만 관리하고 별도 `MqttSnapshot`은 만들지 않는다. 다른
+객체는 필요할 때 `is_connected()`로 연결 여부만 확인한다.
 
 ### `SerialLineSource`
 
@@ -99,8 +102,7 @@ ESP32 릴레이 제어 프로토콜만 담당한다. `UP`, `DOWN`, `STOP`을 전
 
 ```python
 class RelayClient:
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
+    async def handle_status(self, message: MqttMessage) -> None: ...
     async def pulse(self, direction: Direction, hold_ms: int) -> None: ...
     async def send_stop(self) -> None: ...
     def get_snapshot(self) -> RelaySnapshot: ...
@@ -108,10 +110,14 @@ class RelayClient:
 
 | 필드 또는 메서드 | 역할 |
 | --- | --- |
-| `start()` / `stop()` | ESP32 상태 구독과 어댑터 수명주기를 시작·종료한다. 종료 경로에서는 STOP 전송을 먼저 시도한다. |
+| `handle_status(message)` | MQTT에서 받은 ESP32 상태를 검증해 최신 릴레이 상태로 갱신한다. handler 등록은 bootstrap이 담당한다. |
 | `pulse(direction, hold_ms)` | 검증된 방향과 짧은 유지 시간을 ESP32에 전달한다. 목표나 안전 정책은 판단하지 않는다. |
 | `send_stop()` | ESP32에 즉시 정지 명령을 전송한다. 호출자는 이 요청이 실제로 도달했는지 상태 메시지로 별도 확인한다. |
 | `get_snapshot()` | 마지막 ESP32 상태·수신 시각·오류를 불변 snapshot으로 반환한다. |
+
+`RelayClient`는 독립 실행 루프나 연결을 소유하지 않으므로 `start()`와 `stop()`을
+두지 않는다. MQTT 연결·구독 수명주기는 `MqttClient`가 관리하고, 애플리케이션
+종료 시 안전 STOP은 먼저 종료되는 `DeskController.stop()`이 요청한다.
 
 ### `DeskController`
 

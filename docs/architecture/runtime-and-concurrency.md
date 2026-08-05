@@ -135,5 +135,6 @@ supervisor는 기본 골조에 추가하지 않는다. Desk 컴포넌트를 구�
 네트워크 요청이나 재접속을 수행하지 않는다.
 
 `DeskController.stop()`은 제어 루프의 수명주기 종료에만 사용한다. 사용자의
-정지 명령과 안전 중단은 `stop_motion(reason)`으로 구분하며, `RelayClient`도
-수명주기 `stop()`과 ESP32 명령 `send_stop()`을 구분한다.
+정지 명령과 안전 중단은 `stop_motion(reason)`으로 구분한다. `RelayClient`는
+독립 실행 루프를 소유하지 않으므로 수명주기 메서드를 두지 않고 ESP32 명령인
+`send_stop()`만 제공한다.

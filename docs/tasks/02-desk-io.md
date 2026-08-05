@@ -18,7 +18,7 @@ Arduino 높이 입력과 ESP32 릴레이 MQTT 프로토콜을 정책 계층에�
 - [ ] `HeightSnapshot`과 `DeskHeightMonitor`를 구현한다.
 - [ ] 오래된 높이를 `STALE`로 판정하고 retained MQTT 높이를 새 측정으로 오인하지 않는다.
 - [ ] ESP32 명령·상태 Pydantic 모델과 기존 토픽을 이식한다.
-- [ ] `RelayClient.start()`, `stop()`, `pulse()`, `send_stop()`,
+- [ ] `RelayClient.handle_status()`, `pulse()`, `send_stop()`,
   `get_snapshot()`을 구현한다.
 - [ ] 모든 UP 판단 기준에서 물리 최대 118cm가 우선하도록 계약 차이를 정리한다.
 
@@ -27,7 +27,7 @@ Arduino 높이 입력과 ESP32 릴레이 MQTT 프로토콜을 정책 계층에�
 - [ ] 잘린 라인, 잘못된 JSON, 범위 밖 높이와 정상 높이를 검증한다.
 - [ ] 센서 신선도와 `STALE` 전환을 가짜 시각으로 검증한다.
 - [ ] 릴레이 명령이 QoS 1, `retain=false`이고 hold 범위를 지키는지 검증한다.
-- [ ] 종료·예외에서 `send_stop()`을 시도하는지 가짜 MQTT로 확인한다.
+- [ ] `send_stop()`이 올바른 STOP 메시지를 발행하는지 가짜 MQTT로 확인한다.
 
 ## 완료 조건
 

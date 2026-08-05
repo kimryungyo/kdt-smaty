@@ -32,8 +32,8 @@
 - FastAPI route와 event handler만 `get_*()`를 사용하고, 핵심 클래스 간 의존성은
   생성자로 전달한다.
 - I/O는 async, 메모리 snapshot getter는 sync로 작성한다.
-- MQTT 명령은 QoS 1, `retain=false`를 기본으로 하며 기존 ESP32 계약을 먼저
-  보존한다.
+- MQTT 명령은 QoS 1, `retain=false`를 기본으로 해 broker에 마지막 명령을
+  보관하지 않으며 기존 ESP32 계약을 먼저 보존한다.
 - 실제 책상 이동은 가짜 어댑터 테스트와 STOP 검증을 통과한 뒤 제한된 범위에서만
   수행한다.
 - 물리 카메라는 FFmpeg가 단독으로 열고 Python에는 MediaMTX 업로더를 만들지 않는다.
