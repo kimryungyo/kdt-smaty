@@ -1,0 +1,33 @@
+"""AppContainer singleton 설치와 조회 테스트."""
+
+import pytest
+
+from smart_desk.bootstrap import build_container
+from smart_desk.config.settings import Settings
+from smart_desk.core.container import get_container, install_container
+from smart_desk.core.exceptions import (
+    ContainerAlreadyInitializedError,
+    ContainerNotInitializedError,
+)
+
+
+def test_get_container_requires_installation() -> None:
+    with pytest.raises(ContainerNotInitializedError):
+        get_container()
+
+
+def test_installed_container_is_returned_as_same_instance() -> None:
+    container = build_container(Settings(_env_file=None))
+    install_container(container)
+
+    assert get_container() is container
+
+
+def test_container_cannot_be_installed_twice() -> None:
+    first = build_container(Settings(_env_file=None))
+    second = build_container(Settings(_env_file=None))
+    install_container(first)
+
+    with pytest.raises(ContainerAlreadyInitializedError):
+        install_container(second)
+

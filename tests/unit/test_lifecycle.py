@@ -1,0 +1,49 @@
+"""공유 자원의 시작·안전 종료 순서 테스트."""
+
+from smart_desk.bootstrap import build_container
+from smart_desk.config.settings import Settings
+from smart_desk.core.container import ResourceRegistration
+from smart_desk.core.lifecycle import shutdown_application, start_application
+from smart_desk.core.runtime import ApplicationStatus
+
+
+class FakeResource:
+    """시작과 종료 호출 순서를 기록하는 테스트 공유 자원."""
+
+    def __init__(self, name: str, events: list[str]) -> None:
+        self._name = name
+        self._events = events
+
+    async def start(self) -> None:
+        self._events.append(f"start:{self._name}")
+
+    async def stop(self) -> None:
+        self._events.append(f"stop:{self._name}")
+
+
+async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
+    events: list[str] = []
+    container = build_container(Settings(environment="test", _env_file=None))
+    container.register(
+        ResourceRegistration(
+            name="mqtt",
+            resource=FakeResource("mqtt", events),
+            startup_order=10,
+            shutdown_order=10,
+        )
+    )
+    container.register(
+        ResourceRegistration(
+            name="desk",
+            resource=FakeResource("desk", events),
+            startup_order=20,
+            shutdown_order=100,
+        )
+    )
+
+    await start_application(container)
+    await shutdown_application(container)
+
+    assert events == ["start:mqtt", "start:desk", "stop:desk", "stop:mqtt"]
+    assert container.runtime.snapshot().status is ApplicationStatus.STOPPED
+
