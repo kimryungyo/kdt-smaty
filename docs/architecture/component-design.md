@@ -119,6 +119,10 @@ class RelayClient:
 두지 않는다. MQTT 연결·구독 수명주기는 `MqttClient`가 관리하고, 애플리케이션
 종료 시 안전 STOP은 먼저 종료되는 `DeskController.stop()`이 요청한다.
 
+같은 방향 pulse를 만료 전에 갱신하면 ESP32는 릴레이를 다시 OFF→ON하지 않고
+자동 종료 시각만 연장한다. 갱신 주기와 연속 이동 여부는 `RelayClient`가 아니라
+`DeskController`가 결정한다.
+
 ### `DeskController`
 
 목표 이동·수동 HOLD·정지의 상태전이를 단독으로 관리한다. `DeskHeightMonitor`와
@@ -147,8 +151,8 @@ class DeskController:
 | `stop()` | 제어 루프를 종료하는 수명주기 메서드다. 종료 전에 진행 중인 이동을 안전하게 정지한다. |
 | `stop_motion(reason)` | 진행 중인 목표·수동 이동만 취소하고 ESP32 STOP을 요청한다. `reason`은 상태와 로그에 남긴다. |
 | `set_target(height_cm)` | 목표 높이를 검증해 설정하고, 제어 루프가 현재 높이와 비교해 이동하도록 한다. |
-| `increase_target(amount_cm)` | 현재 목표를 지정 값만큼 높인다. 결과가 책상 물리 최대 118cm를 넘으면 거부한다. |
-| `decrease_target(amount_cm)` | 현재 목표를 지정 값만큼 낮춘다. 운영 범위를 벗어나는 결과는 거부한다. |
+| `increase_target(amount_cm)` | 현재 목표를 지정 값만큼 높인다. 결과가 제어 상한 115cm를 넘으면 거부한다. |
+| `decrease_target(amount_cm)` | 현재 목표를 지정 값만큼 낮춘다. 제어 범위를 벗어나는 결과는 거부한다. |
 | `hold_up()` / `hold_down()` | 대시보드 버튼을 누르는 동안 반복 호출해 수동 이동과 watchdog 시각을 갱신한다. 호출이 끊기면 정지한다. |
 | `get_snapshot()` | 현재 높이, 목표, 상태, 방향, 오류·수신 시각을 묶은 불변 `DeskSnapshot`을 반환한다. |
 
@@ -159,8 +163,8 @@ class DeskController:
 나누지 않는다. 브라우저가 버튼을 누르는 동안 `hold_up()` 또는 `hold_down()`을
 주기적으로 요청하고, 버튼을 놓으면 `stop_motion()`을 호출한다.
 
-`SegmentDecoder`는 73~128cm 표시 범위를 해석할 수 있지만, `DeskController`는
-물리 최대 118cm를 넘는 목표와 UP 이동을 허용하지 않는다.
+`SegmentDecoder`는 73~118cm 측정 범위만 유효한 높이로 해석하고,
+`DeskController`는 75~115cm 제어 범위를 벗어난 목표와 이동을 허용하지 않는다.
 
 ## 영상 컴포넌트
 
