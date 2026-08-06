@@ -24,11 +24,14 @@ class FakeResource:
 async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     events: list[str] = []
     mqtt = FakeResource("mqtt", events)
+    height_monitor = FakeResource("desk", events)
     container = AppContainer(
         settings=Settings(environment="test", _env_file=None),
         runtime=RuntimeState(),
         task_manager=TaskManager(),
         mqtt=mqtt,  # type: ignore[arg-type]
+        height_monitor=height_monitor,  # type: ignore[arg-type]
+        relay=object(),  # type: ignore[arg-type]
     )
     container.register(
         ResourceRegistration(
@@ -41,7 +44,7 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     container.register(
         ResourceRegistration(
             name="desk",
-            resource=FakeResource("desk", events),
+            resource=height_monitor,
             startup_order=20,
             shutdown_order=100,
         )
