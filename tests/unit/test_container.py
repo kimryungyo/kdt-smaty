@@ -10,6 +10,7 @@ from smart_desk.core.exceptions import (
     ContainerNotInitializedError,
 )
 from smart_desk.modules.mqtt import get_mqtt
+from smart_desk.modules.desk import get_desk
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
 
 
@@ -24,6 +25,7 @@ def test_installed_container_is_returned_as_same_instance() -> None:
 
     assert get_container() is container
     assert get_mqtt() is container.mqtt
+    assert get_desk() is container.desk
 
 
 def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
@@ -31,17 +33,21 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
 
     assert container.height_monitor is not None
     assert container.relay is not None
+    assert container.desk is not None
     assert [registration.name for registration in container.resources] == [
         "mqtt",
         "desk-height-monitor",
+        "desk-controller",
     ]
     assert [registration.startup_order for registration in container.resources] == [
         10,
         20,
+        30,
     ]
     assert [registration.shutdown_order for registration in container.resources] == [
         10,
         20,
+        30,
     ]
 
     qos, handler = container.mqtt._handlers[ESP32_STATUS_TOPIC]  # noqa: SLF001

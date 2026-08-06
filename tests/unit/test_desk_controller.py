@@ -1,0 +1,421 @@
+"""DeskController의 목표·HOLD·STOP과 fail-closed 계약 테스트."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from smart_desk.config.settings import DeskSettings
+from smart_desk.core.task_manager import TaskManager
+from smart_desk.modules.desk.controller import (
+    DeskCommandRejectedError,
+    DeskController,
+)
+from smart_desk.modules.desk.models import (
+    DeskState,
+    Direction,
+    HeightSnapshot,
+    HeightStatus,
+    RelayEvent,
+    RelaySnapshot,
+    RelayState,
+)
+from smart_desk.modules.mqtt.client import MqttUnavailableError
+
+
+FIRMWARE = "smartdesk-fin-relay-1.0.0"
+
+
+class FakeHeightMonitor:
+    """테스트가 직접 교체하는 높이 snapshot 제공자."""
+
+    def __init__(self, height_cm: float | None = 80.0) -> None:
+        self.set_height(height_cm)
+
+    def set_height(
+        self,
+        height_cm: float | None,
+        *,
+        status: HeightStatus = HeightStatus.ONLINE,
+    ) -> None:
+        self.snapshot = HeightSnapshot(
+            height_cm=height_cm,
+            observed_at=datetime.now(UTC) if height_cm is not None else None,
+            status=status,
+        )
+
+    def get_snapshot(self) -> HeightSnapshot:
+        return self.snapshot
+
+
+class FakeRelayClient:
+    """명령 기록과 live firmware 상태를 함께 제공하는 relay fake."""
+
+    def __init__(self, *, firmware: str = FIRMWARE) -> None:
+        self.calls: list[tuple[str, object]] = []
+        self.error: BaseException | None = None
+        self._received_at = datetime.now(UTC)
+        self.snapshot = RelaySnapshot(
+            event=RelayEvent.ONLINE,
+            state=RelayState.STOP,
+            firmware=firmware,
+            code="ready",
+            detail="ready",
+            received_at=self._received_at,
+            last_error=None,
+        )
+
+    async def pulse(self, direction: Direction, hold_ms: int) -> None:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(("pulse", (direction, hold_ms)))
+        self._advance_status(
+            event=RelayEvent.MOVING,
+            state=RelayState(direction.value),
+            code="command_started",
+        )
+
+    async def send_stop(self) -> None:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(("stop", None))
+        self._advance_status(
+            event=RelayEvent.STOPPED,
+            state=RelayState.STOP,
+            code="command",
+        )
+
+    def get_snapshot(self) -> RelaySnapshot:
+        return self.snapshot
+
+    def _advance_status(
+        self,
+        *,
+        event: RelayEvent,
+        state: RelayState,
+        code: str,
+    ) -> None:
+        self._received_at += timedelta(microseconds=1)
+        self.snapshot = RelaySnapshot(
+            event=event,
+            state=state,
+            firmware=self.snapshot.firmware,
+            code=code,
+            detail=code,
+            received_at=self._received_at,
+            last_error=None,
+        )
+
+
+class BlockingRelayClient(FakeRelayClient):
+    """pulse 도중 STOP 경쟁 순서를 제어하는 relay fake."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pulse_started = asyncio.Event()
+        self.release_pulse = asyncio.Event()
+
+    async def pulse(self, direction: Direction, hold_ms: int) -> None:
+        self.pulse_started.set()
+        await self.release_pulse.wait()
+        await super().pulse(direction, hold_ms)
+
+
+class BlockingStopRelayClient(FakeRelayClient):
+    """전환 STOP 도중 뒤따르는 사용자 STOP 경합을 제어하는 relay fake."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.block_stops = False
+        self.stop_started = asyncio.Event()
+        self.release_stop = asyncio.Event()
+
+    async def send_stop(self) -> None:
+        if self.block_stops:
+            self.stop_started.set()
+            await self.release_stop.wait()
+            self.block_stops = False
+        await super().send_stop()
+
+
+def control_settings() -> DeskSettings:
+    return DeskSettings(
+        pulse_refresh_interval_seconds=0.02,
+        control_poll_interval_seconds=0.005,
+        manual_watchdog_seconds=0.05,
+        target_timeout_seconds=1,
+        fine_settle_seconds=0.01,
+        relay_ack_timeout_seconds=0.05,
+        relay_stale_after_seconds=0.5,
+    )
+
+
+async def wait_until(predicate, *, timeout: float = 0.5) -> None:
+    async with asyncio.timeout(timeout):
+        while not predicate():
+            await asyncio.sleep(0)
+
+
+def make_controller(
+    height: FakeHeightMonitor,
+    relay: FakeRelayClient,
+    task_manager: TaskManager,
+) -> DeskController:
+    return DeskController(
+        height,  # type: ignore[arg-type]
+        relay,  # type: ignore[arg-type]
+        control_settings(),
+        task_manager,
+    )
+
+
+async def test_start_and_stop_send_only_safe_stop_commands() -> None:
+    height = FakeHeightMonitor()
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+
+    await controller.start()
+    assert controller.get_snapshot().state is DeskState.IDLE
+    assert relay.calls == [("stop", None)]
+
+    await controller.stop()
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert relay.calls[-1] == ("stop", None)
+    await tasks.shutdown()
+
+
+async def test_target_refreshes_same_direction_and_stops_at_goal() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+
+    await controller.set_target(90.0)
+    await wait_until(
+        lambda: len([call for call in relay.calls if call[0] == "pulse"]) >= 2
+    )
+    pulses = [call for call in relay.calls if call[0] == "pulse"]
+    assert all(call[1] == (Direction.UP, 500) for call in pulses)
+    assert not any(
+        call[0] == "stop" for call in relay.calls[1:-1]
+    )
+
+    height.set_height(90.0)
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.STOPPED)
+    assert relay.calls[-1] == ("stop", None)
+    assert controller.get_snapshot().target_height_cm is None
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_near_target_uses_single_fine_pulse_after_settling() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.set_target(81.0)
+
+    await wait_until(
+        lambda: any(
+            call == ("pulse", (Direction.UP, 100)) for call in relay.calls
+        )
+    )
+    fine_pulses = [
+        call for call in relay.calls if call == ("pulse", (Direction.UP, 100))
+    ]
+    assert len(fine_pulses) == 1
+
+    relay._advance_status(  # noqa: SLF001 - firmware timeout 재현
+        event=RelayEvent.STOPPED,
+        state=RelayState.STOP,
+        code="timeout",
+    )
+    height.set_height(81.0)
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.STOPPED)
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_fresh_height_and_approved_firmware_are_required() -> None:
+    height = FakeHeightMonitor(None,)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+
+    with pytest.raises(DeskCommandRejectedError, match="현재 높이"):
+        await controller.set_target(90.0)
+    assert not any(call[0] == "pulse" for call in relay.calls)
+    await controller.stop()
+    await tasks.shutdown()
+
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient(firmware="smartdesk-relay-1.0.5")
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    with pytest.raises(DeskCommandRejectedError, match="승인되지 않은"):
+        await controller.hold_up()
+    await controller.stop()
+    await tasks.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("height_cm", "method"),
+    [(115.0, "up"), (75.0, "down")],
+)
+async def test_manual_boundary_blocks_outward_direction(
+    height_cm: float,
+    method: str,
+) -> None:
+    height = FakeHeightMonitor(height_cm)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+
+    with pytest.raises(DeskCommandRejectedError):
+        if method == "up":
+            await controller.hold_up()
+        else:
+            await controller.hold_down()
+    assert not any(call[0] == "pulse" for call in relay.calls)
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_manual_watchdog_stops_after_hold_input_expires() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.hold_down()
+    await wait_until(lambda: any(call[0] == "pulse" for call in relay.calls))
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.STOPPED)
+    assert relay.calls[-1] == ("stop", None)
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_active_target_is_stopped_when_replacement_is_invalid() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.set_target(90.0)
+    await wait_until(lambda: any(call[0] == "pulse" for call in relay.calls))
+
+    with pytest.raises(ValueError):
+        await controller.set_target(200.0)
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert relay.calls[-1] == ("stop", None)
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_pulse_publish_failure_attempts_stop_and_enters_error() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    relay.error = MqttUnavailableError("offline")
+    await controller.set_target(90.0)
+
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.ERROR)
+    assert "offline" in (controller.get_snapshot().last_error or "")
+    relay.error = None
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_stale_height_during_motion_stops_and_enters_error() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.set_target(90.0)
+    await wait_until(lambda: any(call[0] == "pulse" for call in relay.calls))
+
+    height.set_height(80.0, status=HeightStatus.STALE)
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.ERROR)
+
+    assert "현재 높이" in (controller.get_snapshot().last_error or "")
+    assert relay.calls[-1] == ("stop", None)
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_external_runner_cancellation_sends_final_stop() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.set_target(90.0)
+    await wait_until(lambda: any(call[0] == "pulse" for call in relay.calls))
+
+    runner = controller._runner_task  # noqa: SLF001 - lifecycle 이탈 취소 재현
+    assert runner is not None
+    runner.cancel()
+    await asyncio.gather(runner, return_exceptions=True)
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.ERROR)
+
+    assert "lifecycle 밖에서 취소" in (controller.get_snapshot().last_error or "")
+    assert relay.calls[-1] == ("stop", None)
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_user_stop_wins_during_target_transition_stop() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = BlockingStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.set_target(90.0)
+    await wait_until(lambda: any(call[0] == "pulse" for call in relay.calls))
+
+    relay.block_stops = True
+    replacement = asyncio.create_task(controller.set_target(78.0))
+    await relay.stop_started.wait()
+    final_stop = asyncio.create_task(controller.stop_motion("사용자 최종 STOP"))
+    relay.release_stop.set()
+    await replacement
+    await final_stop
+
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert controller.get_snapshot().target_height_cm is None
+    assert relay.calls[-1] == ("stop", None)
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_stop_waits_for_inflight_pulse_and_is_last_relay_call() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = BlockingRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.set_target(90.0)
+    await relay.pulse_started.wait()
+
+    stop_task = asyncio.create_task(controller.stop_motion("race test"))
+    await asyncio.sleep(0)
+    assert not stop_task.done()
+    relay.release_pulse.set()
+    await stop_task
+
+    assert relay.calls[-2][0] == "pulse"
+    assert relay.calls[-1] == ("stop", None)
+    await controller.stop()
+    await tasks.shutdown()

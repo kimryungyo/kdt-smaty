@@ -55,11 +55,16 @@ class FakeHeightMonitor:
         self.stop_count += 1
 
 
+class FakeDeskController(FakeHeightMonitor):
+    """애플리케이션 테스트용 lifecycle 책상 제어기."""
+
+
 def build_test_container(
     settings: Settings,
 ) -> tuple[AppContainer, FakeMqttClient, FakeHeightMonitor]:
     mqtt = FakeMqttClient()
     height_monitor = FakeHeightMonitor()
+    desk = FakeDeskController()
     container = AppContainer(
         settings=settings,
         runtime=RuntimeState(),
@@ -67,6 +72,7 @@ def build_test_container(
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]
+        desk=desk,  # type: ignore[arg-type]
     )
     container.register(
         ResourceRegistration(
@@ -74,6 +80,14 @@ def build_test_container(
             resource=mqtt,
             startup_order=10,
             shutdown_order=10,
+        )
+    )
+    container.register(
+        ResourceRegistration(
+            name="desk-controller",
+            resource=desk,
+            startup_order=30,
+            shutdown_order=30,
         )
     )
     container.register(
@@ -90,6 +104,7 @@ def build_test_container(
 def build_failing_test_container(settings: Settings) -> AppContainer:
     mqtt = FailingMqttClient()
     height_monitor = FakeHeightMonitor()
+    desk = FakeDeskController()
     container = AppContainer(
         settings=settings,
         runtime=RuntimeState(),
@@ -97,6 +112,7 @@ def build_failing_test_container(settings: Settings) -> AppContainer:
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]
+        desk=desk,  # type: ignore[arg-type]
     )
     container.register(
         ResourceRegistration(

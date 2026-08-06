@@ -25,6 +25,7 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     events: list[str] = []
     mqtt = FakeResource("mqtt", events)
     height_monitor = FakeResource("desk", events)
+    desk_controller = FakeResource("controller", events)
     container = AppContainer(
         settings=Settings(environment="test", _env_file=None),
         runtime=RuntimeState(),
@@ -32,6 +33,7 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]
+        desk=desk_controller,  # type: ignore[arg-type]
     )
     container.register(
         ResourceRegistration(
@@ -39,6 +41,14 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
             resource=mqtt,
             startup_order=10,
             shutdown_order=10,
+        )
+    )
+    container.register(
+        ResourceRegistration(
+            name="controller",
+            resource=desk_controller,
+            startup_order=30,
+            shutdown_order=30,
         )
     )
     container.register(
@@ -53,5 +63,12 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     await start_application(container)
     await shutdown_application(container)
 
-    assert events == ["start:mqtt", "start:desk", "stop:desk", "stop:mqtt"]
+    assert events == [
+        "start:mqtt",
+        "start:desk",
+        "start:controller",
+        "stop:desk",
+        "stop:controller",
+        "stop:mqtt",
+    ]
     assert container.runtime.snapshot().status is ApplicationStatus.STOPPED

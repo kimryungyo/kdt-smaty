@@ -104,6 +104,42 @@ async def test_offline_will_can_omit_firmware() -> None:
 
 
 @pytest.mark.parametrize(
+    ("event", "state", "code"),
+    [
+        ("online", "STOP", "height_waiting"),
+        ("online", "STOP", "ready"),
+        ("moving", "UP", "command_started"),
+        ("moving", "DOWN", "deadline_extended"),
+        ("stopped", "STOP", "command"),
+        ("stopped", "STOP", "timeout"),
+        ("rejected", "STOP", "height_not_ready"),
+        ("rejected", "STOP", "upper_limit"),
+    ],
+)
+async def test_fin_firmware_status_contract_is_accepted(
+    event: str,
+    state: str,
+    code: str,
+) -> None:
+    relay = RelayClient(FakeMqttClient())  # type: ignore[arg-type]
+    payload = json.dumps(
+        {
+            "event": event,
+            "state": state,
+            "firmware": "smartdesk-fin-relay-1.0.0",
+            "code": code,
+            "detail": "계약 테스트",
+        }
+    )
+
+    await relay.handle_status(mqtt_message(payload))
+
+    assert relay.get_snapshot().firmware == "smartdesk-fin-relay-1.0.0"
+    assert relay.get_snapshot().code == code
+    assert relay.get_snapshot().last_error is None
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         b"{",

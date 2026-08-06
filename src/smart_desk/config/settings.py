@@ -109,6 +109,79 @@ class DeskSettings(BaseModel):
         le=30,
         allow_inf_nan=False,
     )
+    # 아래 제어값은 relay 분리 검증을 위한 보수적인 초기 후보다. 실제 책상에서
+    # 수신 간격과 관성을 측정한 뒤 문서와 함께 다시 확정한다.
+    continuous_hold_ms: int = Field(default=500, ge=50, le=500)
+    manual_hold_ms: int = Field(default=500, ge=50, le=500)
+    fine_hold_ms: int = Field(default=100, ge=50, le=500)
+    pulse_refresh_interval_seconds: float = Field(
+        default=0.1,
+        gt=0,
+        le=0.5,
+        allow_inf_nan=False,
+    )
+    control_poll_interval_seconds: float = Field(
+        default=0.05,
+        gt=0,
+        le=0.5,
+        allow_inf_nan=False,
+    )
+    manual_watchdog_seconds: float = Field(
+        default=0.6,
+        gt=0,
+        le=5,
+        allow_inf_nan=False,
+    )
+    target_timeout_seconds: float = Field(
+        default=120.0,
+        gt=0,
+        le=300,
+        allow_inf_nan=False,
+    )
+    target_tolerance_cm: float = Field(
+        default=0.2,
+        gt=0,
+        le=2,
+        allow_inf_nan=False,
+    )
+    fine_approach_distance_cm: float = Field(
+        default=1.5,
+        gt=0,
+        le=10,
+        allow_inf_nan=False,
+    )
+    fine_settle_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        le=10,
+        allow_inf_nan=False,
+    )
+    relay_stale_after_seconds: float = Field(
+        default=15.0,
+        gt=0,
+        le=60,
+        allow_inf_nan=False,
+    )
+    relay_ack_timeout_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        le=10,
+        allow_inf_nan=False,
+    )
+
+    @field_validator(
+        "continuous_hold_ms",
+        "manual_hold_ms",
+        "fine_hold_ms",
+        mode="before",
+    )
+    @classmethod
+    def reject_boolean_hold_ms(cls, value: object) -> object:
+        """bool이 릴레이 시간 정수로 변환되는 것을 막는다."""
+
+        if isinstance(value, bool):
+            raise ValueError("릴레이 hold 시간은 bool일 수 없습니다.")
+        return value
 
     @property
     def physical_min_cm(self) -> float:
@@ -154,6 +227,19 @@ class DeskSettings(BaseModel):
             raise ValueError("책상 제어 최소 높이는 측정 범위 안이어야 합니다.")
         if self.operation_max_cm > self.measurement_max_cm:
             raise ValueError("책상 제어 최대 높이는 측정 범위 안이어야 합니다.")
+        refresh_ms = self.pulse_refresh_interval_seconds * 1000
+        if refresh_ms >= self.continuous_hold_ms:
+            raise ValueError("연속 pulse 갱신 주기는 continuous hold보다 짧아야 합니다.")
+        if refresh_ms >= self.manual_hold_ms:
+            raise ValueError("연속 pulse 갱신 주기는 manual hold보다 짧아야 합니다.")
+        if self.control_poll_interval_seconds > self.pulse_refresh_interval_seconds:
+            raise ValueError("제어 poll 주기는 pulse 갱신 주기보다 길 수 없습니다.")
+        if self.manual_watchdog_seconds <= self.control_poll_interval_seconds:
+            raise ValueError("수동 watchdog은 제어 poll 주기보다 길어야 합니다.")
+        if self.fine_approach_distance_cm <= self.target_tolerance_cm:
+            raise ValueError("미세 접근 거리는 목표 허용 오차보다 커야 합니다.")
+        if self.relay_stale_after_seconds <= self.relay_ack_timeout_seconds:
+            raise ValueError("릴레이 stale 기준은 ack timeout보다 길어야 합니다.")
         return self
 
 

@@ -4,6 +4,7 @@ from smart_desk.config.settings import Settings
 from smart_desk.core.container import AppContainer, ResourceRegistration
 from smart_desk.core.runtime import RuntimeState
 from smart_desk.core.task_manager import TaskManager
+from smart_desk.modules.desk.controller import DeskController
 from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
 from smart_desk.modules.desk.relay import RelayClient
 from smart_desk.modules.desk.segment import SegmentDecoder
@@ -32,6 +33,12 @@ def build_container(settings: Settings) -> AppContainer:
         settings.desk,
         task_manager,
     )
+    desk = DeskController(
+        height_monitor,
+        relay,
+        settings.desk,
+        task_manager,
+    )
     mqtt.register_handler(
         ESP32_STATUS_TOPIC,
         relay.handle_status,
@@ -44,6 +51,7 @@ def build_container(settings: Settings) -> AppContainer:
         mqtt=mqtt,
         height_monitor=height_monitor,
         relay=relay,
+        desk=desk,
     )
     container.register(
         ResourceRegistration(
@@ -59,6 +67,14 @@ def build_container(settings: Settings) -> AppContainer:
             resource=height_monitor,
             startup_order=20,
             shutdown_order=20,
+        )
+    )
+    container.register(
+        ResourceRegistration(
+            name="desk-controller",
+            resource=desk,
+            startup_order=30,
+            shutdown_order=30,
         )
     )
     return container

@@ -14,6 +14,7 @@ from smart_desk.core.task_manager import TaskManager
 
 if TYPE_CHECKING:
     from smart_desk.config.settings import Settings
+    from smart_desk.modules.desk.controller import DeskController
     from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
     from smart_desk.modules.desk.relay import RelayClient
     from smart_desk.modules.mqtt.client import MqttClient
@@ -47,6 +48,7 @@ class AppContainer:
     mqtt: MqttClient
     height_monitor: DeskHeightMonitor
     relay: RelayClient
+    desk: DeskController
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
 

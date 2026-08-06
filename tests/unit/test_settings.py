@@ -144,6 +144,26 @@ def test_default_desk_ranges_match_physical_and_control_limits() -> None:
     assert settings.desk.measurement_max_cm == 118.0
     assert settings.desk.operation_min_cm == 75.0
     assert settings.desk.operation_max_cm == 115.0
+    assert settings.desk.continuous_hold_ms == 500
+    assert settings.desk.manual_hold_ms == 500
+    assert settings.desk.fine_hold_ms == 100
+    assert settings.desk.pulse_refresh_interval_seconds == 0.1
+
+
+@pytest.mark.parametrize(
+    "desk",
+    [
+        {"continuous_hold_ms": True},
+        {"pulse_refresh_interval_seconds": 0.5, "continuous_hold_ms": 500},
+        {"control_poll_interval_seconds": 0.2},
+        {"manual_watchdog_seconds": 0.01},
+        {"target_tolerance_cm": 1.5, "fine_approach_distance_cm": 1.5},
+        {"relay_stale_after_seconds": 1, "relay_ack_timeout_seconds": 1},
+    ],
+)
+def test_invalid_desk_control_timing_is_rejected(desk: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        Settings(desk=desk, _env_file=None)
 
 
 def test_frontend_directory_can_be_configured(monkeypatch: pytest.MonkeyPatch) -> None:

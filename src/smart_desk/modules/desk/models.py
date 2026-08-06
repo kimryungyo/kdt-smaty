@@ -61,3 +61,27 @@ class RelaySnapshot:
     detail: str | None
     received_at: datetime | None
     last_error: str | None
+
+
+class DeskState(StrEnum):
+    """상위 책상 제어기의 공개 상태."""
+
+    IDLE = "IDLE"
+    MOVING = "MOVING"
+    MANUAL = "MANUAL"
+    STOPPED = "STOPPED"
+    ERROR = "ERROR"
+
+
+@dataclass(frozen=True, slots=True)
+class DeskSnapshot:
+    """제어 의도와 실제 높이·릴레이 상태를 함께 전달하는 snapshot."""
+
+    state: DeskState
+    height: HeightSnapshot
+    relay: RelaySnapshot
+    target_height_cm: float | None
+    direction: Direction | None
+    detail: str
+    last_error: str | None
+    updated_at: datetime
