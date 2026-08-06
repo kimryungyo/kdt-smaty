@@ -12,9 +12,12 @@
 - `src/smart_desk/core/lifecycle.py`: 공유 자원 시작·종료와 FastAPI lifespan
 - `src/smart_desk/core/task_manager.py`: 이름 기반 async 작업과 critical 실패 기록
 - `src/smart_desk/modules/mqtt/client.py`: EMQX 연결·재연결과 메시지 전달
+- `src/smart_desk/modules/serial/source.py`: Arduino 시리얼 lazy open과 재연결
+- `src/smart_desk/modules/desk/height_monitor.py`: 높이 수신·신선도와 MQTT 발행
+- `src/smart_desk/modules/desk/relay.py`: ESP32 명령·상태 계약
 
 `MqttClient`는 `bootstrap.py`에서 생성해 첫 번째 lifecycle resource로 등록한다.
-이후 기능 컴포넌트도 같은 위치에서 생성하고 `AppContainer`에 연결한다.
+`DeskHeightMonitor`는 두 번째 resource로 등록해 MQTT 뒤 시작하고 먼저 종료한다.
 
 ## 단기 프로젝트 실행 기준
 
@@ -41,10 +44,11 @@ class AppContainer:
     runtime: RuntimeState
     task_manager: TaskManager
     mqtt: MqttClient
+    height_monitor: DeskHeightMonitor
+    relay: RelayClient
 
     # 아래 필드는 이후 작업에서 추가한다.
     desk: DeskController
-    height_monitor: DeskHeightMonitor
     vision: VisionStateService
     profiles: ProfileRepository
 
@@ -53,10 +57,10 @@ def get_vision() -> VisionStateService: ...
 def get_mqtt() -> MqttClient: ...
 ```
 
-현재 container에는 설정, runtime, `TaskManager`, `MqttClient`와 lifecycle
-resource 목록이 있다. Desk부터 profiles까지는 향후 구현 필드다. container가
-직접 `start()`나 `shutdown()`을 제공하지 않으며 `core/lifecycle.py`가 등록된
-자원의 수명주기를 관리한다.
+현재 container에는 설정, runtime, `TaskManager`, `MqttClient`, 높이 monitor,
+relay adapter와 lifecycle resource 목록이 있다. `DeskController`부터 profiles까지는
+향후 구현 필드다. container가 직접 `start()`나 `shutdown()`을 제공하지 않으며
+`core/lifecycle.py`가 등록된 자원의 수명주기를 관리한다.
 
 FastAPI route와 MQTT handler 같은 진입점은 함수 내부에서 `get_*()`를 직접
 호출한다. `Depends` 사용은 필수가 아니다. 반면 `DeskController` 같은 핵심

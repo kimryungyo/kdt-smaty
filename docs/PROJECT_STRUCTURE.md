@@ -116,6 +116,38 @@ EMQX와 통신하는 프로세스 공용 MQTT transport다. 토픽별 JSON 의�
 handler는 MQTT 시작 전에 등록한다. 최초 연결·구독 실패는 애플리케이션 시작
 실패로 처리하고, 시작 후 단절에는 같은 process에서 자동 재연결·재구독한다.
 
+### `modules/serial/`
+
+Arduino 높이 리더의 blocking pyserial 연결을 event loop 밖에서 실행하고 완성된
+bytes line과 연결 snapshot을 제공한다.
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/serial/__init__.py` | 시리얼 source와 공개 snapshot 타입을 노출한다. |
+| `src/smart_desk/modules/serial/source.py` | lazy open, read timeout, 단절·재연결과 안전 종료를 관리한다. |
+
+시리얼 장치가 없어도 애플리케이션 시작을 실패시키지 않는다. open·read 오류는
+`SerialSnapshot`에 기록하고 다음 설정 간격에 재연결하며, 정상 read timeout은
+연결 오류로 처리하지 않는다.
+
+### `modules/desk/`
+
+Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표 높이와 이동
+방향을 판단하는 `DeskController`는 아직 포함하지 않는다.
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/desk/__init__.py` | DeskIO 컴포넌트와 불변 상태 타입을 노출한다. |
+| `src/smart_desk/modules/desk/models.py` | 방향, 높이·relay 상태 enum과 snapshot을 정의한다. |
+| `src/smart_desk/modules/desk/messages.py` | 높이 발행과 ESP32 명령·상태 JSON을 검증한다. |
+| `src/smart_desk/modules/desk/segment.py` | `fresh=7` mask frame을 73~118cm 높이로 순수 변환한다. |
+| `src/smart_desk/modules/desk/height_monitor.py` | 최신 실제 높이·신선도를 관리하고 retained 높이를 발행한다. |
+| `src/smart_desk/modules/desk/relay.py` | ESP32 UP·DOWN·STOP 발행과 live 상태 snapshot을 관리한다. |
+
+`DeskHeightMonitor`는 `SerialLineSource`를 소유해 MQTT 뒤 시작하고 MQTT보다 먼저
+종료된다. `RelayClient`는 독립 runner가 없으며 command 발행 결과로 상태를
+추정하지 않는다.
+
 ## React 대시보드
 
 `frontend/`는 Python 패키지와 분리된 독립 Node.js 프로젝트다. 개발 시 Vite가
@@ -162,6 +194,10 @@ frontend/src/
 | `tests/unit/test_lifecycle.py` | 공유 자원의 명시적 시작·안전 종료 순서를 검증한다. |
 | `tests/unit/test_task_manager.py` | async 작업 중복 차단과 critical 실패 callback을 검증한다. |
 | `tests/unit/test_mqtt_client.py` | broker 없이 MQTT 연결·발행·수신·재연결과 입력 검증을 확인한다. |
+| `tests/unit/test_serial_source.py` | 실제 장치 없이 시리얼 open·timeout·단절·재연결·취소·종료를 검증한다. |
+| `tests/unit/test_segment_decoder.py` | 완성 frame, mask·point·fresh와 73~118cm 경계를 검증한다. |
+| `tests/unit/test_height_monitor.py` | 높이 snapshot, 신선도, source 오류와 retained 발행을 검증한다. |
+| `tests/unit/test_relay_client.py` | ESP32 상태 검증, pulse·STOP JSON과 MQTT 오류 전파를 확인한다. |
 | `tests/integration/test_application.py` | FastAPI lifespan, health API, React 정적 제공과 SPA fallback을 검증한다. |
 | `tests/integration/test_mqtt_emqx.py` | 로컬 EMQX에서 실제 QoS 1 왕복과 재연결·재구독을 선택적으로 검증한다. |
 
@@ -189,14 +225,15 @@ frontend/src/
 
 ## 기능 영역
 
-MQTT는 구현했으며 Desk, Vision과 자동화는 아직 생성되지 않았다. 이후 기능은
-다음 형태를 기본으로 하되, 실제 파일이 생기기 전 빈 폴더는 만들지 않는다.
+MQTT와 DeskIO는 구현했으며 Desk 제어, Vision과 자동화는 아직 생성되지 않았다.
+이후 기능은 다음 형태를 기본으로 하되, 실제 파일이 생기기 전 빈 폴더는 만들지
+않는다.
 
 ```text
 src/smart_desk/modules/
 ├── mqtt/          EMQX 연결, 발행·구독과 토픽 (구현 완료)
-├── serial/        Arduino 시리얼 라인 수신
-├── desk/          높이 해석, 목표·수동 제어, ESP32 명령
+├── serial/        Arduino 시리얼 라인 수신 (구현 완료)
+├── desk/          높이 해석·ESP32 명령 구현, 목표·수동 제어 예정
 ├── vision/        RTSP 프레임, 전처리, 얼굴·자세·재실 판정
 ├── automation/    Vision·프로필을 이용한 목표 높이 결정
 ├── profiles/      프로필 모델과 영속 저장

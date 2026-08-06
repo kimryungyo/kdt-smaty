@@ -64,7 +64,7 @@ Arduino가 보내는 원시 세그먼트 데이터 또는 JSON을 높이 값으�
 
 ```python
 class SegmentDecoder:
-    def decode(self, raw_message: str) -> float | None: ...
+    def decode(self, raw_message: bytes | str) -> float | None: ...
 ```
 
 | 항목 | 역할 |

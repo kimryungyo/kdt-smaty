@@ -8,8 +8,10 @@ FastAPI 프로세스와 `asyncio` 기반 구조로 단순화한다.
 
 설정, `AppContainer`, 공유 자원 수명주기, `TaskManager`, 구조화 로그와 FastAPI
 health API에 더해 EMQX 연결·발행·구독·재연결을 담당하는 `MqttClient`까지
-구현되어 있다. Desk와 Vision 컴포넌트는 아직 설계 초안이다. React + TypeScript
-+ Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어 있다.
+구현되어 있다. Arduino 높이 입력과 ESP32 MQTT 계약을 담당하는 DeskIO 어댑터도
+구현됐으며, 목표·HOLD·STOP 정책을 담당할 `DeskController`와 Vision은 다음
+단계다. React + TypeScript + Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어
+있다.
 
 | 구현 영역 | 현재 코드 |
 | --- | --- |
@@ -20,6 +22,8 @@ health API에 더해 EMQX 연결·발행·구독·재연결을 담당하는 `Mqt
 | 시작·종료 | `src/smart_desk/core/lifecycle.py` |
 | async 작업 감독 | `src/smart_desk/core/task_manager.py` |
 | MQTT 연결과 메시지 전달 | `src/smart_desk/modules/mqtt` |
+| Arduino 시리얼 입력 | `src/smart_desk/modules/serial` |
+| 높이·ESP32 relay 어댑터 | `src/smart_desk/modules/desk` |
 | 상태 확인 | `src/smart_desk/api/routes/health.py` |
 | React 개발 소스 | `frontend/src` |
 | React 정적 제공 | `src/smart_desk/frontend.py` |

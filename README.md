@@ -2,9 +2,9 @@
 
 SMART DESK를 단일 FastAPI 프로세스와 `asyncio` 기반으로 재구성하는 프로젝트다.
 설정, singleton container, task 관리와 애플리케이션 수명주기 위에 로컬 EMQX와
-연결하는 비동기 MQTT 기반까지 구현했다. 카메라·책상 장치 모듈은 아직 연결하지
-않았다. 영상은 카메라별 FFmpeg publisher가 MediaMTX에 발행하고 Python은 RTSP를
-읽는 구조로 구현할 예정이다.
+연결하는 비동기 MQTT 기반과 Arduino 높이·ESP32 relay DeskIO 어댑터를 구현했다.
+목표 높이 제어와 카메라 모듈은 아직 구현하지 않았다. 영상은 카메라별 FFmpeg
+publisher가 MediaMTX에 발행하고 Python은 RTSP를 읽는 구조로 구현할 예정이다.
 
 ## 개발 환경
 

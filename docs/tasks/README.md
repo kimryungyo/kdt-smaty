@@ -12,8 +12,8 @@
 | 순서 | 작업 | 예상 기간 | 상태 |
 | ---: | --- | ---: | --- |
 | 01 | [MQTT 기반](01-mqtt-foundation.md) | 2~3일 | 완료 |
-| 02 | [책상 I/O 어댑터](02-desk-io.md) | 3~5일 | 다음 작업 |
-| 03 | [책상 제어](03-desk-control.md) | 5~7일 | 대기 |
+| 02 | [책상 I/O 어댑터](02-desk-io.md) | 3~5일 | 완료 |
+| 03 | [책상 제어](03-desk-control.md) | 5~7일 | 다음 작업 |
 | 04 | [대시보드와 프로필](04-dashboard-and-profiles.md) | 4~6일 | 대기 |
 | 05 | [MediaMTX 영상 인프라](05-media-pipeline.md) | 3~4일 | 대기 |
 | 06 | [Vision 파이프라인](06-vision-pipeline.md) | 8~12일 | 대기 |

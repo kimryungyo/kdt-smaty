@@ -14,8 +14,9 @@
 ## 1단계: MQTT 기반과 안전한 책상 제어 — 진행 중
 
 - 인증 없는 EMQX에 연결하는 `MqttClient`와 토픽·메시지 계약을 구현했다.
-- `SerialLineSource`, `DeskHeightMonitor`, `SegmentDecoder`, `RelayClient`,
-  `DeskController`를 구현한다.
+- `SerialLineSource`, `DeskHeightMonitor`, `SegmentDecoder`와 `RelayClient`를
+  구현했다.
+- `DeskController`의 목표·HOLD·STOP 정책을 구현한다.
 - 기존 MQTT 토픽·JSON·높이 범위·ESP32 보호를 그대로 연결한다.
 - 목표, HOLD, STOP, 센서 만료, 서버 종료 단위 테스트를 만든다.
 
