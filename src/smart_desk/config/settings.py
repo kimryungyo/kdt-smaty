@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from smart_desk.config.constants import (
@@ -46,13 +46,69 @@ class MqttSettings(BaseModel):
     reconnect_interval_seconds: float = Field(default=2.0, gt=0, le=30)
 
 
+class SerialSettings(BaseModel):
+    """Arduino 높이 리더의 시리얼 연결 설정을 보관한다."""
+
+    port: str = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+    baudrate: int = Field(default=115200, ge=1)
+    read_timeout_seconds: float = Field(
+        default=0.2,
+        gt=0,
+        le=5,
+        allow_inf_nan=False,
+    )
+    reconnect_interval_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        le=30,
+        allow_inf_nan=False,
+    )
+
+    @field_validator("port")
+    @classmethod
+    def normalize_port(cls, value: str) -> str:
+        """장치 경로의 불필요한 공백을 제거하고 빈 값을 거부한다."""
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("시리얼 포트는 비어 있을 수 없습니다.")
+        return normalized
+
+    @field_validator("baudrate", mode="before")
+    @classmethod
+    def reject_boolean_baudrate(cls, value: object) -> object:
+        """bool이 정수 baudrate로 변환되는 것을 막는다."""
+
+        if isinstance(value, bool):
+            raise ValueError("시리얼 baudrate는 bool일 수 없습니다.")
+        return value
+
+
 class DeskSettings(BaseModel):
     """센서 측정 범위와 그 안에서 허용하는 제어 범위를 보관한다."""
 
-    measurement_min_cm: float = DESK_PHYSICAL_MIN_CM
-    measurement_max_cm: float = DESK_PHYSICAL_MAX_CM
-    operation_min_cm: float = DESK_CONTROL_MIN_CM
-    operation_max_cm: float = DESK_CONTROL_MAX_CM
+    measurement_min_cm: float = Field(
+        default=DESK_PHYSICAL_MIN_CM,
+        allow_inf_nan=False,
+    )
+    measurement_max_cm: float = Field(
+        default=DESK_PHYSICAL_MAX_CM,
+        allow_inf_nan=False,
+    )
+    operation_min_cm: float = Field(
+        default=DESK_CONTROL_MIN_CM,
+        allow_inf_nan=False,
+    )
+    operation_max_cm: float = Field(
+        default=DESK_CONTROL_MAX_CM,
+        allow_inf_nan=False,
+    )
+    height_stale_after_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        le=30,
+        allow_inf_nan=False,
+    )
 
     @property
     def physical_min_cm(self) -> float:
@@ -133,6 +189,7 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     server: ServerSettings = ServerSettings()
     mqtt: MqttSettings = MqttSettings()
+    serial: SerialSettings = SerialSettings()
     desk: DeskSettings = DeskSettings()
     vision: VisionSettings = VisionSettings()
     dashboard: DashboardSettings = DashboardSettings()

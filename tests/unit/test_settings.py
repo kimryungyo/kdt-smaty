@@ -33,6 +33,65 @@ def test_empty_mqtt_client_id_is_rejected(monkeypatch: pytest.MonkeyPatch) -> No
         Settings(_env_file=None)
 
 
+def test_default_serial_and_height_staleness_settings() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.serial.port == "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+    assert settings.serial.baudrate == 115200
+    assert settings.serial.read_timeout_seconds == 0.2
+    assert settings.serial.reconnect_interval_seconds == 1.0
+    assert settings.desk.height_stale_after_seconds == 1.0
+
+
+def test_serial_environment_variables_are_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMART_DESK_SERIAL__PORT", "  /dev/test-desk  ")
+    monkeypatch.setenv("SMART_DESK_SERIAL__BAUDRATE", "57600")
+    monkeypatch.setenv("SMART_DESK_SERIAL__READ_TIMEOUT_SECONDS", "0.4")
+    monkeypatch.setenv("SMART_DESK_SERIAL__RECONNECT_INTERVAL_SECONDS", "2.5")
+    monkeypatch.setenv("SMART_DESK_DESK__HEIGHT_STALE_AFTER_SECONDS", "1.5")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.serial.port == "/dev/test-desk"
+    assert settings.serial.baudrate == 57600
+    assert settings.serial.read_timeout_seconds == 0.4
+    assert settings.serial.reconnect_interval_seconds == 2.5
+    assert settings.desk.height_stale_after_seconds == 1.5
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("PORT", " "),
+        ("BAUDRATE", "0"),
+        ("READ_TIMEOUT_SECONDS", "0"),
+        ("RECONNECT_INTERVAL_SECONDS", "0"),
+    ],
+)
+def test_invalid_serial_settings_are_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
+) -> None:
+    monkeypatch.setenv(f"SMART_DESK_SERIAL__{name}", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_boolean_baudrate_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="bool"):
+        Settings(serial={"baudrate": True}, _env_file=None)
+
+
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
+def test_invalid_height_staleness_is_rejected(value: float) -> None:
+    with pytest.raises(ValidationError):
+        Settings(desk={"height_stale_after_seconds": value}, _env_file=None)
+
+
 def test_multiple_workers_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SMART_DESK_SERVER__WORKERS", "2")
 
