@@ -3,5 +3,10 @@
 APP_NAME = "SMART DESK"
 SINGLE_PROCESS_WORKERS = 1
 
-# 세그먼트 표시기는 더 높은 값을 표현할 수 있지만 실제 책상은 이 높이를 넘지 않는다.
+# 모션데스크 자체의 고정 물리 높이 범위다.
+DESK_PHYSICAL_MIN_CM = 73.0
 DESK_PHYSICAL_MAX_CM = 118.0
+
+# 자동 목표와 수동 이동에 허용하는 고정 제어 범위다.
+DESK_CONTROL_MIN_CM = 75.0
+DESK_CONTROL_MAX_CM = 115.0

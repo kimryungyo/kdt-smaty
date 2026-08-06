@@ -14,13 +14,13 @@ Arduino 높이 입력과 ESP32 릴레이 MQTT 프로토콜을 정책 계층에�
 
 - [ ] `SerialSettings`와 `SerialLineSource`를 구현한다.
 - [ ] 포트 열기 실패, read timeout, 종료와 재연결 상태를 snapshot으로 제공한다.
-- [ ] `SegmentDecoder`를 순수 변환기로 이식하고 73~128cm 측정 범위를 검증한다.
+- [ ] `SegmentDecoder`를 순수 변환기로 이식하고 73~118cm 측정 범위를 검증한다.
 - [ ] `HeightSnapshot`과 `DeskHeightMonitor`를 구현한다.
 - [ ] 오래된 높이를 `STALE`로 판정하고 retained MQTT 높이를 새 측정으로 오인하지 않는다.
 - [ ] ESP32 명령·상태 Pydantic 모델과 기존 토픽을 이식한다.
 - [ ] `RelayClient.handle_status()`, `pulse()`, `send_stop()`,
   `get_snapshot()`을 구현한다.
-- [ ] 모든 UP 판단 기준에서 물리 최대 118cm가 우선하도록 계약 차이를 정리한다.
+- [ ] 센서·물리 범위 73~118cm와 제어 범위 75~115cm의 계약 차이를 정리한다.
 
 ## 테스트
 

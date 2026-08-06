@@ -56,7 +56,7 @@ smart-desk-fin/
 | 경로 | 역할 |
 | --- | --- |
 | `src/smart_desk/config/__init__.py` | 설정 패키지를 선언한다. |
-| `src/smart_desk/config/constants.py` | 앱 이름, 단일 worker 수와 책상 물리 최대 118cm처럼 환경으로 높일 수 없는 상수를 둔다. |
+| `src/smart_desk/config/constants.py` | 앱 이름, 단일 worker 수, 물리 측정 범위 73~118cm와 제어 범위 75~115cm처럼 환경으로 넓힐 수 없는 상수를 둔다. |
 | `src/smart_desk/config/settings.py` | `.env`·환경변수를 검증된 `Settings`로 한 번만 로딩해 공유한다. |
 
 다른 파일에서 `os.getenv()`를 직접 호출하지 않는다. 새 환경변수는 적절한 하위

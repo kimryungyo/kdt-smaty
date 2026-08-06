@@ -40,20 +40,51 @@ def test_multiple_workers_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings(_env_file=None)
 
 
-def test_operation_range_cannot_exceed_physical_maximum(
+def test_operation_range_cannot_exceed_control_maximum(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("SMART_DESK_DESK__OPERATION_MAX_CM", "119")
+    monkeypatch.setenv("SMART_DESK_DESK__OPERATION_MAX_CM", "116")
 
-    with pytest.raises(ValidationError, match="물리 최대 높이 118cm"):
+    with pytest.raises(ValidationError, match="제어 상한 115cm"):
         Settings(_env_file=None)
 
 
-def test_default_desk_maximum_is_118_cm() -> None:
+def test_operation_range_cannot_go_below_control_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMART_DESK_DESK__OPERATION_MIN_CM", "74")
+
+    with pytest.raises(ValidationError, match="제어 하한 75cm"):
+        Settings(_env_file=None)
+
+
+def test_measurement_range_cannot_exceed_physical_maximum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMART_DESK_DESK__MEASUREMENT_MAX_CM", "119")
+
+    with pytest.raises(ValidationError, match="측정 최대 높이는 물리 상한 118cm"):
+        Settings(_env_file=None)
+
+
+def test_measurement_range_cannot_go_below_physical_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMART_DESK_DESK__MEASUREMENT_MIN_CM", "72")
+
+    with pytest.raises(ValidationError, match="물리 하한 73cm"):
+        Settings(_env_file=None)
+
+
+def test_default_desk_ranges_match_physical_and_control_limits() -> None:
     settings = Settings(_env_file=None)
 
+    assert settings.desk.physical_min_cm == 73.0
+    assert settings.desk.measurement_min_cm == 73.0
     assert settings.desk.physical_max_cm == 118.0
-    assert settings.desk.operation_max_cm == 118.0
+    assert settings.desk.measurement_max_cm == 118.0
+    assert settings.desk.operation_min_cm == 75.0
+    assert settings.desk.operation_max_cm == 115.0
 
 
 def test_frontend_directory_can_be_configured(monkeypatch: pytest.MonkeyPatch) -> None:

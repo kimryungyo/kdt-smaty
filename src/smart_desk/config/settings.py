@@ -11,7 +11,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from smart_desk.config.constants import (
     APP_NAME,
+    DESK_CONTROL_MAX_CM,
+    DESK_CONTROL_MIN_CM,
     DESK_PHYSICAL_MAX_CM,
+    DESK_PHYSICAL_MIN_CM,
     SINGLE_PROCESS_WORKERS,
 )
 
@@ -44,12 +47,18 @@ class MqttSettings(BaseModel):
 
 
 class DeskSettings(BaseModel):
-    """높이 측정 범위와 물리 상한 안의 운영 범위를 보관한다."""
+    """센서 측정 범위와 그 안에서 허용하는 제어 범위를 보관한다."""
 
-    measurement_min_cm: float = 73.0
-    measurement_max_cm: float = 128.0
-    operation_min_cm: float = 75.0
-    operation_max_cm: float = DESK_PHYSICAL_MAX_CM
+    measurement_min_cm: float = DESK_PHYSICAL_MIN_CM
+    measurement_max_cm: float = DESK_PHYSICAL_MAX_CM
+    operation_min_cm: float = DESK_CONTROL_MIN_CM
+    operation_max_cm: float = DESK_CONTROL_MAX_CM
+
+    @property
+    def physical_min_cm(self) -> float:
+        """환경변수로 낮출 수 없는 실제 책상의 최소 높이를 반환한다."""
+
+        return DESK_PHYSICAL_MIN_CM
 
     @property
     def physical_max_cm(self) -> float:
@@ -59,21 +68,36 @@ class DeskSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_ranges(self) -> DeskSettings:
-        """운영 범위가 물리 측정 범위 안인지 검증한다."""
+        """설정 범위가 고정된 물리·제어 경계를 넓히지 않는지 검증한다."""
 
         if self.measurement_min_cm >= self.measurement_max_cm:
             raise ValueError("책상 측정 최소 높이는 최대 높이보다 작아야 합니다.")
-        if self.operation_min_cm >= self.operation_max_cm:
-            raise ValueError("책상 운영 최소 높이는 최대 높이보다 작아야 합니다.")
-        if self.operation_min_cm < self.measurement_min_cm:
-            raise ValueError("책상 운영 최소 높이는 측정 범위 안이어야 합니다.")
-        if self.operation_max_cm > self.measurement_max_cm:
-            raise ValueError("책상 운영 최대 높이는 측정 범위 안이어야 합니다.")
-        if self.operation_max_cm > DESK_PHYSICAL_MAX_CM:
+        if self.measurement_min_cm < DESK_PHYSICAL_MIN_CM:
             raise ValueError(
-                f"책상 운영 최대 높이는 물리 최대 높이 {DESK_PHYSICAL_MAX_CM:.0f}cm를 "
+                f"책상 측정 최소 높이는 물리 하한 {DESK_PHYSICAL_MIN_CM:.0f}cm보다 "
+                "낮을 수 없습니다."
+            )
+        if self.measurement_max_cm > DESK_PHYSICAL_MAX_CM:
+            raise ValueError(
+                f"책상 측정 최대 높이는 물리 상한 {DESK_PHYSICAL_MAX_CM:.0f}cm를 "
                 "넘을 수 없습니다."
             )
+        if self.operation_min_cm >= self.operation_max_cm:
+            raise ValueError("책상 제어 최소 높이는 최대 높이보다 작아야 합니다.")
+        if self.operation_min_cm < DESK_CONTROL_MIN_CM:
+            raise ValueError(
+                f"책상 제어 최소 높이는 제어 하한 {DESK_CONTROL_MIN_CM:.0f}cm보다 "
+                "낮을 수 없습니다."
+            )
+        if self.operation_max_cm > DESK_CONTROL_MAX_CM:
+            raise ValueError(
+                f"책상 제어 최대 높이는 제어 상한 {DESK_CONTROL_MAX_CM:.0f}cm를 "
+                "넘을 수 없습니다."
+            )
+        if self.operation_min_cm < self.measurement_min_cm:
+            raise ValueError("책상 제어 최소 높이는 측정 범위 안이어야 합니다.")
+        if self.operation_max_cm > self.measurement_max_cm:
+            raise ValueError("책상 제어 최대 높이는 측정 범위 안이어야 합니다.")
         return self
 
 
