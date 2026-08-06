@@ -10,7 +10,8 @@
 
 - [책상 I/O 어댑터](02-desk-io.md) 완료
 - [책상 제어와 안전](../architecture/desk-safety.md)의 미확정 펄스·timeout 값 확인
-- `.scratch/designs/03-desk-control-design.md`와 필수 하위 설계
+- `.scratch/designs/03-desk-control-overview.md`와 상세 설계
+  `.scratch/designs/03-desk-control-design.md`, 필수 하위 설계
   `.scratch/designs/03-01-esp32-relay-firmware-design.md` 검토
 
 ## 작업 목록

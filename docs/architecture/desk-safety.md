@@ -16,9 +16,9 @@ DeskController
         │ MQTT pulse / STOP
         ▼
 ESP32 firmware
-  ├─ 연결 끊김 정지
-  ├─ 펄스 최대 시간
-  └─ 상·하한 독립 차단
+  ├─ Wi-Fi·MQTT·height lease 단절 정지
+  ├─ network loop와 독립된 펄스 최대 시간
+  └─ 75~115cm 방향별 독립 차단
 ```
 
 상위 계층의 검증은 편의와 정책을 위한 것이며, ESP32 보호를 대체하지 않는다.
@@ -73,6 +73,11 @@ OFF→ON하지 않고 자동 종료 시각만 연장한다. 이 동작으로 연
 꺼져야 하므로 무기한 ON 명령은 사용하지 않는다. 정확한 `hold_ms`와 갱신 간격은
 Task 03에서 가짜 시각 테스트와 제한된 실물 검증으로 확정한다.
 
+FIN 전용 ESP32 펌웨어는 main MQTT loop가 socket·reconnect 작업에서 지연돼도
+`hold_ms <= 500`을 넘겨 relay가 켜지지 않도록 network 처리와 독립된 one-shot
+timer를 사용한다. 같은 방향 명령은 GPIO를 다시 쓰지 않고 timer만 재설정하며,
+STOP과 반대 방향에서 두 출력을 먼저 OFF한다.
+
 ESP32-C3의 기본 Wi-Fi Modem-sleep은 MQTT 수신 지연을 크게 늘릴 수 있으므로 릴레이
 제어 펌웨어는 기존처럼 `WiFi.setSleep(false)`를 유지한다. 2026-08-06 실측에서
 안정된 절전 OFF 반복의 MQTT RTT는 평균 약 43~44ms, p95 약 86~88ms였다. 그러나
@@ -80,6 +85,22 @@ ESP32-C3의 기본 Wi-Fi Modem-sleep은 MQTT 수신 지연을 크게 늘릴 수 
 관찰됐으므로 100ms를 지연 상한으로 간주하지 않는다. 이 수치는 왕복 시간이며
 단방향 도달 시간도 아니다. Task 03은 평균값으로 갱신 주기를 정하지 않고 실제
 ESP32 수신 시각 기준의 같은 방향 명령 도착 간격과 무중단 연장을 별도로 검증한다.
+
+## ESP32 height freshness
+
+높이 topic은 retained이므로 MQTT reconnect 직후 받은 첫 높이는 현재 센서 관측이라고
+단정할 수 없다. FIN 펌웨어는 MQTT session마다 높이 상태를 제거하고, 서로 다른
+`observed_at`을 가진 live height를 추가로 받은 뒤에만 이동을 무장한다. 이후에도
+ESP32 receipt 시각 기준의 bounded height lease 안에서 distinct 관측이 계속돼야 한다.
+
+- retained 높이 하나만으로 UP/DOWN을 허용하지 않는다.
+- 같은 `observed_at`의 QoS duplicate는 lease를 갱신하지 않는다.
+- height가 invalid 또는 stale이면 진행 중 relay를 즉시 OFF한다.
+- fresh height가 115cm 이상일 때 UP, 75cm 이하일 때 DOWN이면 다음 pulse를 기다리지
+  않고 firmware가 독립적으로 OFF한다.
+- Wi-Fi·MQTT reconnect마다 height를 다시 무장한다.
+
+세부 계약은 `.scratch/designs/03-01-esp32-relay-firmware-design.md`를 따른다.
 
 ## 대시보드 수동 조절
 
@@ -104,9 +125,10 @@ lock을 소유한다. lock 안에서는 상태와 목표만 갱신하고, 실제
 ## 구현 전 확인 목록
 
 - 세그먼트·물리 범위 73~118cm와 제어 범위 75~115cm 분리 여부
-- 일반·미세·깨우기 펄스 시간과 펌웨어 최대 펄스
+- 일반·미세 펄스 시간, 갱신 주기와 펌웨어 최대 펄스
 - 목표 도달 허용 오차, 관성 보정, 수동 watchdog
-- ESP32가 높이 메시지를 해석하는 방법과 연결 끊김 동작
+- ESP32 height session arming·lease와 연결 끊김 동작
+- ESP32 one-shot timer, 부팅 GPIO OFF와 explicit STOP live 응답
 - 기존 `/desk_ctl`, `/desk_ctl_status` 메시지 계약
 
 이 값을 새 문서에서 추정해 바꾸지 않는다. 확정 뒤에는 설정 한 곳과 ESP32
