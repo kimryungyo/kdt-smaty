@@ -165,6 +165,9 @@ class DeskController:
 
 `SegmentDecoder`는 73~118cm 측정 범위만 유효한 높이로 해석하고,
 `DeskController`는 75~115cm 제어 범위를 벗어난 목표와 이동을 허용하지 않는다.
+활성 목표가 없는 증감 요청은 거부하며, 진행 중 잘못된 대체 목표는 기존 이동을
+먼저 STOP한 뒤 입력 오류를 반환한다. 첫 FIN 구현은
+`smartdesk-fin-relay-1.0.0` firmware 상태만 이동 admission에 사용한다.
 
 ## 영상 컴포넌트
 

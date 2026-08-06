@@ -2,8 +2,9 @@
 
 SMART DESK를 단일 FastAPI 프로세스와 `asyncio` 기반으로 재구성하는 프로젝트다.
 설정, singleton container, task 관리와 애플리케이션 수명주기 위에 로컬 EMQX와
-연결하는 비동기 MQTT 기반과 Arduino 높이·ESP32 relay DeskIO 어댑터를 구현했다.
-목표 높이 제어와 카메라 모듈은 아직 구현하지 않았다. 영상은 카메라별 FFmpeg
+연결하는 비동기 MQTT 기반, Arduino 높이·ESP32 relay DeskIO 어댑터와 목표·수동
+책상 제어기를 구현했다. FIN ESP32-C3 relay firmware는 clean build까지 완료했지만
+upload와 실물 검증은 아직 수행하지 않았다. 카메라 모듈은 아직 구현하지 않았다. 영상은 카메라별 FFmpeg
 publisher가 MediaMTX에 발행하고 Python은 RTSP를 읽는 구조로 구현할 예정이다.
 
 ## 개발 환경
@@ -84,6 +85,16 @@ curl http://127.0.0.1:9090/health/ready
 .venv/bin/python -m compileall -q src tests
 cd frontend && npm run build
 ```
+
+FIN relay firmware의 native 계약 test와 ESP32-C3 build:
+
+```bash
+pio test -d firmware/relay-controller -e native
+pio run -d firmware/relay-controller -e esp32-c3-devkitm-1
+```
+
+build는 장치를 변경하지 않는다. firmware upload와 실제 UP/DOWN은 relay 분리 검증과
+사용자 승인 뒤에만 수행한다.
 
 기본 테스트는 MQTT broker 없이 실행된다. 로컬 EMQX와 실제 QoS 1 발행·구독 및
 재연결·재구독까지 확인하려면 다음 명령을 추가로 실행한다.

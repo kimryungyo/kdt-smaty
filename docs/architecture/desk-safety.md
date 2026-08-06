@@ -73,10 +73,19 @@ OFF→ON하지 않고 자동 종료 시각만 연장한다. 이 동작으로 연
 꺼져야 하므로 무기한 ON 명령은 사용하지 않는다. 정확한 `hold_ms`와 갱신 간격은
 Task 03에서 가짜 시각 테스트와 제한된 실물 검증으로 확정한다.
 
+현재 비이동 구현 후보는 continuous/manual 500ms, fine 100ms, refresh 100ms와 poll
+50ms다. 이는 실물 확정값이 아니며 ESP32 callback 수신 간격과 GPIO edge 측정 전에는
+실제 연속 제어 근거로 사용하지 않는다.
+
 FIN 전용 ESP32 펌웨어는 main MQTT loop가 socket·reconnect 작업에서 지연돼도
 `hold_ms <= 500`을 넘겨 relay가 켜지지 않도록 network 처리와 독립된 one-shot
 timer를 사용한다. 같은 방향 명령은 GPIO를 다시 쓰지 않고 timer만 재설정하며,
 STOP과 반대 방향에서 두 출력을 먼저 OFF한다.
+
+현재 고정된 Arduino core에서는 legacy hardware timer interrupt를
+`ESP_INTR_FLAG_IRAM`으로 등록하고 ISR이 ESP32-C3 GPIO clear register를 직접 기록한다.
+ELF의 ISR 배치는 확인했지만 실제 50/500ms OFF edge와 network-loop stall 동작은 relay
+분리 board test로 추가 확인해야 한다.
 
 ESP32-C3의 기본 Wi-Fi Modem-sleep은 MQTT 수신 지연을 크게 늘릴 수 있으므로 릴레이
 제어 펌웨어는 기존처럼 `WiFi.setSleep(false)`를 유지한다. 2026-08-06 실측에서

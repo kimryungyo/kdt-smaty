@@ -15,9 +15,11 @@
 - `src/smart_desk/modules/serial/source.py`: Arduino 시리얼 lazy open과 재연결
 - `src/smart_desk/modules/desk/height_monitor.py`: 높이 수신·신선도와 MQTT 발행
 - `src/smart_desk/modules/desk/relay.py`: ESP32 명령·상태 계약
+- `src/smart_desk/modules/desk/controller.py`: 목표·HOLD·STOP 상태전이와 pulse runner
 
 `MqttClient`는 `bootstrap.py`에서 생성해 첫 번째 lifecycle resource로 등록한다.
-`DeskHeightMonitor`는 두 번째 resource로 등록해 MQTT 뒤 시작하고 먼저 종료한다.
+`DeskHeightMonitor`는 두 번째, `DeskController`는 세 번째 resource다. 종료 시에는
+controller가 final STOP을 보낸 뒤 monitor와 MQTT를 종료한다.
 
 ## 단기 프로젝트 실행 기준
 
@@ -46,9 +48,9 @@ class AppContainer:
     mqtt: MqttClient
     height_monitor: DeskHeightMonitor
     relay: RelayClient
+    desk: DeskController
 
     # 아래 필드는 이후 작업에서 추가한다.
-    desk: DeskController
     vision: VisionStateService
     profiles: ProfileRepository
 
@@ -58,7 +60,7 @@ def get_mqtt() -> MqttClient: ...
 ```
 
 현재 container에는 설정, runtime, `TaskManager`, `MqttClient`, 높이 monitor,
-relay adapter와 lifecycle resource 목록이 있다. `DeskController`부터 profiles까지는
+relay adapter, `DeskController`와 lifecycle resource 목록이 있다. Vision과 profiles는
 향후 구현 필드다. container가 직접 `start()`나 `shutdown()`을 제공하지 않으며
 `core/lifecycle.py`가 등록된 자원의 수명주기를 관리한다.
 

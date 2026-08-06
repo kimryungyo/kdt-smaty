@@ -133,7 +133,7 @@ bytes line과 연결 snapshot을 제공한다.
 ### `modules/desk/`
 
 Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표 높이와 이동
-방향을 판단하는 `DeskController`는 아직 포함하지 않는다.
+방향을 판단하고 목표·수동 이동을 관리하는 `DeskController`까지 포함한다.
 
 | 경로 | 역할 |
 | --- | --- |
@@ -143,10 +143,17 @@ Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표
 | `src/smart_desk/modules/desk/segment.py` | `fresh=7` mask frame을 73~118cm 높이로 순수 변환한다. |
 | `src/smart_desk/modules/desk/height_monitor.py` | 최신 실제 높이·신선도를 관리하고 retained 높이를 발행한다. |
 | `src/smart_desk/modules/desk/relay.py` | ESP32 UP·DOWN·STOP 발행과 live 상태 snapshot을 관리한다. |
+| `src/smart_desk/modules/desk/controller.py` | 목표·HOLD·STOP, generation과 relay 상태 확인을 단독 관리한다. |
 
-`DeskHeightMonitor`는 `SerialLineSource`를 소유해 MQTT 뒤 시작하고 MQTT보다 먼저
-종료된다. `RelayClient`는 독립 runner가 없으며 command 발행 결과로 상태를
-추정하지 않는다.
+`DeskHeightMonitor`는 `SerialLineSource`를 소유한다. `DeskController`는 lifecycle
+순서 30으로 MQTT 10과 monitor 20 뒤 시작하고 둘보다 먼저 final STOP을 보낸다.
+`RelayClient`는 독립 runner가 없으며 command 발행 결과로 상태를 추정하지 않는다.
+
+### `firmware/relay-controller/`
+
+ESP32-C3의 GPIO 3/4 active-high relay를 실행하는 FIN 전용 PlatformIO 프로젝트다.
+strict MQTT parser, height session arming·lease, 방향 경계와 IRAM hardware timer ISR을
+포함한다. `test/test_policy/`는 host native에서 wire와 경계 정책을 검증한다.
 
 ## React 대시보드
 
@@ -198,6 +205,7 @@ frontend/src/
 | `tests/unit/test_segment_decoder.py` | 완성 frame, mask·point·fresh와 73~118cm 경계를 검증한다. |
 | `tests/unit/test_height_monitor.py` | 높이 snapshot, 신선도, source 오류와 retained 발행을 검증한다. |
 | `tests/unit/test_relay_client.py` | ESP32 상태 검증, pulse·STOP JSON과 MQTT 오류 전파를 확인한다. |
+| `tests/unit/test_desk_controller.py` | 목표·fine pulse·HOLD·watchdog·STOP race와 오류 중단을 검증한다. |
 | `tests/integration/test_application.py` | FastAPI lifespan, health API, React 정적 제공과 SPA fallback을 검증한다. |
 | `tests/integration/test_mqtt_emqx.py` | 로컬 EMQX에서 실제 QoS 1 왕복과 재연결·재구독을 선택적으로 검증한다. |
 
@@ -225,7 +233,7 @@ frontend/src/
 
 ## 기능 영역
 
-MQTT와 DeskIO는 구현했으며 Desk 제어, Vision과 자동화는 아직 생성되지 않았다.
+MQTT, DeskIO와 Desk 제어는 구현했으며 Vision과 자동화는 아직 생성되지 않았다.
 이후 기능은 다음 형태를 기본으로 하되, 실제 파일이 생기기 전 빈 폴더는 만들지
 않는다.
 
@@ -233,7 +241,7 @@ MQTT와 DeskIO는 구현했으며 Desk 제어, Vision과 자동화는 아직 생
 src/smart_desk/modules/
 ├── mqtt/          EMQX 연결, 발행·구독과 토픽 (구현 완료)
 ├── serial/        Arduino 시리얼 라인 수신 (구현 완료)
-├── desk/          높이 해석·ESP32 명령 구현, 목표·수동 제어 예정
+├── desk/          높이 해석·ESP32 명령과 목표·수동 제어 (구현 완료)
 ├── vision/        RTSP 프레임, 전처리, 얼굴·자세·재실 판정
 ├── automation/    Vision·프로필을 이용한 목표 높이 결정
 ├── profiles/      프로필 모델과 영속 저장

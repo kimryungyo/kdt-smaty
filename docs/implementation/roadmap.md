@@ -16,9 +16,13 @@
 - 인증 없는 EMQX에 연결하는 `MqttClient`와 토픽·메시지 계약을 구현했다.
 - `SerialLineSource`, `DeskHeightMonitor`, `SegmentDecoder`와 `RelayClient`를
   구현했다.
-- `DeskController`의 목표·HOLD·STOP 정책을 구현한다.
+- `DeskController`의 목표·HOLD·STOP 정책과 FIN ESP32 relay firmware를 구현했다.
 - 기존 MQTT 토픽·JSON·높이 범위·ESP32 보호를 그대로 연결한다.
-- 목표, HOLD, STOP, 센서 만료, 서버 종료 단위 테스트를 만든다.
+- 목표, HOLD, STOP, 센서 만료, 서버 종료 단위 테스트와 firmware native protocol
+  test를 만들었다.
+
+Python·fake 검증과 firmware clean build는 완료했다. relay 분리 board test와 실제
+책상 검증 전에는 이 단계를 전체 완료로 표시하지 않는다.
 
 완료 조건: 센서 없이 릴레이를 켜지 않으며, 모든 종료 경로에서 STOP 요청을 한다.
 
