@@ -11,15 +11,18 @@
 - `src/smart_desk/core/container.py`: singleton container와 공유 자원 등록
 - `src/smart_desk/core/lifecycle.py`: 공유 자원 시작·종료와 FastAPI lifespan
 - `src/smart_desk/core/task_manager.py`: 이름 기반 async 작업과 critical 실패 기록
+- `src/smart_desk/storage/sqlite.py`: SQLite migration·transaction과 blocking I/O 경계
+- `src/smart_desk/modules/profiles/`: 프로필 모델과 SQLite CRUD
 - `src/smart_desk/modules/mqtt/client.py`: EMQX 연결·재연결과 메시지 전달
 - `src/smart_desk/modules/serial/source.py`: Arduino 시리얼 lazy open과 재연결
 - `src/smart_desk/modules/desk/height_monitor.py`: 높이 수신·신선도와 MQTT 발행
 - `src/smart_desk/modules/desk/relay.py`: ESP32 명령·상태 계약
 - `src/smart_desk/modules/desk/controller.py`: 목표·HOLD·STOP 상태전이와 pulse runner
 
-`MqttClient`는 `bootstrap.py`에서 생성해 첫 번째 lifecycle resource로 등록한다.
-`DeskHeightMonitor`는 두 번째, `DeskController`는 세 번째 resource다. 종료 시에는
-controller가 final STOP을 보낸 뒤 monitor와 MQTT를 종료한다.
+`SQLiteDatabase`는 `bootstrap.py`에서 생성해 lifecycle order 5로 가장 먼저 등록한다.
+그 뒤 `MqttClient` 10, `DeskHeightMonitor` 20, `DeskController` 30 순서로 시작한다.
+종료 시에는 controller가 final STOP을 보낸 뒤 monitor와 MQTT를 종료하고 마지막에
+SQLite operation을 닫는다.
 
 ## 단기 프로젝트 실행 기준
 
@@ -45,6 +48,8 @@ class AppContainer:
     settings: Settings
     runtime: RuntimeState
     task_manager: TaskManager
+    database: SQLiteDatabase
+    profiles: ProfileRepository
     mqtt: MqttClient
     height_monitor: DeskHeightMonitor
     relay: RelayClient
@@ -52,16 +57,16 @@ class AppContainer:
 
     # 아래 필드는 이후 작업에서 추가한다.
     vision: VisionStateService
-    profiles: ProfileRepository
 
 def get_desk() -> DeskController: ...
 def get_vision() -> VisionStateService: ...
 def get_mqtt() -> MqttClient: ...
 ```
 
-현재 container에는 설정, runtime, `TaskManager`, `MqttClient`, 높이 monitor,
-relay adapter, `DeskController`와 lifecycle resource 목록이 있다. Vision과 profiles는
-향후 구현 필드다. container가 직접 `start()`나 `shutdown()`을 제공하지 않으며
+현재 container에는 설정, runtime, `TaskManager`, `SQLiteDatabase`,
+`ProfileRepository`, `MqttClient`, 높이 monitor, relay adapter, `DeskController`와
+lifecycle resource 목록이 있다. Vision은 향후 구현 필드다. container가 직접
+`start()`나 `shutdown()`을 제공하지 않으며
 `core/lifecycle.py`가 등록된 자원의 수명주기를 관리한다.
 
 FastAPI route와 MQTT handler 같은 진입점은 함수 내부에서 `get_*()`를 직접
@@ -88,12 +93,18 @@ FastAPI lifespan에서 컨테이너를 시작하고 종료한다. 개별 장기 
 
 ```text
 사전 인프라: EMQX → MediaMTX → 카메라별 FFmpeg publisher
-애플리케이션 시작: 설정 → MQTT → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → RTSP 입력 → Vision → API 제공
-애플리케이션 종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → MQTT/시리얼/RTSP 해제
+애플리케이션 시작: 설정 → SQLite 검증 → MQTT → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → RTSP 입력 → Vision → API 제공
+애플리케이션 종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → MQTT/시리얼/RTSP 해제 → SQLite 종료
 ```
 
 초기화 실패 시 HTTP 서버만 남긴 채 제어 루프를 계속 실행하지 않는다. 특히
 Desk 시작이 실패하거나 센서 상태가 불명확하면 릴레이 STOP을 먼저 시도한다.
+SQLite 시작이 실패하면 MQTT와 Desk는 시작하지 않고 readiness를 올리지 않는다.
+
+SQLite의 동기 API는 각 operation마다 `asyncio.to_thread()`로 event loop 밖에서
+실행한다. 하나의 `asyncio.Lock`이 read/write와 종료를 직렬화하며, 호출 coroutine이
+취소돼도 worker의 commit 또는 rollback과 connection close가 끝날 때까지 lock을
+유지한다. connection은 operation마다 worker thread 안에서 열고 닫는다.
 
 ## 장기 실행 작업
 

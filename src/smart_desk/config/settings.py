@@ -250,10 +250,15 @@ class VisionSettings(BaseModel):
     posture_camera: str = "/dev/video0"
 
 
-class DashboardSettings(BaseModel):
-    """Dashboard 데이터와 React 정적 빌드 설정을 보관한다."""
+class StorageSettings(BaseModel):
+    """로컬 영속 데이터 저장 경로를 보관한다."""
 
-    data_directory: Path = Path("data")
+    database_path: Path = Path("data/smart_desk.db")
+
+
+class DashboardSettings(BaseModel):
+    """Dashboard React 정적 빌드 설정을 보관한다."""
+
     serve_frontend: bool = True
     frontend_directory: Path = Path("frontend/dist")
 
@@ -278,6 +283,7 @@ class Settings(BaseSettings):
     serial: SerialSettings = SerialSettings()
     desk: DeskSettings = DeskSettings()
     vision: VisionSettings = VisionSettings()
+    storage: StorageSettings = StorageSettings()
     dashboard: DashboardSettings = DashboardSettings()
 
 

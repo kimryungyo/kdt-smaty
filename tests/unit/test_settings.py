@@ -2,6 +2,7 @@
 
 import pytest
 from pydantic import ValidationError
+from pathlib import Path
 
 from smart_desk.config.settings import Settings
 
@@ -172,3 +173,19 @@ def test_frontend_directory_can_be_configured(monkeypatch: pytest.MonkeyPatch) -
     settings = Settings(_env_file=None)
 
     assert settings.dashboard.frontend_directory.as_posix() == "custom-ui/dist"
+
+
+def test_default_storage_database_path() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.storage.database_path == Path("data/smart_desk.db")
+
+
+def test_storage_database_path_is_loaded_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMART_DESK_STORAGE__DATABASE_PATH", "/tmp/test-smart-desk.db")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.storage.database_path == Path("/tmp/test-smart-desk.db")

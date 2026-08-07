@@ -5,6 +5,7 @@ from smart_desk.core.container import AppContainer, ResourceRegistration
 from smart_desk.core.lifecycle import shutdown_application, start_application
 from smart_desk.core.runtime import ApplicationStatus, RuntimeState
 from smart_desk.core.task_manager import TaskManager
+from smart_desk.modules.profiles import ProfileRepository
 
 
 class FakeResource:
@@ -23,6 +24,8 @@ class FakeResource:
 
 async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     events: list[str] = []
+    database = FakeResource("sqlite", events)
+    profiles = ProfileRepository(database)  # type: ignore[arg-type]
     mqtt = FakeResource("mqtt", events)
     height_monitor = FakeResource("desk", events)
     desk_controller = FakeResource("controller", events)
@@ -30,10 +33,20 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
         settings=Settings(environment="test", _env_file=None),
         runtime=RuntimeState(),
         task_manager=TaskManager(),
+        database=database,  # type: ignore[arg-type]
+        profiles=profiles,
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]
         desk=desk_controller,  # type: ignore[arg-type]
+    )
+    container.register(
+        ResourceRegistration(
+            name="sqlite",
+            resource=database,
+            startup_order=5,
+            shutdown_order=5,
+        )
     )
     container.register(
         ResourceRegistration(
@@ -64,11 +77,13 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     await shutdown_application(container)
 
     assert events == [
+        "start:sqlite",
         "start:mqtt",
         "start:desk",
         "start:controller",
         "stop:desk",
         "stop:controller",
         "stop:mqtt",
+        "stop:sqlite",
     ]
     assert container.runtime.snapshot().status is ApplicationStatus.STOPPED

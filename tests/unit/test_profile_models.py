@@ -1,0 +1,88 @@
+"""프로필 Pydantic alias와 값 검증 테스트."""
+
+import math
+
+import pytest
+from pydantic import ValidationError
+
+from smart_desk.modules.profiles import Profile, ProfileCreate, ProfileUpdate
+
+
+def test_profile_accepts_snake_and_camel_case_and_serializes_aliases() -> None:
+    profile = Profile(
+        id="profile-" + "a" * 32,
+        name="  홍길동  ",
+        sittingHeightCm=80,
+        standing_height_cm=105.0,
+        ledColor="ff30a0",
+    )
+
+    assert profile.name == "홍길동"
+    assert profile.led_color == "FF30A0"
+    assert profile.model_dump() == {
+        "id": "profile-" + "a" * 32,
+        "name": "홍길동",
+        "sittingHeightCm": 80.0,
+        "standingHeightCm": 105.0,
+        "ledColor": "FF30A0",
+    }
+
+
+@pytest.mark.parametrize("height", [75, 75.0, 115, 115.0])
+def test_profile_height_boundaries_are_inclusive(height: float) -> None:
+    create = ProfileCreate(name="test", sittingHeightCm=height, standingHeightCm=height)
+
+    assert create.sitting_height_cm == float(height)
+
+
+@pytest.mark.parametrize(
+    "height",
+    [74.99, 115.01, True, False, "80", math.nan, math.inf, -math.inf],
+)
+def test_invalid_profile_heights_are_rejected(height: object) -> None:
+    with pytest.raises(ValidationError):
+        ProfileCreate(name="test", sittingHeightCm=height, standingHeightCm=100)
+
+
+@pytest.mark.parametrize("name", ["", "   ", "\t\n"])
+def test_blank_profile_name_is_rejected(name: str) -> None:
+    with pytest.raises(ValidationError):
+        ProfileCreate(name=name, sittingHeightCm=80, standingHeightCm=100)
+
+
+@pytest.mark.parametrize("led_color", ["12345", "GG0000", "#FF0000", 123456])
+def test_invalid_led_color_is_rejected(led_color: object) -> None:
+    with pytest.raises(ValidationError):
+        ProfileCreate(
+            name="test",
+            sittingHeightCm=80,
+            standingHeightCm=100,
+            ledColor=led_color,
+        )
+
+
+def test_create_rejects_unknown_fields_and_client_id() -> None:
+    with pytest.raises(ValidationError):
+        ProfileCreate.model_validate(
+            {
+                "id": "profile-" + "a" * 32,
+                "name": "test",
+                "sittingHeightCm": 80,
+                "standingHeightCm": 100,
+            }
+        )
+
+
+def test_update_distinguishes_empty_unset_and_nullable_led() -> None:
+    with pytest.raises(ValidationError):
+        ProfileUpdate()
+    with pytest.raises(ValidationError):
+        ProfileUpdate(name=None)
+    with pytest.raises(ValidationError):
+        ProfileUpdate(sittingHeightCm=None)
+    with pytest.raises(ValidationError):
+        ProfileUpdate(standingHeightCm=None)
+
+    update = ProfileUpdate(ledColor=None)
+    assert update.model_fields_set == {"led_color"}
+    assert update.model_dump(exclude_unset=True) == {"ledColor": None}

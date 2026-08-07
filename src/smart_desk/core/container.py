@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
     from smart_desk.modules.desk.relay import RelayClient
     from smart_desk.modules.mqtt.client import MqttClient
+    from smart_desk.modules.profiles.repository import ProfileRepository
+    from smart_desk.storage import SQLiteDatabase
 
 
 class LifecycleResource(Protocol):
@@ -45,6 +47,8 @@ class AppContainer:
     settings: Settings
     runtime: RuntimeState
     task_manager: TaskManager
+    database: SQLiteDatabase
+    profiles: ProfileRepository
     mqtt: MqttClient
     height_monitor: DeskHeightMonitor
     relay: RelayClient

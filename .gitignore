@@ -14,4 +14,5 @@ build/
 .vscode/
 .scratch/
 .pio/
+/data/
 firmware/relay-controller/include/secrets.h

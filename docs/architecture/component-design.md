@@ -245,6 +245,29 @@ WebRTC/HLS, `RtspFrameSource`는 RTSP로 읽는다. 초기 구현에는
 
 ## 애플리케이션 컴포넌트
 
+### `SQLiteDatabase`와 `ProfileRepository`
+
+`SQLiteDatabase`는 프로젝트 루트 기준 `data/smart_desk.db` 경로, version migration,
+connection 설정과 transaction만 담당한다. SQLite 동기 작업은 `asyncio.to_thread()`로
+실행하고 프로세스 안의 read/write를 하나의 lock으로 직렬화한다. 현재 version 1에는
+`profiles` 테이블 하나만 있으며 손상·새 version·schema 불일치 DB를 자동 수선하거나
+초기화하지 않는다.
+
+`ProfileRepository`는 `profiles` SQL과 row/Pydantic 변환을 소유한다. 상위 서비스는
+SQLite connection이나 schema에 접근하지 않고 아래 공개 CRUD만 사용한다.
+
+```python
+async def list_profiles() -> list[Profile]: ...
+async def get_profile(profile_id: str) -> Profile: ...
+async def create_profile(create: ProfileCreate) -> Profile: ...
+async def update_profile(profile_id: str, update: ProfileUpdate) -> Profile: ...
+async def delete_profile(profile_id: str) -> None: ...
+```
+
+부분 수정은 전달된 column만 같은 transaction에서 갱신하며 `ledColor: null`만
+명시적인 값 제거로 허용한다. repository는 lifecycle resource가 아니고 container가
+소유한 `SQLiteDatabase`를 생성자로 받는다.
+
 | 클래스 | 책임 |
 | --- | --- |
 | `ProfileRepository` | 프로필·높이·LED 설정의 읽기와 영속 저장 |
@@ -259,7 +282,7 @@ WebRTC/HLS, `RtspFrameSource`는 RTSP로 읽는다. 초기 구현에는
 
 | 클래스 | 핵심 필드 또는 메서드 | 역할 |
 | --- | --- | --- |
-| `ProfileRepository` | `get_profile()`, `save_profile()`, `delete_profile()` | 프로필의 읽기·검증·영속 저장을 한곳에서 수행한다. |
+| `ProfileRepository` | `list_profiles()`, `get_profile()`, `create_profile()`, `update_profile()`, `delete_profile()` | 프로필의 읽기·검증·SQLite 영속 저장을 한곳에서 수행한다. |
 | `DashboardService` | `get_status()`, `set_manual_control()`, `set_target()` | HTTP 요청을 유스케이스 호출로 바꾸고 화면용 통합 상태를 만든다. |
 | `AutomationService` | `evaluate()` | Vision·프로필·Desk snapshot을 읽어 목표 설정 또는 STOP 여부를 판단한다. |
 | `MqttClient` | `start()`, `stop()`, `publish()`, `register_handler()` | MQTT 연결과 토픽별 수신 handler 등록을 관리한다. 하드웨어 정책은 포함하지 않는다. |

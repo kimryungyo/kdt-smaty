@@ -1,6 +1,7 @@
 """FastAPI lifespan과 health API 통합 테스트."""
 
 import asyncio
+from pathlib import Path
 
 from httpx import ASGITransport, AsyncClient
 import pytest
@@ -8,12 +9,14 @@ import serial
 
 from smart_desk.application import create_application
 from smart_desk.bootstrap import build_container
-from smart_desk.config.settings import DashboardSettings, Settings
+from smart_desk.config.settings import DashboardSettings, Settings, StorageSettings
 from smart_desk.core.container import AppContainer, ResourceRegistration, get_container
 from smart_desk.core.runtime import ApplicationStatus, RuntimeState
 from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.desk.models import HeightStatus
 from smart_desk.modules.mqtt.client import MqttStartupError
+from smart_desk.modules.profiles import ProfileRepository
+from smart_desk.storage import SQLiteDatabase, StorageCorruptedError, StorageNotReadyError
 
 
 class FakeMqttClient:
@@ -62,6 +65,8 @@ class FakeDeskController(FakeHeightMonitor):
 def build_test_container(
     settings: Settings,
 ) -> tuple[AppContainer, FakeMqttClient, FakeHeightMonitor]:
+    database = SQLiteDatabase(settings.storage.database_path)
+    profiles = ProfileRepository(database)
     mqtt = FakeMqttClient()
     height_monitor = FakeHeightMonitor()
     desk = FakeDeskController()
@@ -69,10 +74,20 @@ def build_test_container(
         settings=settings,
         runtime=RuntimeState(),
         task_manager=TaskManager(),
+        database=database,
+        profiles=profiles,
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]
         desk=desk,  # type: ignore[arg-type]
+    )
+    container.register(
+        ResourceRegistration(
+            name="sqlite",
+            resource=database,
+            startup_order=5,
+            shutdown_order=5,
+        )
     )
     container.register(
         ResourceRegistration(
@@ -102,6 +117,8 @@ def build_test_container(
 
 
 def build_failing_test_container(settings: Settings) -> AppContainer:
+    database = SQLiteDatabase(settings.storage.database_path)
+    profiles = ProfileRepository(database)
     mqtt = FailingMqttClient()
     height_monitor = FakeHeightMonitor()
     desk = FakeDeskController()
@@ -109,10 +126,20 @@ def build_failing_test_container(settings: Settings) -> AppContainer:
         settings=settings,
         runtime=RuntimeState(),
         task_manager=TaskManager(),
+        database=database,
+        profiles=profiles,
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]
         desk=desk,  # type: ignore[arg-type]
+    )
+    container.register(
+        ResourceRegistration(
+            name="sqlite",
+            resource=database,
+            startup_order=5,
+            shutdown_order=5,
+        )
     )
     container.register(
         ResourceRegistration(
@@ -133,9 +160,10 @@ def build_failing_test_container(settings: Settings) -> AppContainer:
     return container
 
 
-async def test_health_endpoints_report_ready_during_lifespan() -> None:
+async def test_health_endpoints_report_ready_during_lifespan(tmp_path: Path) -> None:
     settings = Settings(
         environment="test",
+        storage=StorageSettings(database_path=tmp_path / "smart-desk.db"),
         dashboard=DashboardSettings(serve_frontend=False),
         _env_file=None,
     )
@@ -160,9 +188,10 @@ async def test_health_endpoints_report_ready_during_lifespan() -> None:
     assert height_monitor.stop_count == 1
 
 
-async def test_mqtt_startup_failure_prevents_application_start() -> None:
+async def test_mqtt_startup_failure_prevents_application_start(tmp_path: Path) -> None:
     settings = Settings(
         environment="test",
+        storage=StorageSettings(database_path=tmp_path / "smart-desk.db"),
         dashboard=DashboardSettings(serve_frontend=False),
         _env_file=None,
     )
@@ -174,13 +203,41 @@ async def test_mqtt_startup_failure_prevents_application_start() -> None:
             pass
 
     assert container.runtime.snapshot().status is ApplicationStatus.FAILED
+    with pytest.raises(StorageNotReadyError):
+        await container.database.read(lambda connection: None)
+
+
+async def test_sqlite_startup_failure_prevents_later_resources(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "smart-desk.db"
+    database_path.write_bytes(b"not sqlite")
+    settings = Settings(
+        environment="test",
+        storage=StorageSettings(database_path=database_path),
+        dashboard=DashboardSettings(serve_frontend=False),
+        _env_file=None,
+    )
+    container, mqtt, height_monitor = build_test_container(settings)
+    application = create_application(settings=settings, container=container)
+
+    with pytest.raises(StorageCorruptedError):
+        async with application.router.lifespan_context(application):
+            pass
+
+    assert container.runtime.snapshot().status is ApplicationStatus.FAILED
+    assert mqtt.start_count == 0
+    assert height_monitor.start_count == 0
+    assert database_path.read_bytes() == b"not sqlite"
 
 
 async def test_missing_arduino_does_not_prevent_application_start(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = Settings(
         environment="test",
+        storage=StorageSettings(database_path=tmp_path / "smart-desk.db"),
         dashboard=DashboardSettings(serve_frontend=False),
         serial={"reconnect_interval_seconds": 0.01},
         _env_file=None,

@@ -1,0 +1,116 @@
+"""프로필 저장과 외부 표현에 사용하는 Pydantic 모델이다."""
+
+from __future__ import annotations
+
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+PROFILE_ID_PATTERN = r"^profile-[0-9a-f]{32}$"
+LED_COLOR_PATTERN = re.compile(r"^[0-9A-Fa-f]{6}$")
+
+
+def _to_camel(field_name: str) -> str:
+    first, *rest = field_name.split("_")
+    return first + "".join(part.capitalize() for part in rest)
+
+
+class _ProfileModel(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=_to_camel,
+        extra="forbid",
+        serialize_by_alias=True,
+        validate_by_alias=True,
+        validate_by_name=True,
+    )
+
+    @field_validator("name", check_fields=False)
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("프로필 이름은 비어 있을 수 없습니다.")
+        return normalized
+
+    @field_validator("led_color", check_fields=False)
+    @classmethod
+    def normalize_led_color(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if LED_COLOR_PATTERN.fullmatch(value) is None:
+            raise ValueError("LED 색상은 6자리 hexadecimal 문자열이어야 합니다.")
+        return value.upper()
+
+
+class Profile(_ProfileModel):
+    """저장되어 server ID가 부여된 프로필이다."""
+
+    id: str = Field(strict=True, pattern=PROFILE_ID_PATTERN)
+    name: str = Field(strict=True)
+    sitting_height_cm: float = Field(
+        strict=True,
+        ge=75,
+        le=115,
+        allow_inf_nan=False,
+    )
+    standing_height_cm: float = Field(
+        strict=True,
+        ge=75,
+        le=115,
+        allow_inf_nan=False,
+    )
+    led_color: str | None = Field(strict=True)
+
+
+class ProfileCreate(_ProfileModel):
+    """새 프로필 생성에 필요한 사용자 입력이다."""
+
+    name: str = Field(strict=True)
+    sitting_height_cm: float = Field(
+        strict=True,
+        ge=75,
+        le=115,
+        allow_inf_nan=False,
+    )
+    standing_height_cm: float = Field(
+        strict=True,
+        ge=75,
+        le=115,
+        allow_inf_nan=False,
+    )
+    led_color: str | None = Field(default=None, strict=True)
+
+
+class ProfileUpdate(_ProfileModel):
+    """명시적으로 전달된 프로필 필드만 변경하는 입력이다."""
+
+    name: str | None = Field(default=None, strict=True)
+    sitting_height_cm: float | None = Field(
+        default=None,
+        strict=True,
+        ge=75,
+        le=115,
+        allow_inf_nan=False,
+    )
+    standing_height_cm: float | None = Field(
+        default=None,
+        strict=True,
+        ge=75,
+        le=115,
+        allow_inf_nan=False,
+    )
+    led_color: str | None = Field(default=None, strict=True)
+
+    @model_validator(mode="after")
+    def require_valid_changes(self) -> ProfileUpdate:
+        if not self.model_fields_set:
+            raise ValueError("변경할 프로필 필드를 하나 이상 전달해야 합니다.")
+
+        nullable_fields = {"name", "sitting_height_cm", "standing_height_cm"}
+        for field_name in self.model_fields_set & nullable_fields:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} 필드는 null일 수 없습니다.")
+        return self

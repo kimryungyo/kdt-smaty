@@ -9,6 +9,7 @@
 smart-desk-fin/
 ├── src/smart_desk/       Python FastAPI 애플리케이션
 ├── frontend/             React + TypeScript + Vite 대시보드
+├── data/                 로컬 SQLite runtime 데이터(Git 제외)
 ├── infra/                향후 MediaMTX·FFmpeg 실행 설정
 ├── tests/                Python 단위·통합 테스트
 ├── docs/                 설계와 구현 문서
@@ -28,8 +29,8 @@ smart-desk-fin/
 | --- | --- |
 | `README.md` | 개발 환경 설치, FastAPI·React 실행, 운영 build와 전체 검증 명령을 안내한다. |
 | `pyproject.toml` | Python 버전, FastAPI·Pydantic·aiomqtt 의존성, 개발 의존성과 pytest 설정을 관리한다. |
-| `.env.example` | 서버, MQTT, 책상 범위, 카메라, React 정적 제공 환경변수의 이름과 기본 예시를 제공한다. |
-| `.gitignore` | `.env`, 가상환경, Python cache, React `node_modules`·`dist` 등 생성 파일을 제외한다. |
+| `.env.example` | 서버, MQTT, 책상 범위, 카메라, SQLite와 React 정적 제공 환경변수의 이름과 기본 예시를 제공한다. |
+| `.gitignore` | `.env`, 가상환경, Python cache, SQLite `data/`, React `node_modules`·`dist` 등 생성 파일을 제외한다. |
 
 로컬 실행 중 생성되는 `.venv/`, `.git/`, `.pytest_cache/`, `*.egg-info/`는
 애플리케이션 소스가 아니다.
@@ -84,6 +85,18 @@ Desk나 Vision 같은 기능과 무관한 프로세스 공통 실행 기반이�
 현재 core 골조를 더 세분화하거나 별도 DI framework, process supervisor,
 분산 상태 저장소를 추가하지 않는다. 실제 기능 구현에서 반복되는 책임이 확인될
 때만 새 공통 계층을 만든다.
+
+### `storage/`
+
+프로필과 향후 기능이 함께 사용할 로컬 SQLite 실행 기반이다.
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/storage/__init__.py` | `SQLiteDatabase`와 storage 오류를 공개한다. |
+| `src/smart_desk/storage/sqlite.py` | 프로젝트 루트 기준 경로, connection, transaction, version 1 migration과 schema 검증을 관리한다. |
+
+각 operation은 worker thread에서 connection 하나를 열고 닫는다. SQL table 의미는
+repository가 소유하며 storage 계층에는 범용 repository나 connection pool을 두지 않는다.
 
 ### `api/`
 
@@ -149,6 +162,17 @@ Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표
 순서 30으로 MQTT 10과 monitor 20 뒤 시작하고 둘보다 먼저 final STOP을 보낸다.
 `RelayClient`는 독립 runner가 없으며 command 발행 결과로 상태를 추정하지 않는다.
 
+### `modules/profiles/`
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/profiles/__init__.py` | 프로필 공개 모델·오류·repository와 `get_profiles()`를 노출한다. |
+| `src/smart_desk/modules/profiles/models.py` | camelCase alias, 높이·이름·LED 검증과 update unset/null 의미를 정의한다. |
+| `src/smart_desk/modules/profiles/repository.py` | `profiles` SQL, server ID 생성과 CRUD transaction을 구현한다. |
+
+현재 프로필은 이름, 앉은·선 높이와 선택 LED 색상을 SQLite에 저장한다. Dashboard API와
+화면은 아직 이 repository에 연결되지 않았다.
+
 ### `firmware/relay-controller/`
 
 ESP32-C3의 GPIO 3/4 active-high relay를 실행하는 FIN 전용 PlatformIO 프로젝트다.
@@ -200,6 +224,9 @@ frontend/src/
 | `tests/unit/test_container.py` | container 설치 전 접근, 동일 인스턴스 반환과 중복 설치 차단을 검증한다. |
 | `tests/unit/test_lifecycle.py` | 공유 자원의 명시적 시작·안전 종료 순서를 검증한다. |
 | `tests/unit/test_task_manager.py` | async 작업 중복 차단과 critical 실패 callback을 검증한다. |
+| `tests/unit/test_sqlite_database.py` | SQLite migration, schema, lifecycle, transaction과 cancellation을 검증한다. |
+| `tests/unit/test_profile_models.py` | 프로필 alias, 범위, 정규화와 부분 수정 입력을 검증한다. |
+| `tests/unit/test_profile_repository.py` | 임시 SQLite 파일에서 프로필 CRUD, 충돌, 영속성과 동시 부분 수정을 검증한다. |
 | `tests/unit/test_mqtt_client.py` | broker 없이 MQTT 연결·발행·수신·재연결과 입력 검증을 확인한다. |
 | `tests/unit/test_serial_source.py` | 실제 장치 없이 시리얼 open·timeout·단절·재연결·취소·종료를 검증한다. |
 | `tests/unit/test_segment_decoder.py` | 완성 frame, mask·point·fresh와 73~118cm 경계를 검증한다. |
@@ -244,7 +271,7 @@ src/smart_desk/modules/
 ├── desk/          높이 해석·ESP32 명령과 목표·수동 제어 (구현 완료)
 ├── vision/        RTSP 프레임, 전처리, 얼굴·자세·재실 판정
 ├── automation/    Vision·프로필을 이용한 목표 높이 결정
-├── profiles/      프로필 모델과 영속 저장
+├── profiles/      프로필 모델과 SQLite 영속 저장 (구현 완료)
 └── wled/          선택적 LED 장치 연동
 ```
 

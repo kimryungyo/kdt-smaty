@@ -10,7 +10,9 @@ from smart_desk.modules.desk.relay import RelayClient
 from smart_desk.modules.desk.segment import SegmentDecoder
 from smart_desk.modules.mqtt.client import MqttClient
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
+from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.serial.source import SerialLineSource
+from smart_desk.storage import SQLiteDatabase
 
 
 def build_container(settings: Settings) -> AppContainer:
@@ -22,6 +24,8 @@ def build_container(settings: Settings) -> AppContainer:
             f"필수 작업 '{name}'이(가) 종료되었습니다: {error}"
         )
     )
+    database = SQLiteDatabase(settings.storage.database_path)
+    profiles = ProfileRepository(database)
     mqtt = MqttClient(settings.mqtt, task_manager)
     serial_source = SerialLineSource(settings.serial)
     decoder = SegmentDecoder(settings.desk)
@@ -48,10 +52,20 @@ def build_container(settings: Settings) -> AppContainer:
         settings=settings,
         runtime=runtime,
         task_manager=task_manager,
+        database=database,
+        profiles=profiles,
         mqtt=mqtt,
         height_monitor=height_monitor,
         relay=relay,
         desk=desk,
+    )
+    container.register(
+        ResourceRegistration(
+            name="sqlite",
+            resource=database,
+            startup_order=5,
+            shutdown_order=5,
+        )
     )
     container.register(
         ResourceRegistration(
