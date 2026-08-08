@@ -1,0 +1,355 @@
+:root {
+  color-scheme: light;
+  --white: #ffffff;
+  --background: #f7f8f6;
+  --text: #1c1f1d;
+  --muted: #777c78;
+  --line: #e6e9e5;
+  --soft: #f1f3f0;
+  --button: #202421;
+  --focus: rgba(32, 36, 33, 0.09);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--text);
+  background: var(--background);
+  font-family: "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(1040px, calc(100% - 48px));
+  height: 82px;
+  margin: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+}
+
+.logo-mark {
+  width: 18px;
+  height: 18px;
+  border: 5px solid var(--text);
+  border-radius: 50%;
+}
+
+.progress {
+  color: #989c98;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+main {
+  width: min(720px, calc(100% - 48px));
+  margin: auto;
+  padding: 80px 0 110px;
+}
+
+.page-heading {
+  margin-bottom: 42px;
+  text-align: center;
+}
+
+.step-label {
+  margin: 0 0 14px;
+  color: #909590;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.17em;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: clamp(2rem, 6vw, 3.15rem);
+  line-height: 1.18;
+  letter-spacing: -0.055em;
+}
+
+.page-heading > p:last-child {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+.profile-form {
+  padding: 46px;
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background: var(--white);
+  box-shadow: 0 20px 70px rgba(29, 35, 31, 0.05);
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid #d8dbd7;
+  border-radius: 10px;
+  background: var(--white);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.action-button:hover {
+  border-color: #afb4af;
+  background: #fafbfa;
+}
+
+.action-button.primary {
+  border-color: var(--button);
+  color: var(--white);
+  background: var(--button);
+}
+
+.action-button.primary:hover {
+  background: #050605;
+}
+
+.action-button.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.action-button.ghost:hover {
+  background: rgba(0, 0, 0, .04);
+}
+
+.action-button:disabled {
+  color: #aeb2ae;
+  background: #e8eae7;
+  border-color: #e8eae7;
+  cursor: not-allowed;
+}
+
+.status-hint {
+  min-height: 16px;
+  margin: 10px 0 0;
+  color: #b6493a;
+  font-size: .72rem;
+}
+
+.face-enrollment-panel {
+  margin: 32px 0 -6px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--soft);
+  text-align: center;
+}
+
+.vision-preview-frame {
+  width: 100%;
+  margin: 18px auto 0;
+  overflow: hidden;
+  border: 1.5px dashed #d3d7d2;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.vision-preview-frame img {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  max-height: 420px;
+  object-fit: contain;
+  background: #151815;
+}
+
+.vision-preview-frame p,
+.face-enrollment-guide {
+  margin: 0;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.vision-preview-frame p { padding: 10px 14px; }
+
+.face-enrollment-guide { margin: 14px 0 0; }
+
+.face-enrollment-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.divider {
+  height: 1px;
+  margin: 40px 0;
+  background: var(--line);
+}
+
+.fields {
+  display: grid;
+  gap: 26px;
+}
+
+.field > span {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.field input {
+  width: 100%;
+  height: 54px;
+  padding: 0 18px;
+  border: 1px solid #dee2dd;
+  border-radius: 13px;
+  outline: none;
+  color: var(--text);
+  background: #fbfcfb;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.field input::placeholder {
+  color: #b0b4b0;
+}
+
+.field input:focus {
+  border-color: #858a86;
+  background: var(--white);
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
+.input-unit {
+  position: relative;
+}
+
+.input-unit input {
+  padding-right: 62px;
+}
+
+.input-unit > span {
+  position: absolute;
+  top: 50%;
+  right: 19px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  transform: translateY(-50%);
+}
+
+.field small {
+  display: block;
+  margin-top: 8px;
+  color: #9a9e9a;
+  font-size: 0.7rem;
+}
+
+.form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 42px;
+}
+
+#formMessage {
+  max-width: 300px;
+  margin: 0;
+  color: #969a96;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+#nextButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-width: 132px;
+  height: 52px;
+  padding: 0 21px;
+  border: 0;
+  border-radius: 13px;
+  color: var(--white);
+  background: var(--button);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+#nextButton:hover:not(:disabled) {
+  background: #080908;
+  transform: translateY(-1px);
+}
+
+#nextButton:disabled {
+  color: #aeb2ae;
+  background: #e8eae7;
+  cursor: not-allowed;
+}
+
+#nextButton svg {
+  width: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+@media (max-width: 600px) {
+  .site-header,
+  main {
+    width: min(100% - 32px, 720px);
+  }
+
+  main {
+    padding-top: 56px;
+  }
+
+  .profile-form {
+    padding: 30px 22px;
+    border-radius: 20px;
+  }
+
+  .form-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #formMessage {
+    max-width: none;
+  }
+
+  #nextButton {
+    width: 100%;
+  }
+}
