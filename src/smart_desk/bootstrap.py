@@ -4,6 +4,7 @@ from smart_desk.config.settings import Settings
 from smart_desk.core.container import AppContainer, ResourceRegistration
 from smart_desk.core.runtime import RuntimeState
 from smart_desk.core.task_manager import TaskManager
+from smart_desk.modules.dashboard.service import DashboardService
 from smart_desk.modules.desk.controller import DeskController
 from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
 from smart_desk.modules.desk.relay import RelayClient
@@ -43,6 +44,7 @@ def build_container(settings: Settings) -> AppContainer:
         settings.desk,
         task_manager,
     )
+    dashboard = DashboardService(desk, profiles)
     mqtt.register_handler(
         ESP32_STATUS_TOPIC,
         relay.handle_status,
@@ -54,6 +56,7 @@ def build_container(settings: Settings) -> AppContainer:
         task_manager=task_manager,
         database=database,
         profiles=profiles,
+        dashboard=dashboard,
         mqtt=mqtt,
         height_monitor=height_monitor,
         relay=relay,

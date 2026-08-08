@@ -5,6 +5,7 @@ from smart_desk.core.container import AppContainer, ResourceRegistration
 from smart_desk.core.lifecycle import shutdown_application, start_application
 from smart_desk.core.runtime import ApplicationStatus, RuntimeState
 from smart_desk.core.task_manager import TaskManager
+from smart_desk.modules.dashboard import DashboardService
 from smart_desk.modules.profiles import ProfileRepository
 
 
@@ -29,12 +30,14 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     mqtt = FakeResource("mqtt", events)
     height_monitor = FakeResource("desk", events)
     desk_controller = FakeResource("controller", events)
+    dashboard = DashboardService(desk_controller, profiles)  # type: ignore[arg-type]
     container = AppContainer(
         settings=Settings(environment="test", _env_file=None),
         runtime=RuntimeState(),
         task_manager=TaskManager(),
         database=database,  # type: ignore[arg-type]
         profiles=profiles,
+        dashboard=dashboard,
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]

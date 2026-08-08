@@ -13,6 +13,7 @@ from smart_desk.config.settings import DashboardSettings, Settings, StorageSetti
 from smart_desk.core.container import AppContainer, ResourceRegistration, get_container
 from smart_desk.core.runtime import ApplicationStatus, RuntimeState
 from smart_desk.core.task_manager import TaskManager
+from smart_desk.modules.dashboard import DashboardService
 from smart_desk.modules.desk.models import HeightStatus
 from smart_desk.modules.mqtt.client import MqttStartupError
 from smart_desk.modules.profiles import ProfileRepository
@@ -70,12 +71,14 @@ def build_test_container(
     mqtt = FakeMqttClient()
     height_monitor = FakeHeightMonitor()
     desk = FakeDeskController()
+    dashboard = DashboardService(desk, profiles)  # type: ignore[arg-type]
     container = AppContainer(
         settings=settings,
         runtime=RuntimeState(),
         task_manager=TaskManager(),
         database=database,
         profiles=profiles,
+        dashboard=dashboard,
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]
@@ -122,12 +125,14 @@ def build_failing_test_container(settings: Settings) -> AppContainer:
     mqtt = FailingMqttClient()
     height_monitor = FakeHeightMonitor()
     desk = FakeDeskController()
+    dashboard = DashboardService(desk, profiles)  # type: ignore[arg-type]
     container = AppContainer(
         settings=settings,
         runtime=RuntimeState(),
         task_manager=TaskManager(),
         database=database,
         profiles=profiles,
+        dashboard=dashboard,
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
         relay=object(),  # type: ignore[arg-type]
@@ -291,11 +296,14 @@ async def test_react_build_and_spa_fallback_are_served(tmp_path) -> None:
             "/dashboard/settings",
             headers={"Accept": "text/html"},
         )
+        api_response = await client.get("/api/status")
 
     assert root_response.status_code == 200
     assert "SMART DESK TEST" in root_response.text
     assert fallback_response.status_code == 200
     assert "SMART DESK TEST" in fallback_response.text
+    assert api_response.status_code == 503
+    assert api_response.headers["content-type"].startswith("application/json")
 
 
 def test_production_requires_frontend_build(tmp_path) -> None:

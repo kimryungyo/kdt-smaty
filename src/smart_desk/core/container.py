@@ -14,6 +14,7 @@ from smart_desk.core.task_manager import TaskManager
 
 if TYPE_CHECKING:
     from smart_desk.config.settings import Settings
+    from smart_desk.modules.dashboard.service import DashboardService
     from smart_desk.modules.desk.controller import DeskController
     from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
     from smart_desk.modules.desk.relay import RelayClient
@@ -49,6 +50,7 @@ class AppContainer:
     task_manager: TaskManager
     database: SQLiteDatabase
     profiles: ProfileRepository
+    dashboard: DashboardService
     mqtt: MqttClient
     height_monitor: DeskHeightMonitor
     relay: RelayClient
