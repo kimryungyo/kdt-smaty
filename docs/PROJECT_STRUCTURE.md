@@ -170,8 +170,16 @@ Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표
 | `src/smart_desk/modules/profiles/models.py` | camelCase alias, 높이·이름·LED 검증과 update unset/null 의미를 정의한다. |
 | `src/smart_desk/modules/profiles/repository.py` | `profiles` SQL, server ID 생성과 CRUD transaction을 구현한다. |
 
-현재 프로필은 이름, 앉은·선 높이와 선택 LED 색상을 SQLite에 저장한다. Dashboard API와
-화면은 아직 이 repository에 연결되지 않았다.
+현재 프로필은 이름, 앉은·선 높이와 선택 LED 색상을 SQLite에 저장하며,
+`DashboardService`와 `/api/profiles`가 공개 CRUD만 사용한다.
+
+### `modules/dashboard/`
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/dashboard/models.py` | Desk snapshot의 camelCase HTTP 응답과 control·target 요청 모델을 정의한다. |
+| `src/smart_desk/modules/dashboard/service.py` | Desk 명령과 ProfileRepository CRUD를 유스케이스 단위로 위임한다. |
+| `src/smart_desk/modules/dashboard/__init__.py` | `DashboardService`와 `get_dashboard()` accessor를 노출한다. |
 
 ### `firmware/relay-controller/`
 
@@ -194,8 +202,13 @@ strict MQTT parser, height session arming·lease, 방향 경계와 IRAM hardware
 | `frontend/tsconfig.node.json` | `vite.config.ts`가 사용하는 Node.js 쪽 TypeScript 설정을 관리한다. |
 | `frontend/index.html` | Vite build의 HTML 진입점과 React root 요소를 제공한다. |
 | `frontend/src/main.tsx` | React root를 생성하고 전역 CSS와 최상위 `App`을 연결한다. |
-| `frontend/src/App.tsx` | 현재 대시보드 최상위 화면과 FastAPI readiness 조회 골조를 제공한다. |
-| `frontend/src/styles.css` | 현재 대시보드의 전역 스타일과 기본 화면 스타일을 정의한다. |
+| `frontend/src/App.tsx` | Desk polling, stale/error 표시와 desk·profile 화면 조합을 담당한다. |
+| `frontend/src/api/dashboard.ts` | `/api` 요청 함수와 정확한 TypeScript 응답 타입을 정의한다. |
+| `frontend/src/config.ts` | UI가 사용하는 75~115cm 사용자 제어 범위를 한곳에 정의한다. |
+| `frontend/src/features/desk/DeskPanel.tsx` | 상태·목표와 HOLD/STOP pointer·keyboard cleanup을 제공한다. |
+| `frontend/src/features/profiles/ProfilesPanel.tsx` | profile 목록·생성·수정·hard delete 확인을 제공한다. |
+| `frontend/src/features/debug/DebugPanel.tsx` | 기존 Vision debug 화면 구조를 미연결 placeholder로 유지한다. |
+| `frontend/src/styles.css` | 대시보드의 전역·component 스타일을 정의한다. |
 | `frontend/src/vite-env.d.ts` | CSS·정적 asset import에 필요한 Vite TypeScript 타입을 연결한다. |
 
 `frontend/node_modules/`는 `npm ci`가 생성하는 로컬 의존성이고,
@@ -233,6 +246,8 @@ frontend/src/
 | `tests/unit/test_height_monitor.py` | 높이 snapshot, 신선도, source 오류와 retained 발행을 검증한다. |
 | `tests/unit/test_relay_client.py` | ESP32 상태 검증, pulse·STOP JSON과 MQTT 오류 전파를 확인한다. |
 | `tests/unit/test_desk_controller.py` | 목표·fine pulse·HOLD·watchdog·STOP race와 오류 중단을 검증한다. |
+| `tests/unit/test_dashboard_service.py` | dashboard snapshot 변환과 Desk 명령 위임을 검증한다. |
+| `tests/integration/test_dashboard_api.py` | Dashboard HTTP contract, 오류 상태와 SQLite profile CRUD를 검증한다. |
 | `tests/integration/test_application.py` | FastAPI lifespan, health API, React 정적 제공과 SPA fallback을 검증한다. |
 | `tests/integration/test_mqtt_emqx.py` | 로컬 EMQX에서 실제 QoS 1 왕복과 재연결·재구독을 선택적으로 검증한다. |
 

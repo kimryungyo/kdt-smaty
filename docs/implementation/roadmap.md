@@ -28,9 +28,9 @@ Python·fake 검증과 firmware clean build는 완료했다. relay 분리 board 
 
 ## 2단계: Dashboard와 프로필
 
-- `ProfileRepository`, `DashboardService`, FastAPI 라우트를 구현한다.
-- 상태 조회, 수동 제어, 목표 설정, 프로필 CRUD를 연결한다.
-- 기존 HTTP API를 보존할지 새 API로 정리할지 이 단계에서 확정하고 계약 테스트를 만든다.
+- `ProfileRepository`, `DashboardService`, FastAPI 라우트를 구현했다.
+- 상태 조회, 수동 제어, 목표 설정, 프로필 CRUD를 연결했다.
+- `/api` 계약과 계약 테스트는 [Dashboard HTTP API](../api-dashboard.md)에 확정했다.
 
 완료 조건: 브라우저에서 실제 높이·Desk 상태를 보고 안전한 수동/목표 제어를 할 수 있다.
 
