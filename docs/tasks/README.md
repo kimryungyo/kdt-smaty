@@ -15,7 +15,7 @@
 | 02 | [책상 I/O 어댑터](02-desk-io.md) | 3~5일 | 완료 |
 | 03 | [책상 제어](03-desk-control.md) | 5~7일 | 코드·build 완료, 실물 검증 대기 |
 | 04 | [대시보드와 프로필](04-dashboard-and-profiles.md) | 4~6일 | 코드·build 완료, 실물 HOLD 검증 대기 |
-| 05 | [MediaMTX 영상 인프라](05-media-pipeline.md) | 3~4일 | 대기 |
+| 05 | [카메라 발행과 최신 프레임](05-media-pipeline.md) | 2~3일 | 대기 |
 | 06 | [Vision 파이프라인](06-vision-pipeline.md) | 8~12일 | 대기 |
 | 07 | [자동화와 외부 장치](07-automation.md) | 5~7일 | 대기 |
 | 08 | [통합·실물 검증](08-system-validation.md) | 4~5일 | 대기 |
@@ -39,7 +39,8 @@
   보관하지 않으며 기존 ESP32 계약을 먼저 보존한다.
 - 실제 책상 이동은 가짜 어댑터 테스트와 STOP 검증을 통과한 뒤 제한된 범위에서만
   수행한다.
-- 물리 카메라는 FFmpeg가 단독으로 열고 Python에는 MediaMTX 업로더를 만들지 않는다.
+- 물리 카메라는 `CameraPublisher`가 실행한 FFmpeg만 열고 `RtspFrameSource`는
+  MediaMTX RTSP만 읽는다. Python에는 MediaMTX 업로더를 만들지 않는다.
 - 작업을 완료하면 해당 문서의 체크박스와 상태 표를 함께 갱신한다.
 
 ## 문서 관계

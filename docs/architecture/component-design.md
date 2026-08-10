@@ -171,41 +171,59 @@ class DeskController:
 
 ## 영상 컴포넌트
 
+### `CameraPublisher`
+
+물리 카메라 하나를 FFmpeg 자식 process 하나로 열어 호스트 MediaMTX의 고정 RTSP
+경로에 발행한다. 사용자 카메라와 자세 카메라는 같은 클래스를 각각 한 번 생성한다.
+
+```python
+class CameraPublisher:
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    def is_running(self) -> bool: ...
+```
+
+`start()`는 인자 목록과 `shell=False`로 `Popen`을 실행한다. `stop()`은 자신이 만든
+process에만 `terminate`, 제한 시간 `wait`, 필요 시 `kill`을 적용한다. 여러
+publisher를 감싸는 manager, factory와 별도 supervisor는 두지 않는다.
+
 ### `RtspFrameSource`
 
 MediaMTX의 카메라 경로 하나에 연결해 재연결과 최신 프레임 수집을 담당한다.
-물리 웹캠은 외부 FFmpeg publisher가 단독으로 열며 Python은 `/dev/video*`를
-직접 열지 않는다. 프레임은 `FrameSnapshot` 형태로 보관하며 `image`,
-`captured_at`, `sequence`를 포함한다.
+물리 웹캠은 `CameraPublisher`가 실행한 FFmpeg만 열며 `RtspFrameSource`는
+`/dev/video*`를 직접 열지 않는다. 최신 프레임은 이미지와 `time.monotonic()`
+캡처 시각의 튜플로 보관한다.
 
 ```python
 class RtspFrameSource:
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
-    def get_latest_frame(self) -> FrameSnapshot | None: ...
-    def get_snapshot(self) -> CameraSnapshot: ...
+    def get_latest_frame(self) -> tuple[np.ndarray, float] | None: ...
+    def is_connected(self) -> bool: ...
+    def get_last_error(self) -> str | None: ...
 ```
 
 | 필드 또는 메서드 | 역할 |
 | --- | --- |
-| `latest_frame` | 가장 최근에 캡처한 프레임 snapshot이다. 이전 프레임은 보관하지 않는다. |
-| `camera_status` | RTSP 연결, 재연결 중, 오류 상태를 표시한다. |
+| `latest_frame` | 가장 최근 이미지와 캡처 시각이다. 이전 프레임은 보관하지 않는다. |
 | `start()` | RTSP 읽기 작업을 시작한다. MediaMTX 또는 publisher 연결이 끊기면 정해진 정책으로 재연결한다. |
-| `stop()` | RTSP 읽기 작업을 중지하고 스트림 연결을 해제한다. 외부 FFmpeg와 MediaMTX는 종료하지 않는다. |
-| `get_latest_frame()` | 최신 프레임과 캡처 시각·순번을 반환한다. 아직 프레임이 없으면 `None`이다. |
-| `get_snapshot()` | 스트림 이름·연결 상태·최신 프레임 시각·오류를 반환한다. |
+| `stop()` | RTSP 읽기 thread를 중지하고 스트림 연결을 해제한다. publisher와 MediaMTX는 종료하지 않는다. |
+| `get_latest_frame()` | 최신 이미지와 캡처 시각을 반환한다. 아직 프레임이 없거나 단절되면 `None`이다. |
+| `is_connected()` | 현재 reader 연결 여부를 반환한다. |
+| `get_last_error()` | 마지막 연결·read 오류 문자열 또는 `None`을 반환한다. |
 
 사용자 카메라와 자세 카메라는 같은 클래스를 각각 한 번 생성한다. 프레임을
 누적하지 않고 최신 프레임 하나만 교체하며 소비자는 반환된 이미지를 수정하지
-않는다.
+않는다. `FrameSnapshot`, `CameraSnapshot`과 `FrameSource` Protocol은 실제 소비
+요구가 생길 때까지 만들지 않는다.
 
 ### FFmpeg와 MediaMTX
 
-FFmpeg publisher와 MediaMTX는 Python 컴포넌트가 아니다. 카메라별 FFmpeg
-프로세스가 물리 장치를 열어 MediaMTX RTSP 경로로 발행하고, React는
-WebRTC/HLS, `RtspFrameSource`는 RTSP로 읽는다. 초기 구현에는
-`MediaMtxUploader`, MediaMTX singleton 또는 Python 프레임 업로드 메서드를
-추가하지 않는다.
+FFmpeg는 `CameraPublisher`가 관리하는 FastAPI 자식 process이고, MediaMTX는 이미
+호스트에서 실행 중인 외부 인프라다. FastAPI lifecycle은 자신의 FFmpeg만
+시작·종료하고 MediaMTX는 건드리지 않는다. 초기 구현에는 Docker·Compose,
+`MediaMtxUploader`, MediaMTX client 또는 Python 프레임 업로드 메서드를 추가하지
+않는다.
 
 ### `FramePreprocessor`
 

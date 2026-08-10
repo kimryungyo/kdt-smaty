@@ -22,7 +22,8 @@ SMART DESK FIN은 2~3개월 안에 실제 장치를 연결해 시연하는 소�
 
 - Python 애플리케이션은 한 장비에서 단일 프로세스·Uvicorn worker 하나로 실행한다.
 - FastAPI, MQTT handler, Desk와 Vision 서비스는 같은 프로세스의 객체다.
-- EMQX, MediaMTX와 FFmpeg publisher만 외부 인프라 프로세스로 실행한다.
+- EMQX와 MediaMTX는 외부 인프라 프로세스로 실행한다. FFmpeg publisher는
+  FastAPI가 카메라별 `Popen` 자식 프로세스로 시작·종료한다.
 - MQTT는 신뢰하는 로컬 네트워크에서 인증 없이 사용한다.
 - 브라우저는 FastAPI와 MediaMTX에 연결하며 MQTT broker에 직접 연결하지 않는다.
 - 물리 책상과 카메라 수는 현재 요구사항에 필요한 고정된 소수로 본다.
@@ -42,7 +43,7 @@ SMART DESK FIN은 2~3개월 안에 실제 장치를 연결해 시연하는 소�
 | 상태 전달 | 단순 값은 property·메서드, 실제 복합 상태만 snapshot | 모든 클래스의 관성적인 snapshot DTO |
 | 설정 | Pydantic Settings와 `.env` | 동적 설정 서버, 관리자 설정 UI |
 | 영속 저장 | 작은 JSON 파일 또는 필요한 최소 저장 방식 | 요구가 없는 DB·ORM 계층 |
-| 영상 | FFmpeg → MediaMTX, Python RTSP reader | Python 프레임 uploader |
+| 영상 | Python `Popen` FFmpeg → 기존 MediaMTX → Python RTSP reader | Docker·Python 프레임 uploader |
 | 테스트 대역 | 외부 경계의 작은 Protocol·fake | 모든 클래스의 interface 계층 |
 
 ## 복잡도를 추가할 수 있는 조건

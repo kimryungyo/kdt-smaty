@@ -28,8 +28,8 @@ SQLite operation을 닫는다.
 
 - Uvicorn worker는 하나만 사용한다. 별도 process lock이나 전용 supervisor는 두지 않는다.
 - HTTP·MQTT·책상 제어의 I/O 동시성은 같은 프로세스의 `asyncio` task로 처리한다.
-- RTSP 프레임 읽기·YOLO처럼 blocking 또는 연산이 무거운 작업만 전용 thread나
-  `asyncio.to_thread()`로 넘긴다.
+- FFmpeg는 카메라별 `Popen` 자식 process로 실행하고, RTSP 프레임 읽기·YOLO처럼
+  blocking 또는 연산이 무거운 작업만 전용 thread나 `asyncio.to_thread()`로 넘긴다.
 - FastAPI 의존성 주입 framework를 추가하지 않고 route 안에서 `get_*()`를 호출한다.
 - 설정은 시작 시 한 번 읽으며 실행 중 갱신 기능을 만들지 않는다.
 
@@ -92,9 +92,9 @@ FastAPI lifespan에서 컨테이너를 시작하고 종료한다. 개별 장기 
 `TaskManager`에 이름과 critical 여부를 지정해 등록한다.
 
 ```text
-사전 인프라: EMQX → MediaMTX → 카메라별 FFmpeg publisher
-애플리케이션 시작: 설정 → SQLite 검증 → MQTT → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → RTSP 입력 → Vision → API 제공
-애플리케이션 종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → MQTT/시리얼/RTSP 해제 → SQLite 종료
+사전 인프라: EMQX → 호스트 MediaMTX
+애플리케이션 시작: 설정 → SQLite 검증 → MQTT → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → 카메라별 FFmpeg → RTSP 최신 프레임 입력 → Vision → API 제공
+애플리케이션 종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → RTSP reader 종료 → FFmpeg 종료 → MQTT/시리얼 해제 → SQLite 종료
 ```
 
 초기화 실패 시 HTTP 서버만 남긴 채 제어 루프를 계속 실행하지 않는다. 특히
@@ -112,17 +112,18 @@ SQLite의 동기 API는 각 operation마다 `asyncio.to_thread()`로 event loop 
 | --- | --- | --- |
 | MQTT 수신 | async 네트워크 루프 | 서비스/장치 상태 |
 | 높이 수신 | async 시리얼 또는 전용 thread | `HeightSnapshot` |
-| RTSP 프레임 수신 | 전용 thread 또는 blocking I/O 어댑터 | `FrameSnapshot` |
+| 카메라 발행 | 카메라별 FFmpeg `Popen` 자식 process | 실행 여부 |
+| RTSP 프레임 수신 | 카메라별 전용 thread | 최신 `(image, captured_at)` 또는 `None` |
 | 전처리 | async 주기 작업 | 전처리 프레임 |
 | YOLO·얼굴 추론 | `asyncio.to_thread()` 또는 executor | detector 결과 |
 | Desk 제어 | async 주기 작업 | `DeskSnapshot` |
 | 자동화 | 상태 변경 이벤트 또는 짧은 주기 작업 | 자동화 상태 |
 
-OpenCV 또는 FFmpeg 기반 RTSP `read()`와 YOLO 추론을 이벤트 루프에서 직접
-실행하면 HTTP 요청과 STOP 처리가 늦어질 수 있다. RTSP 읽기는 카메라별 전용
-thread, 추론은 executor로 넘기고 제어 루프는 짧게 끝나도록 유지한다. 물리
-웹캠은 외부 FFmpeg publisher가 소유하므로 Python 카메라 객체의 종료가 장치를
-직접 해제하지는 않는다.
+OpenCV RTSP `read()`와 YOLO 추론을 이벤트 루프에서 직접 실행하면 HTTP 요청과
+STOP 처리가 늦어질 수 있다. RTSP 읽기는 카메라별 전용 thread, 추론은 executor로
+넘기고 제어 루프는 짧게 끝나도록 유지한다. 물리 웹캠은 `CameraPublisher`가 실행한
+FFmpeg가 소유한다. `RtspFrameSource.stop()`은 RTSP만 해제하고 lifecycle이 그 뒤
+publisher를 종료해 물리 장치를 해제한다.
 
 ## 공유 상태 규칙
 

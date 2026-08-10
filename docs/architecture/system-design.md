@@ -37,18 +37,20 @@ service     service                   │       │
 이뤄지고, ESP32·Arduino·WLED 같은 외부 장치와의 경계에서만 MQTT, 시리얼,
 HTTP를 사용한다.
 
-영상 입력은 Python 프로세스 밖에서 다음 경로로 준비한다.
+영상 입력은 FastAPI lifespan이 카메라별 FFmpeg 자식 process와 RTSP reader를
+시작해 다음 경로로 준비한다.
 
 ```text
-USB webcam ─ FFmpeg publisher ─ RTSP ─ MediaMTX
-                                         ├─ WebRTC/HLS ─ Browser
-                                         └─ RTSP ─ RtspFrameSource ─ Vision
+USB webcam ─ CameraPublisher ─ FFmpeg child ─ RTSP ─ host MediaMTX
+                                                      ├─ WebRTC/HLS ─ Browser(후속 작업)
+                                                      └─ RTSP ─ RtspFrameSource ─ Vision
 ```
 
-FFmpeg가 물리 카메라를 단독으로 열고 카메라별 RTSP 경로에 영상을 발행한다.
-Python은 `/dev/video*`를 직접 열거나 MediaMTX에 프레임을 업로드하지 않고 RTSP를
-읽는다. MediaMTX와 FFmpeg는 `AppContainer` singleton이 아니라 별도 인프라
-프로세스이며, Python 애플리케이션이 재시작되어도 독립적으로 동작할 수 있다.
+`CameraPublisher`가 `Popen`으로 실행한 FFmpeg가 물리 카메라를 단독으로 열고
+카메라별 RTSP 경로에 영상을 발행한다. `RtspFrameSource`는 `/dev/video*`를 직접
+열거나 MediaMTX에 프레임을 업로드하지 않고 RTSP를 읽어 최신 프레임 하나만
+보관한다. 호스트에서 이미 실행 중인 MediaMTX만 애플리케이션 밖의 선행
+인프라이며 FastAPI는 이를 시작하거나 종료하지 않는다.
 
 Uvicorn은 worker 하나로 실행한다. 하나의 worker 안에서 HTTP, MQTT, 높이 갱신과
 제어 작업이 여러 async task로 함께 동작한다. 단기 프로젝트 범위에서는
@@ -98,6 +100,8 @@ physical devices and files
 - 브라우저의 MQTT 직접 연결
 - Python에서 물리 웹캠을 직접 여는 동시에 FFmpeg도 같은 장치를 여는 구조
 - Python `MediaMtxUploader` 또는 프레임 업로드 API
+- FFmpeg와 MediaMTX를 위한 Docker·Compose 구성
+- publisher manager, factory, registry와 별도 process supervisor
 - Dashboard나 Vision에서의 릴레이 직접 제어
 - 프레임을 무제한으로 쌓는 큐 기반 영상 파이프라인
 

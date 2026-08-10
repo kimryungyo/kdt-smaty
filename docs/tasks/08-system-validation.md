@@ -8,7 +8,8 @@
 ## 작업 목록
 
 - [ ] Python·React 전체 자동 테스트와 정적 검사를 실행한다.
-- [ ] EMQX, MediaMTX, FFmpeg, FastAPI의 표준 시작·종료 순서를 문서화한다.
+- [ ] EMQX·MediaMTX 선행 실행과 FastAPI가 소유한 FFmpeg의 시작·종료 순서를
+  문서화한다.
 - [ ] 재부팅 후 외부 인프라와 애플리케이션이 자동으로 복구되는지 확인한다.
 - [ ] EMQX 단절, MediaMTX 단절, 카메라 제거, Arduino 제거를 각각 시험한다.
 - [ ] FastAPI 종료·강제 종료·task 실패에서 ESP32가 STOP하는지 검증한다.

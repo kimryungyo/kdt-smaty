@@ -53,9 +53,11 @@ health API에 더해 EMQX 연결·발행·구독·재연결을 담당하는 `Mqt
   핵심 서비스 클래스는 필요한 객체를 생성자로 전달받는다.
 - 클래스는 장치 I/O, 최신 상태 보관, 정책 판단을 분리한다.
 - Vision 추론처럼 이벤트 루프를 오래 점유하는 작업은 thread executor에서 실행한다.
-- 물리 웹캠은 카메라별 FFmpeg publisher가 열어 MediaMTX에 RTSP로 발행한다.
-  Python은 `RtspFrameSource`로 스트림만 읽으며 별도 업로더를 만들지 않는다.
-- EMQX, MediaMTX와 FFmpeg publisher는 Python singleton이 아닌 외부 인프라다.
+- 물리 웹캠은 카메라별 `CameraPublisher`가 `Popen`으로 실행한 FFmpeg만 열어
+  MediaMTX에 RTSP로 발행한다. `RtspFrameSource`는 스트림만 읽으며 별도
+  업로더를 만들지 않는다.
+- EMQX와 MediaMTX는 외부 인프라이고, FFmpeg publisher는 FastAPI lifespan이
+  시작·종료하는 자식 process다.
 - `DeskController`만 릴레이 명령을 결정하고, ESP32의 독립 안전 제한은 유지한다.
 - 현재 critical task 실패는 readiness를 내리는 데까지만 처리한다. 실제 ESP32
   STOP 보장은 Desk 제어 루프 구현 단계에서 추가한다.

@@ -10,7 +10,6 @@ smart-desk-fin/
 ├── src/smart_desk/       Python FastAPI 애플리케이션
 ├── frontend/             React + TypeScript + Vite 대시보드
 ├── data/                 로컬 SQLite runtime 데이터(Git 제외)
-├── infra/                향후 MediaMTX·FFmpeg 실행 설정
 ├── tests/                Python 단위·통합 테스트
 ├── docs/                 설계와 구현 문서
 ├── pyproject.toml        Python 패키지·의존성·pytest 설정
@@ -19,9 +18,8 @@ smart-desk-fin/
 └── README.md             설치·실행·검증 진입 문서
 ```
 
-`infra/`는 아직 생성되지 않은 예정 영역이며
-[05. MediaMTX 영상 인프라](tasks/05-media-pipeline.md)에서 실제 설정과 함께
-추가한다. 사용하지 않는 빈 폴더만 미리 만들지는 않는다.
+MediaMTX는 기존 호스트 프로세스를 사용하고 FFmpeg는 FastAPI가 `Popen`으로
+실행하므로 Task 05를 위한 `infra/`와 Compose 파일은 만들지 않는다.
 
 ## 루트 파일
 
@@ -142,6 +140,17 @@ bytes line과 연결 snapshot을 제공한다.
 시리얼 장치가 없어도 애플리케이션 시작을 실패시키지 않는다. open·read 오류는
 `SerialSnapshot`에 기록하고 다음 설정 간격에 재연결하며, 정상 read timeout은
 연결 오류로 처리하지 않는다.
+
+### `modules/media/` (Task 05 예정)
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/media/__init__.py` | `CameraPublisher`, `RtspFrameSource`와 최신 frame 타입 alias를 공개한다. |
+| `src/smart_desk/modules/media/publisher.py` | 카메라 하나의 FFmpeg `Popen` 실행과 종료를 관리한다. |
+| `src/smart_desk/modules/media/frame_source.py` | MediaMTX RTSP 하나를 thread에서 읽어 최신 프레임 하나만 보관한다. |
+
+두 카메라마다 두 클래스를 각각 하나씩 생성한다. publisher manager, source factory,
+snapshot DTO와 별도 supervisor는 만들지 않는다.
 
 ### `modules/desk/`
 
@@ -275,7 +284,7 @@ frontend/src/
 
 ## 기능 영역
 
-MQTT, DeskIO와 Desk 제어는 구현했으며 Vision과 자동화는 아직 생성되지 않았다.
+MQTT, DeskIO와 Desk 제어는 구현했으며 media, Vision과 자동화는 아직 생성되지 않았다.
 이후 기능은 다음 형태를 기본으로 하되, 실제 파일이 생기기 전 빈 폴더는 만들지
 않는다.
 
@@ -284,15 +293,16 @@ src/smart_desk/modules/
 ├── mqtt/          EMQX 연결, 발행·구독과 토픽 (구현 완료)
 ├── serial/        Arduino 시리얼 라인 수신 (구현 완료)
 ├── desk/          높이 해석·ESP32 명령과 목표·수동 제어 (구현 완료)
-├── vision/        RTSP 프레임, 전처리, 얼굴·자세·재실 판정
+├── media/         FFmpeg 카메라 발행과 RTSP 최신 프레임
+├── vision/        전처리, 얼굴·자세·재실 판정
 ├── automation/    Vision·프로필을 이용한 목표 높이 결정
 ├── profiles/      프로필 모델과 SQLite 영속 저장 (구현 완료)
 └── wled/          선택적 LED 장치 연동
 ```
 
-MediaMTX와 카메라별 FFmpeg publisher는 `modules/`에 넣지 않는다. 구현 단계에서
-`infra/compose.yaml`, `infra/mediamtx.yml`과 운영 문서로 관리한다. Python에는
-MediaMTX 업로더를 만들지 않고 `modules/vision/`의 `RtspFrameSource`만 둔다.
+기존 호스트 MediaMTX는 저장소에서 관리하지 않는다. 카메라별 `CameraPublisher`와
+`RtspFrameSource`는 `modules/media/`에 두고 FastAPI lifespan에서 시작·종료한다.
+Python에는 MediaMTX 업로더나 관리 client를 만들지 않는다.
 
 기능 클래스의 필드와 메서드는 [컴포넌트 설계](architecture/component-design.md),
 책상 제어 구현은 [책상 제어와 안전](architecture/desk-safety.md)을 먼저 따른다.
