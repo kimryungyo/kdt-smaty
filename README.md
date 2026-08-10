@@ -4,8 +4,8 @@ SMART DESK를 단일 FastAPI 프로세스와 `asyncio` 기반으로 재구성하
 설정, singleton container, task 관리와 애플리케이션 수명주기 위에 로컬 EMQX와
 연결하는 비동기 MQTT 기반, Arduino 높이·ESP32 relay DeskIO 어댑터와 목표·수동
 책상 제어기를 구현했다. FIN ESP32-C3 relay firmware는 clean build까지 완료했지만
-upload와 실물 검증은 아직 수행하지 않았다. 카메라 모듈은 아직 구현하지 않았다. 영상은 카메라별 FFmpeg
-publisher가 MediaMTX에 발행하고 Python은 RTSP를 읽는 구조로 구현할 예정이다.
+upload와 실물 검증은 아직 수행하지 않았다. 영상은 카메라별 FFmpeg publisher가
+기존 호스트 MediaMTX에 발행하고 Python은 RTSP에서 최신 frame 하나를 읽는다.
 
 ## 개발 환경
 
@@ -77,6 +77,29 @@ cd /srv/smart-desk-fin
 curl http://127.0.0.1:9090/health/live
 curl http://127.0.0.1:9090/health/ready
 ```
+
+## 카메라 실행 전제
+
+카메라 기능은 기본적으로 비활성화되어 있어 장치나 FFmpeg 없이 개발·테스트할 수
+있다. 실제 실행 전에는 호스트에서 MediaMTX가 실행 중이고 `user-cam`,
+`posture-cam` RTSP path publish를 허용해야 한다. FastAPI는 MediaMTX를 설치·시작·종료하지
+않는다.
+
+두 카메라의 실제 capture index, input format, 해상도와 FPS를 먼저 확인한 뒤 `.env`에
+안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. `.env.example`의 capture 값은
+검증 전 후보이며, 두 카메라의 역할을 제품명만으로 확정하지 않는다.
+
+```bash
+command -v ffmpeg
+ffmpeg -version
+ls -l /dev/v4l/by-id/
+ffmpeg -hide_banner -f v4l2 -list_formats all -i /dev/v4l/by-id/<camera-device>
+ss -ltn | rg ':8554\b'
+```
+
+검증한 값으로 `SMART_DESK_VISION__ENABLED=true`를 설정하면 FastAPI가 카메라마다
+FFmpeg 자식 process 하나와 RTSP reader thread 하나를 시작한다. 종료 시 reader를 먼저
+닫고 자신이 시작한 FFmpeg만 종료한다. MediaMTX는 계속 실행된다.
 
 ## 테스트
 

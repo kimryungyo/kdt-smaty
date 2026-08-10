@@ -189,3 +189,36 @@ def test_storage_database_path_is_loaded_from_environment(
     settings = Settings(_env_file=None)
 
     assert settings.storage.database_path == Path("/tmp/test-smart-desk.db")
+
+
+def test_vision_media_settings_are_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SMART_DESK_VISION__ENABLED", "true")
+    monkeypatch.setenv("SMART_DESK_VISION__USER_CAMERA_DEVICE", "  /dev/test-user  ")
+    monkeypatch.setenv("SMART_DESK_VISION__USER_RTSP_URL", "rtsp://media/user")
+    monkeypatch.setenv("SMART_DESK_VISION__USER_WIDTH", "640")
+    monkeypatch.setenv("SMART_DESK_VISION__RTSP_RECONNECT_INTERVAL_SECONDS", "2.5")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.vision.enabled is True
+    assert settings.vision.user_camera_device == "/dev/test-user"
+    assert settings.vision.user_rtsp_url == "rtsp://media/user"
+    assert settings.vision.user_width == 640
+    assert settings.vision.rtsp_reconnect_interval_seconds == 2.5
+
+
+@pytest.mark.parametrize(
+    "vision",
+    [
+        {"ffmpeg_path": " "},
+        {"user_camera_device": " "},
+        {"posture_rtsp_url": "http://media/posture"},
+        {"user_width": 0},
+        {"posture_fps": True},
+        {"rtsp_reconnect_interval_seconds": 0},
+        {"rtsp_reconnect_interval_seconds": 31},
+    ],
+)
+def test_invalid_vision_media_settings_are_rejected(vision: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        Settings(vision=vision, _env_file=None)

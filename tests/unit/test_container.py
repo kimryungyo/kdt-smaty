@@ -65,6 +65,53 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
     assert handler.__self__ is container.relay
 
 
+def test_build_container_registers_media_only_when_enabled() -> None:
+    disabled = build_container(Settings(_env_file=None))
+    enabled = build_container(Settings(vision={"enabled": True}, _env_file=None))
+
+    assert [registration.name for registration in disabled.resources] == [
+        "sqlite",
+        "mqtt",
+        "desk-height-monitor",
+        "desk-controller",
+    ]
+    assert [registration.name for registration in enabled.resources] == [
+        "sqlite",
+        "mqtt",
+        "desk-height-monitor",
+        "desk-controller",
+        "camera-publisher-user",
+        "camera-publisher-posture",
+        "rtsp-frame-source-user",
+        "rtsp-frame-source-posture",
+    ]
+    assert [registration.startup_order for registration in enabled.resources][-4:] == [
+        40,
+        41,
+        50,
+        51,
+    ]
+    assert [registration.shutdown_order for registration in enabled.resources][-4:] == [
+        40,
+        41,
+        50,
+        51,
+    ]
+    assert [
+        registration.name
+        for registration in sorted(
+            enabled.resources,
+            key=lambda registration: registration.shutdown_order,
+            reverse=True,
+        )
+    ][:4] == [
+        "rtsp-frame-source-posture",
+        "rtsp-frame-source-user",
+        "camera-publisher-posture",
+        "camera-publisher-user",
+    ]
+
+
 def test_container_cannot_be_installed_twice() -> None:
     first = build_container(Settings(_env_file=None))
     second = build_container(Settings(_env_file=None))

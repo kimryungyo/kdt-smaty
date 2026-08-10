@@ -11,6 +11,7 @@ from smart_desk.modules.desk.relay import RelayClient
 from smart_desk.modules.desk.segment import SegmentDecoder
 from smart_desk.modules.mqtt.client import MqttClient
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
+from smart_desk.modules.media import CameraPublisher, RtspFrameSource
 from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.storage import SQLiteDatabase
@@ -94,4 +95,67 @@ def build_container(settings: Settings) -> AppContainer:
             shutdown_order=30,
         )
     )
+    if settings.vision.enabled:
+        container.register(
+            ResourceRegistration(
+                name="camera-publisher-user",
+                resource=CameraPublisher(
+                    name="user",
+                    device=settings.vision.user_camera_device,
+                    rtsp_url=settings.vision.user_rtsp_url,
+                    ffmpeg_path=settings.vision.ffmpeg_path,
+                    input_format=settings.vision.user_input_format,
+                    width=settings.vision.user_width,
+                    height=settings.vision.user_height,
+                    fps=settings.vision.user_fps,
+                ),
+                startup_order=40,
+                shutdown_order=40,
+            )
+        )
+        container.register(
+            ResourceRegistration(
+                name="camera-publisher-posture",
+                resource=CameraPublisher(
+                    name="posture",
+                    device=settings.vision.posture_camera_device,
+                    rtsp_url=settings.vision.posture_rtsp_url,
+                    ffmpeg_path=settings.vision.ffmpeg_path,
+                    input_format=settings.vision.posture_input_format,
+                    width=settings.vision.posture_width,
+                    height=settings.vision.posture_height,
+                    fps=settings.vision.posture_fps,
+                ),
+                startup_order=41,
+                shutdown_order=41,
+            )
+        )
+        container.register(
+            ResourceRegistration(
+                name="rtsp-frame-source-user",
+                resource=RtspFrameSource(
+                    name="user",
+                    rtsp_url=settings.vision.user_rtsp_url,
+                    reconnect_interval_seconds=(
+                        settings.vision.rtsp_reconnect_interval_seconds
+                    ),
+                ),
+                startup_order=50,
+                shutdown_order=50,
+            )
+        )
+        container.register(
+            ResourceRegistration(
+                name="rtsp-frame-source-posture",
+                resource=RtspFrameSource(
+                    name="posture",
+                    rtsp_url=settings.vision.posture_rtsp_url,
+                    reconnect_interval_seconds=(
+                        settings.vision.rtsp_reconnect_interval_seconds
+                    ),
+                ),
+                startup_order=51,
+                shutdown_order=51,
+            )
+        )
     return container

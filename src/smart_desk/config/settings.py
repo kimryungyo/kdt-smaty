@@ -244,10 +244,80 @@ class DeskSettings(BaseModel):
 
 
 class VisionSettings(BaseModel):
-    """카메라 장치와 Vision 실행 설정을 보관한다."""
+    """카메라 발행과 RTSP 입력에 필요한 고정된 두 카메라 설정을 보관한다."""
 
-    user_camera: str = "/dev/user-cam"
-    posture_camera: str = "/dev/video0"
+    enabled: bool = False
+    ffmpeg_path: str = "ffmpeg"
+
+    user_camera_device: str = (
+        "/dev/v4l/by-id/usb-Alcorlink_Corp._USB_2.0_Camera-video-index0"
+    )
+    user_rtsp_url: str = "rtsp://127.0.0.1:8554/user-cam"
+    user_input_format: str = "mjpeg"
+    user_width: int = Field(default=1280, gt=0, le=8192)
+    user_height: int = Field(default=720, gt=0, le=8192)
+    user_fps: int = Field(default=15, gt=0, le=240)
+
+    posture_camera_device: str = (
+        "/dev/v4l/by-id/usb-SunplusIT_Inc_ABKO_APC930_QHD_WEBCAM_"
+        "CY2M20201014V0-video-index0"
+    )
+    posture_rtsp_url: str = "rtsp://127.0.0.1:8554/posture-cam"
+    posture_input_format: str = "mjpeg"
+    posture_width: int = Field(default=1280, gt=0, le=8192)
+    posture_height: int = Field(default=720, gt=0, le=8192)
+    posture_fps: int = Field(default=15, gt=0, le=240)
+
+    rtsp_reconnect_interval_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        le=30,
+        allow_inf_nan=False,
+    )
+
+    @field_validator(
+        "ffmpeg_path",
+        "user_camera_device",
+        "user_rtsp_url",
+        "user_input_format",
+        "posture_camera_device",
+        "posture_rtsp_url",
+        "posture_input_format",
+    )
+    @classmethod
+    def normalize_required_string(cls, value: str) -> str:
+        """공백을 제거하고 media 설정의 빈 문자열을 거부한다."""
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Vision media 설정은 비어 있을 수 없습니다.")
+        return normalized
+
+    @field_validator("user_rtsp_url", "posture_rtsp_url")
+    @classmethod
+    def require_rtsp_url(cls, value: str) -> str:
+        """현재 로컬 MediaMTX 프로토타입에서는 RTSP 주소만 허용한다."""
+
+        if not value.startswith("rtsp://"):
+            raise ValueError("Vision RTSP URL은 rtsp://로 시작해야 합니다.")
+        return value
+
+    @field_validator(
+        "user_width",
+        "user_height",
+        "user_fps",
+        "posture_width",
+        "posture_height",
+        "posture_fps",
+        mode="before",
+    )
+    @classmethod
+    def reject_boolean_capture_values(cls, value: object) -> object:
+        """bool이 capture 크기나 FPS 정수로 변환되는 것을 막는다."""
+
+        if isinstance(value, bool):
+            raise ValueError("Vision capture 값은 bool일 수 없습니다.")
+        return value
 
 
 class StorageSettings(BaseModel):
