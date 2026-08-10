@@ -7,6 +7,82 @@ SMART DESK를 단일 FastAPI 프로세스와 `asyncio` 기반으로 재구성하
 upload와 실물 검증은 아직 수행하지 않았다. 영상은 카메라별 FFmpeg publisher가
 기존 호스트 MediaMTX에 발행하고 Python은 RTSP에서 최신 frame 하나를 읽는다.
 
+## 최종 제품 방향
+
+이 프로젝트의 최종 목표는 단순한 책상 제어기나 음성 비서가 아니라, **책상 전체를
+보는 카메라를 바탕으로 사용자의 현재 작업 맥락을 이해하고 음성·화면·책상 장치를
+함께 사용하는 멀티모달 AI 스마트 데스크**를 만드는 것이다. 아래 내용은 현재 구현
+완료 상태가 아니라 이후 기능과 구조를 판단할 때 유지해야 할 제품 방향이다.
+
+책상 디스플레이에서는 React 웹 대시보드가 항상 실행된다. AI의 한 응답은 음성과
+대시보드라는 두 표현 채널을 사용할 수 있으며, 두 채널은 서로 다른 답변이 아니라
+하나의 응답을 상황에 맞게 나누어 표현한다.
+
+- 음성은 확인, 진행 안내, 결론처럼 바로 이해할 수 있는 짧은 문장만 말한다.
+- 장문 설명, 단계별 해설, 표, 수식, 카메라 캡처, 주석 이미지와 생성 이미지가
+  필요한 답변은 대시보드에 표시한다.
+- 상세 답변을 화면에 표시했을 때 음성은 내용을 전부 읽지 않고 화면을 보도록 짧게
+  안내한다.
+- 음성과 화면의 응답은 같은 대화 session과 작업 상태를 공유해 내용이 엇갈리지
+  않게 한다.
+- AI가 음성 응답을 마치면 제한된 시간 동안 후속 질문을 기다려, 사용자가 Wake Word를
+  반복하지 않고 같은 문맥으로 대화를 이어갈 수 있게 한다.
+
+대표적인 최종 상호작용 목표는 다음과 같다. 이는 아직 구현 계약이나 component 설계가
+아니다.
+
+```text
+사용자: "현재 풀고 있는 문제집의 1번 문제를 해설해 줘"
+  ↓ microphone → STT
+AI: "책상 위 문제를 확인해 해설해 드릴게요."                 (짧은 음성)
+  ↓ 후속 camera context 연결 (미설계)
+책상 frame에서 문제집·1번 문제를 확인하고 분석
+  ↓ Assistant가 하나의 응답을 음성용 요약과 화면용 상세 콘텐츠로 구성
+AI: 후속 Dashboard 연결을 통해 단계별 풀이와 필요한 자료 제공 (미설계)
+  ↓
+AI: "상세한 해설을 화면에 표시했습니다."                     (짧은 음성)
+```
+
+현재 먼저 구현할 범위는 Dashboard나 camera context와 연결되지 않은 로컬 AI
+스피커다.
+
+```text
+Microphone → VoiceService → STT → AssistantService → TTS
+                                                ↓
+                                             Speaker
+```
+
+Dashboard AI 응답 전달 방식, 화면 response model, camera context, MCP tool과 이들을
+조정하는 orchestration은 아직 설계·구현하지 않는다. 사용자가 별도 설계를 확정한 뒤
+연결한다.
+
+카메라는 현재 다음 구조를 사용한다.
+
+```text
+물리 camera → CameraPublisher/FFmpeg → MediaMTX → RtspFrameSource
+                                                        ↓
+                                           (image, captured_at) 최신값
+```
+
+향후 AI camera context는 요청마다 MediaMTX에 새로 연결하거나 물리 camera를 다시 여는
+방식보다 기존 `RtspFrameSource.get_latest_frame()`을 재사용하는 것이 현재 구조에
+적합하다. freshness 기준, crop·변환, AI 전송 방식과 MCP 사용 여부는 후속 설계에서
+결정한다.
+
+`VoiceService`는 microphone, STT와 wake word를 담당하고, `PlaybackCoordinator`는
+TTS·효과음의 순서, 중지와 local speaker 출력을 관리한다. 로컬 microphone과 speaker는
+MediaMTX를 경유하지 않는다.
+
+추가 audio source가 필요해지면 `PlaybackCoordinator` 뒤에 adapter와 출력 정책을
+추가할 수 있다. 구체적인 source, mixing 방식과 제어 tool은 요구가 확정된 뒤 별도
+설계한다.
+
+후속 단계에서는 Mem0 오픈소스를 연결해 profile별 장기 기억을 제공한다. 최근 대화
+문맥은 기존 Assistant session이 담당하고, Mem0에는 사용자가 명시적으로 기억시킨
+선호와 장기간 유효한 사실만 저장한다. raw 음성·camera 이미지·일시적인 행동 관측과
+전체 대화 transcript는 자동 저장하지 않는다. 기억 관리 UI는 Dashboard 후속 설계에서
+결정한다.
+
 ## 개발 환경
 
 백엔드:
