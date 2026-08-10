@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from smart_desk.modules.desk.relay import RelayClient
     from smart_desk.modules.mqtt.client import MqttClient
     from smart_desk.modules.profiles.repository import ProfileRepository
+    from smart_desk.modules.assistant.service import AssistantService
+    from smart_desk.modules.voice.service import VoiceService
     from smart_desk.storage import SQLiteDatabase
 
 
@@ -55,6 +57,8 @@ class AppContainer:
     height_monitor: DeskHeightMonitor
     relay: RelayClient
     desk: DeskController
+    assistant: AssistantService | None = None
+    voice: VoiceService | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
 

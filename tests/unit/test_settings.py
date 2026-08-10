@@ -222,3 +222,66 @@ def test_vision_media_settings_are_loaded(monkeypatch: pytest.MonkeyPatch) -> No
 def test_invalid_vision_media_settings_are_rejected(vision: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         Settings(vision=vision, _env_file=None)
+
+
+def test_voice_is_disabled_by_default_without_api_key() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.voice.enabled is False
+    assert settings.openai.api_key is None
+    assert settings.openai.response_model == "gpt-5.6-terra"
+    assert settings.voice.followup_timeout_seconds == 6.0
+
+
+def test_enabled_voice_requires_api_key() -> None:
+    with pytest.raises(ValidationError, match="OpenAI API key"):
+        Settings(voice={"enabled": True}, _env_file=None)
+
+
+def test_voice_environment_and_blank_values_are_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SMART_DESK_VOICE__ENABLED", "true")
+    monkeypatch.setenv("SMART_DESK_OPENAI__API_KEY", "test-key")
+    monkeypatch.setenv("SMART_DESK_OPENAI__TRANSCRIPTION_PROMPT", "   ")
+    monkeypatch.setenv("SMART_DESK_VOICE__INPUT_DEVICE_NAME", "  Desk Mic  ")
+    monkeypatch.setenv("SMART_DESK_VOICE__OUTPUT_DEVICE_NAME", "   ")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.voice.enabled is True
+    assert settings.openai.api_key is not None
+    assert settings.openai.api_key.get_secret_value() == "test-key"
+    assert settings.openai.transcription_prompt is None
+    assert settings.voice.input_device_name == "Desk Mic"
+    assert settings.voice.output_device_name is None
+
+
+@pytest.mark.parametrize(
+    "voice",
+    [
+        {"min_utterance_seconds": 2.0, "max_utterance_seconds": 2.0},
+        {"silence_duration_seconds": 3.0, "max_utterance_seconds": 3.0},
+        {"followup_preroll_seconds": 1.0, "input_queue_frames": 8},
+        {"post_playback_guard_seconds": 2.0, "followup_timeout_seconds": 2.0},
+    ],
+)
+def test_invalid_voice_cross_field_settings_are_rejected(
+    voice: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings(voice=voice, _env_file=None)
+
+
+@pytest.mark.parametrize(
+    "openai",
+    [
+        {"response_model": " "},
+        {"transcription_timeout_seconds": float("inf")},
+        {"response_timeout_seconds": 0},
+        {"speech_timeout_seconds": 121},
+    ],
+)
+def test_invalid_openai_settings_are_rejected(openai: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        Settings(openai=openai, _env_file=None)

@@ -41,6 +41,8 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
     assert container.database is not None
     assert container.profiles is not None
     assert container.dashboard is not None
+    assert container.assistant is None
+    assert container.voice is None
     assert [registration.name for registration in container.resources] == [
         "sqlite",
         "mqtt",

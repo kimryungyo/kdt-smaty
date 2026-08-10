@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from math import ceil
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from smart_desk.config.constants import (
@@ -333,6 +334,159 @@ class DashboardSettings(BaseModel):
     frontend_directory: Path = Path("frontend/dist")
 
 
+class OpenAiSettings(BaseModel):
+    """AI 음성 turn에 사용하는 OpenAI API 설정을 보관한다."""
+
+    api_key: SecretStr | None = None
+    response_model: str = "gpt-5.6-terra"
+    reasoning_effort: Literal["none", "low", "medium", "high"] = "low"
+    transcription_model: str = "gpt-transcribe"
+    transcription_prompt: str | None = Field(default=None, max_length=200)
+    speech_model: str = "gpt-4o-mini-tts"
+    speech_voice: str = "marin"
+    transcription_timeout_seconds: float = Field(
+        default=20.0,
+        gt=0,
+        le=60,
+        allow_inf_nan=False,
+    )
+    response_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=120,
+        allow_inf_nan=False,
+    )
+    speech_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=120,
+        allow_inf_nan=False,
+    )
+
+    @field_validator(
+        "response_model",
+        "transcription_model",
+        "speech_model",
+        "speech_voice",
+    )
+    @classmethod
+    def normalize_required_string(cls, value: str) -> str:
+        """모델과 음성 이름의 공백을 제거하고 빈 값을 거부한다."""
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("OpenAI 모델과 음성 이름은 비어 있을 수 없습니다.")
+        return normalized
+
+    @field_validator("transcription_prompt", mode="before")
+    @classmethod
+    def normalize_optional_prompt(cls, value: object) -> object:
+        """빈 transcription prompt를 설정되지 않은 값으로 정규화한다."""
+
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
+
+
+class VoiceSettings(BaseModel):
+    """로컬 microphone, Wake Word와 speaker 동작 설정을 보관한다."""
+
+    enabled: bool = False
+    input_device_name: str | None = None
+    output_device_name: str | None = None
+
+    wakeword_threshold: float = Field(default=0.5, gt=0, le=1, allow_inf_nan=False)
+    wakeword_consecutive_frames: int = Field(default=2, ge=1, le=5)
+
+    silence_rms_threshold: float = Field(
+        default=500.0,
+        gt=0,
+        le=32_767,
+        allow_inf_nan=False,
+    )
+    speech_start_consecutive_frames: int = Field(default=2, ge=1, le=5)
+    silence_duration_seconds: float = Field(
+        default=0.6,
+        ge=0.24,
+        le=3.0,
+        allow_inf_nan=False,
+    )
+    speech_start_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        le=15,
+        allow_inf_nan=False,
+    )
+    min_utterance_seconds: float = Field(
+        default=0.24,
+        ge=0.16,
+        le=2.0,
+        allow_inf_nan=False,
+    )
+    max_utterance_seconds: float = Field(
+        default=10.0,
+        gt=0,
+        le=30,
+        allow_inf_nan=False,
+    )
+
+    followup_enabled: bool = True
+    followup_timeout_seconds: float = Field(
+        default=6.0,
+        gt=0,
+        le=30,
+        allow_inf_nan=False,
+    )
+    followup_preroll_seconds: float = Field(
+        default=0.3,
+        ge=0.08,
+        le=1.0,
+        allow_inf_nan=False,
+    )
+    post_playback_guard_seconds: float = Field(
+        default=0.25,
+        ge=0,
+        le=2.0,
+        allow_inf_nan=False,
+    )
+    input_queue_frames: int = Field(default=64, ge=8, le=256)
+    session_max_turns: int = Field(default=12, ge=1, le=50)
+
+    acknowledgement_effect_path: Path = Path(
+        "assets/voice/effects/acknowledgement.wav"
+    )
+    error_effect_path: Path = Path("assets/voice/effects/error.wav")
+
+    @field_validator("input_device_name", "output_device_name", mode="before")
+    @classmethod
+    def normalize_optional_device_name(cls, value: object) -> object:
+        """빈 장치 이름을 기본 장치 선택을 뜻하는 None으로 정규화한다."""
+
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
+
+    @model_validator(mode="after")
+    def validate_voice_timings(self) -> VoiceSettings:
+        """녹음과 follow-up 설정 사이의 불변 조건을 검증한다."""
+
+        if self.min_utterance_seconds >= self.max_utterance_seconds:
+            raise ValueError("최소 발화 시간은 최대 발화 시간보다 짧아야 합니다.")
+        if self.silence_duration_seconds >= self.max_utterance_seconds:
+            raise ValueError("무음 종료 시간은 최대 발화 시간보다 짧아야 합니다.")
+        preroll_frames = ceil(self.followup_preroll_seconds / 0.08)
+        if preroll_frames >= self.input_queue_frames:
+            raise ValueError("pre-roll frame 수는 입력 queue 크기보다 작아야 합니다.")
+        if (
+            self.followup_enabled
+            and self.post_playback_guard_seconds >= self.followup_timeout_seconds
+        ):
+            raise ValueError("재생 후 guard는 follow-up timeout보다 짧아야 합니다.")
+        return self
+
+
 class Settings(BaseSettings):
     """시작 시 한 번 로드해 프로세스에서 공유하는 전체 설정 모델이다."""
 
@@ -355,6 +509,16 @@ class Settings(BaseSettings):
     vision: VisionSettings = VisionSettings()
     storage: StorageSettings = StorageSettings()
     dashboard: DashboardSettings = DashboardSettings()
+    openai: OpenAiSettings = OpenAiSettings()
+    voice: VoiceSettings = VoiceSettings()
+
+    @model_validator(mode="after")
+    def require_voice_api_key(self) -> Settings:
+        """Voice가 활성화되면 OpenAI API key를 필수로 요구한다."""
+
+        if self.voice.enabled and self.openai.api_key is None:
+            raise ValueError("Voice가 활성화되면 OpenAI API key가 필요합니다.")
+        return self
 
 
 @lru_cache(maxsize=1)

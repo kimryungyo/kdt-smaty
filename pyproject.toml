@@ -19,6 +19,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+voice = [
+    "openai>=2.53,<3",
+    "sounddevice>=0.5.5,<0.6",
+    "pyopen-wakeword>=1.1,<2",
+]
 dev = [
     "httpx>=0.28,<1",
     "pytest>=8.4,<9",
@@ -35,4 +40,6 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
     "mqtt_integration: 로컬 MQTT broker가 필요한 통합 테스트",
+    "openai_voice_integration: OpenAI API key와 network가 필요한 음성 통합 테스트",
+    "voice_hardware: 실제 microphone과 speaker가 필요한 음성 통합 테스트",
 ]
