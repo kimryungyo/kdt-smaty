@@ -263,6 +263,29 @@ FFmpeg는 `CameraPublisher`가 관리하는 FastAPI 자식 process이고, MediaM
 
 ## 애플리케이션 컴포넌트
 
+### `AssistantService`와 `OpenAiGateway`
+
+`OpenAiGateway`는 `AsyncOpenAI(max_retries=0)` 하나로 memory WAV file transcription,
+Responses structured output와 24kHz PCM TTS stream을 제공한다. `store=False` request 뒤
+반환된 reasoning·message output item 전체를 JSON-compatible dict로 바꾼다.
+
+`AssistantService`는 고정 `voice:local` session과 `asyncio.Lock`을 소유한다. Responses가
+성공한 경우에만 현재 user item과 전체 output item을 한 번에 commit하고, 실패·timeout·
+cancel에서는 기존 history를 유지한다. `session_max_turns`는 성공 history 크기만 제한하며
+Wake Word 없는 follow-up 횟수를 제한하지 않는다.
+
+### `VoiceService`
+
+`VoiceService`는 `LocalAudioInput`, `PyOpenWakeWordDetector`, `RmsRecorder`,
+`AssistantService`와 `PlaybackCoordinator`를 연결해 `WAITING_WAKE`, `RECORDING`,
+`PROCESSING`, `SPEAKING`, `WAITING_FOLLOWUP` 상태를 하나의 `voice-main` task에서 순차
+진행한다. callback thread는 80ms PCM을 event loop의 bounded queue로 전달하기만 한다.
+
+Voice는 half-duplex다. TTS 중 입력을 폐기하고 정상 drain 뒤 250ms guard를 거쳐 6초
+follow-up을 연다. 정상 후속 응답마다 새 6초 창을 만들며 횟수 제한은 없다. microphone,
+speaker와 Wake Word 오류만 Voice `ERROR`이고 OpenAI turn 오류는 local error effect 뒤
+`WAITING_WAKE`로 복귀한다.
+
 ### `SQLiteDatabase`와 `ProfileRepository`
 
 `SQLiteDatabase`는 프로젝트 루트 기준 `data/smart_desk.db` 경로, version migration,

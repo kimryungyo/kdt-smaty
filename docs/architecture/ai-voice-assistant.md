@@ -1,8 +1,8 @@
 # AI 스피커와 멀티모달 어시스턴트 설계
 
 이 문서는 최종 멀티모달 스마트 데스크를 염두에 두되, 지금 먼저 구현할 **로컬 AI
-스피커 기능**의 구조와 단계별 확장 경계를 정의한다. 현재 구현 완료 상태가 아니라
-후속 작업의 기준 설계안이다.
+스피커 기능**의 구현 구조와 단계별 확장 경계를 정의한다. 1차 source와 장치 없는 자동
+테스트는 구현됐고, 실제 audio 장치와 OpenAI 계정의 opt-in 검증은 아직 남아 있다.
 
 ## 1. 결정 요약
 
@@ -163,17 +163,15 @@ adapter다. 하나의 `AsyncOpenAI` client를 공유한다.
 class OpenAiGateway:
     async def transcribe(self, utterance: AudioUtterance) -> str: ...
 
-    async def reply(
+    async def create_response(
         self,
         *,
-        history: list[dict[str, object]],
+        history: Sequence[dict[str, object]],
+        user_text: str,
         instructions: str,
     ) -> OpenAiTurn: ...
 
-    async def synthesize(
-        self,
-        text: str,
-    ) -> AsyncIterator[bytes]: ...
+    def synthesize(self, text: str) -> AsyncIterator[bytes]: ...
 
     async def close(self) -> None: ...
 ```
@@ -236,9 +234,8 @@ DB를 만들지 않는다.
 ### AI 응답
 
 ```python
-@dataclass(frozen=True, slots=True)
-class AssistantReply:
-    spoken_text: str
+class AssistantReply(BaseModel):
+    spoken_text: str  # 한 문단, 1~240자, extra 금지
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,11 +304,7 @@ input queue drain → post-playback guard → queue drain
     ▼
 WAITING_FOLLOWUP
     ├─ 음성 시작 감지 ───────────────→ RECORDING
-    └─ timeout·종료 의도·연속 turn 제한
-                                      ▼
-                                detector reset
-                                      ▼
-                                WAITING_WAKE
+    └─ 6초 timeout ──────────────────→ WAITING_WAKE
 ```
 
 한 번에 voice turn 하나만 실행한다. `PROCESSING`과 `SPEAKING` 중 새 Wake Word를
@@ -353,8 +346,8 @@ TTS 시작 → microphone frame 무시 → TTS 종료 → input queue drain
 
 ### 연속 대화 정책
 
-TTS가 정상적으로 끝나고 `followup_enabled=true`이며 연속 turn 제한이 남아 있으면 기본
-6초의 `WAITING_FOLLOWUP` 창을 연다. 그렇지 않으면 바로 `WAITING_WAKE`로 복귀한다. 후속
+TTS가 정상적으로 끝나고 `followup_enabled=true`이면 기본 6초의
+`WAITING_FOLLOWUP` 창을 연다. 그렇지 않으면 바로 `WAITING_WAKE`로 복귀한다. 후속
 대기 상태에서는 Wake Word detector 대신 local 발화 시작 감지만 수행한다. 음성이
 시작되면 같은 recorder, STT와 `voice:local` Assistant session을 재사용하므로 사용자는
 `"그럼 내일은?"`처럼 직전 문맥을 생략한 질문을 할 수 있다.
@@ -368,10 +361,7 @@ TTS가 정상적으로 끝나고 `followup_enabled=true`이며 연속 turn 제�
 ```
 
 - 후속 창 timeout은 listening만 닫고 `AssistantSession` history는 초기화하지 않는다.
-- `"대화 끝"`, `"그만"`처럼 보수적으로 정한 종료 문구는 STT 뒤 Assistant에 보내지
-  않고 `WAITING_WAKE`로 복귀한다.
-- 연속 후속 turn 수가 설정 한도에 도달하면 session은 유지하되 다음 입력부터 Wake
-  Word를 다시 요구한다.
+- 응답 뒤 6초 안에 계속 말하는 동안에는 횟수 제한 없이 후속 turn을 이어 간다.
 - 너무 짧은 소음으로 판정된 utterance는 원래 follow-up deadline이 남아 있으면
   `WAITING_FOLLOWUP`으로 돌아가고, deadline을 새로 늘리지 않는다.
 - `VoiceSnapshot`에는 후속 질문 대기 상태와 deadline만 노출한다. raw audio는 저장하거나
@@ -400,9 +390,10 @@ AudioUtterance.wav
   → transcript text
 ```
 
-기본 후보는 공식 문서가 일반 녹음 전사에 권장하는 `gpt-transcribe`다. 한국어를
-예상 언어로 전달하고, 프로젝트명·책상 용어처럼 자주 틀리는 단어가 실제로 확인되면
-`prompt`나 `keywords`를 최소한으로 추가한다.
+기본 후보는 공식 문서가 일반 녹음 전사에 권장하는 `gpt-transcribe`다. 한국어는 현재
+API 계약에 맞춰 `languages=["ko"]`로 전달한다. 프로젝트명·책상 용어처럼 자주 틀리는
+단어가 실제로 확인되면 `prompt`나 `keywords`를 최소한으로 추가한다. 기존 단수
+`language` field는 `gpt-transcribe`에 보내지 않는다.
 
 향후 발화 중간 transcript나 더 낮은 STT 지연이 필요해지면
 `gpt-live-transcribe` 기반 Realtime transcription을 별도 비교한다. 1차부터 두 방식을
@@ -443,10 +434,9 @@ developer instruction에는 다음 제품 계약을 둔다.
 다시 검토한다.
 
 `WAITING_FOLLOWUP`에서 들어온 발화도 새 session을 만들지 않고 같은 `voice:local`
-history에 append한다. 후속 발화 창의 timeout과 `followup_max_turns`는 Wake Word를 다시
-요구하는 UX 경계일 뿐 session 삭제 조건이 아니다. 따라서 timeout 뒤 사용자가 Wake
-Word와 함께 대화를 재개해도 `session_max_turns`에 도달하기 전까지 앞선 문맥을 사용할
-수 있다.
+history에 append한다. 후속 발화 창의 timeout은 Wake Word를 다시 요구하는 UX 경계일
+뿐 session 삭제 조건이 아니다. 따라서 timeout 뒤 사용자가 Wake Word와 함께 대화를
+재개해도 `session_max_turns`에 도달하기 전까지 앞선 문맥을 사용할 수 있다.
 
 단기 conversation history와 장기 사용자 기억은 같은 저장소가 아니다. 현재
 `AssistantSession`은 직전 turn의 대화 맥락만 이어 주며 서버 재시작 시 사라진다.
@@ -460,13 +450,13 @@ transcript를 매번 검색 결과로 주입하지 않는다.
 재생한다. 공식 PCM 형식은 header 없는 24kHz, 16-bit signed little-endian이므로
 speaker adapter가 이 계약을 명시적으로 사용한다.
 
-TTS text는 `spoken_text`만 사용한다. AI 생성 음성 고지 방식은 후속 UI 설계와 함께
-결정하되, 음성 pipeline이 Dashboard 연결을 요구하지 않게 한다.
+TTS text는 `spoken_text`만 사용한다. 실제 사용자 테스트 전에 고정 화면 문구, 물리 라벨
+또는 온보딩으로 **“이 음성은 AI가 생성합니다”**를 고지한다. 이 고지는 Dashboard AI
+응답 연결을 요구하지 않는다.
 
 ### timeout과 retry
 
 - STT, Responses, TTS 각각 독립 timeout을 둔다.
-- 사용자 turn 전체에도 상위 timeout을 둔다.
 - 동일한 응답을 중복 생성하거나 재생할 수 있는 자동 retry는 기본적으로 하지 않는다.
 - 일시적 연결 오류를 retry할 경우 한 번으로 제한하고 request ID와 단계만 기록한다.
 - 취소 시 TTS network stream과 local playback을 모두 중지한다.
@@ -717,7 +707,7 @@ src/smart_desk/modules/
     ├── models.py       AudioChunk, AudioUtterance, VoiceSnapshot
     ├── audio.py        LocalAudioInput, local speaker adapter
     ├── playback.py     PlaybackCoordinator
-    ├── wakeword.py     OpenWakeWordDetector
+    ├── wakeword.py     PyOpenWakeWordDetector
     └── service.py      VoiceService state machine
 ```
 
@@ -745,34 +735,40 @@ class OpenAiSettings(BaseModel):
     response_model: str = "gpt-5.6-terra"
     reasoning_effort: Literal["none", "low", "medium", "high"] = "low"
     transcription_model: str = "gpt-transcribe"
+    transcription_prompt: str | None = None
     speech_model: str = "gpt-4o-mini-tts"
     speech_voice: str = "marin"
-    store_responses: bool = False
-    request_timeout_seconds: float = 30.0
+    transcription_timeout_seconds: float = 20.0
+    response_timeout_seconds: float = 30.0
+    speech_timeout_seconds: float = 30.0
 
 
 class VoiceSettings(BaseModel):
     enabled: bool = False
     input_device_name: str | None = None
     output_device_name: str | None = None
-    wakeword_name: str = "hey_jarvis"
     wakeword_threshold: float = 0.5
+    wakeword_consecutive_frames: int = 2
     silence_rms_threshold: float = 500.0
+    speech_start_consecutive_frames: int = 2
     silence_duration_seconds: float = 0.6
     speech_start_timeout_seconds: float = 3.0
+    min_utterance_seconds: float = 0.24
     max_utterance_seconds: float = 10.0
     followup_enabled: bool = True
     followup_timeout_seconds: float = 6.0
-    followup_max_turns: int = 5
     followup_preroll_seconds: float = 0.3
     post_playback_guard_seconds: float = 0.25
     input_queue_frames: int = 64
     session_max_turns: int = 12
+    acknowledgement_effect_path: Path = Path("assets/voice/effects/acknowledgement.wav")
+    error_effect_path: Path = Path("assets/voice/effects/error.wav")
 ```
 
-`followup_max_turns`는 한 번의 Wake Word 뒤 허용하는 연속 후속 발화 수이고,
-`session_max_turns`는 Responses history 크기를 제한하는 별도 값이다. follow-up timeout은
-매 AI 응답이 정상 재생된 시점부터 다시 계산하지만 소음·빈 발화만으로 연장하지 않는다.
+`session_max_turns`는 Responses history 크기를 제한한다. 후속 대화 횟수에는 별도
+제한을 두지 않는다. follow-up timeout은 매 AI 응답이 정상 재생된 시점부터 다시
+계산하지만 소음·빈 발화만으로 연장하지 않는다. Responses 호출의 `store=False`는
+변경 가능한 설정으로 노출하지 않고 privacy 불변 조건으로 고정한다.
 
 audio sample format은 provider와 Wake Word model의 고정 계약이므로 임의 운영 설정으로
 늘리지 않는다.
@@ -798,11 +794,11 @@ API key, raw authorization header와 OpenAI response body는 log·snapshot·HTTP
 ```text
 AsyncOpenAI
 → OpenAiGateway
-→ MemoryService (Phase 2에서 enabled일 때)
 → AssistantService
 → LocalAudioInput
+→ LocalPcmOutput
 → PlaybackCoordinator
-→ OpenWakeWordDetector
+→ PyOpenWakeWordDetector
 → VoiceService
 ```
 
@@ -810,7 +806,6 @@ AsyncOpenAI
 
 ```python
 assistant: AssistantService | None = None
-memory: MemoryService | None = None
 voice: VoiceService | None = None
 ```
 
@@ -859,8 +854,7 @@ Python 의존성 후보:
 ```text
 openai
 sounddevice
-openwakeword
-onnxruntime
+pyopen-wakeword>=1.1,<2
 mem0ai  # Phase 2에서만 추가
 ```
 
@@ -872,8 +866,11 @@ NumPy를 사용한다. 별도 WAV package, provider registry, event bus와 audio
 PipeWire/PulseAudio 환경에서 microphone와 speaker의 안정적인 device name을 확인하고,
 system service가 사용하는 사용자의 audio session에서 FastAPI를 실행해야 한다.
 
-Wake Word model을 application 시작 때마다 download하지 않는다. 배포·설치 단계에서
-model 파일을 준비하고 시작 시 존재 여부만 검증한다.
+`pyopen-wakeword` wheel에 TFLite runtime과 `hey_jarvis` 모델이 포함되므로 별도 ONNX
+runtime, 모델 경로, 시작 시 download 절차를 두지 않는다. 운영 Linux는 해당 wheel이
+지원하는 x86_64 또는 aarch64와 glibc 2.35 이상인지 배포 전에 검증한다. 비상업 개인
+프로젝트에서 모델의 CC BY-NC-SA 4.0 attribution/share-alike 의무는 별도 third-party
+문서에 기록한다.
 
 ## 16. 검증 전략
 
@@ -885,7 +882,7 @@ model 파일을 준비하고 시작 시 존재 여부만 검증한다.
 - 발화 시작 timeout, silence 종료와 max duration
 - TTS 종료 뒤 guard·queue drain 후 `WAITING_FOLLOWUP` 전이
 - follow-up 음성을 Wake Word 없이 받고 pre-roll을 utterance에 포함
-- follow-up timeout·종료 문구·연속 turn 제한에서 `WAITING_WAKE` 복귀
+- follow-up timeout에서 `WAITING_WAKE` 복귀
 - 소음 오탐이 follow-up deadline을 연장하지 않음
 - 빈 transcript에서 Assistant를 호출하지 않음
 - 같은 session의 동시 turn이 직렬화됨

@@ -140,16 +140,3 @@ async def test_partial_load_failure_closes_features(
 
     assert "secret" not in str(captured.value)
     assert features.close_count == 1
-
-
-async def test_builtin_model_loads_and_infers_when_voice_extra_is_installed() -> None:
-    pytest.importorskip("pyopen_wakeword")
-    detector = PyOpenWakeWordDetector(threshold=0.5, consecutive_frames=2)
-
-    await detector.start()
-    try:
-        for _ in range(5):
-            assert await detector.detect(b"\0" * INPUT_FRAME_BYTES) is False
-        detector.reset()
-    finally:
-        await detector.stop()

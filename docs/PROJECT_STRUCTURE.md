@@ -141,7 +141,7 @@ bytes line과 연결 snapshot을 제공한다.
 `SerialSnapshot`에 기록하고 다음 설정 간격에 재연결하며, 정상 read timeout은
 연결 오류로 처리하지 않는다.
 
-### `modules/media/` (Task 05 예정)
+### `modules/media/`
 
 | 경로 | 역할 |
 | --- | --- |
@@ -181,6 +181,29 @@ Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표
 
 현재 프로필은 이름, 앉은·선 높이와 선택 LED 색상을 SQLite에 저장하며,
 `DashboardService`와 `/api/profiles`가 공개 CRUD만 사용한다.
+
+### `modules/assistant/`
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/assistant/__init__.py` | structured reply, gateway Protocol과 `AssistantService`를 공개한다. |
+| `src/smart_desk/modules/assistant/models.py` | `AssistantReply`, `OpenAiTurn`과 JSON history item을 정의한다. |
+| `src/smart_desk/modules/assistant/openai.py` | OpenAI file STT, Responses parse와 streaming PCM TTS를 adapter 안에 격리한다. |
+| `src/smart_desk/modules/assistant/service.py` | `voice:local` history lock, 성공 commit과 max-turn reset을 관리한다. |
+
+### `modules/voice/`
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/voice/models.py` | PCM format 상수, audio DTO, 상태 enum과 content-free snapshot을 정의한다. |
+| `src/smart_desk/modules/voice/audio.py` | PortAudio callback queue, local output, RMS recorder와 memory WAV를 구현한다. |
+| `src/smart_desk/modules/voice/wakeword.py` | `pyopen-wakeword` builtin `HEY_JARVIS` load·추론·reset·close를 담당한다. |
+| `src/smart_desk/modules/voice/playback.py` | local effect와 streaming TTS PCM을 같은 speaker에 직렬 출력한다. |
+| `src/smart_desk/modules/voice/service.py` | 하나의 `voice-main` task로 turn, follow-up, 오류와 aggregate lifecycle을 관리한다. |
+
+Voice는 optional `voice` dependency extra로 설치하며 비활성 상태에서는 OpenAI,
+sounddevice와 Wake Word package를 import하지 않는다. `assets/voice/effects/`에는 프로젝트가
+직접 합성한 24kHz PCM16 acknowledgement/error WAV와 provenance가 있다.
 
 ### `modules/dashboard/`
 
@@ -246,6 +269,13 @@ frontend/src/
 | `tests/unit/test_container.py` | container 설치 전 접근, 동일 인스턴스 반환과 중복 설치 차단을 검증한다. |
 | `tests/unit/test_lifecycle.py` | 공유 자원의 명시적 시작·안전 종료 순서를 검증한다. |
 | `tests/unit/test_task_manager.py` | async 작업 중복 차단과 critical 실패 callback을 검증한다. |
+| `tests/unit/test_voice_models.py` | Voice DTO, 상태와 structured assistant reply를 검증한다. |
+| `tests/unit/test_voice_audio.py` | callback queue, RMS recording, pre-roll과 memory WAV를 검증한다. |
+| `tests/unit/test_wakeword_detector.py` | builtin model 선택, 연속 activation, reset과 close를 검증한다. |
+| `tests/unit/test_playback.py` | effect/TTS 직렬화, sample carry, abort와 cancel을 검증한다. |
+| `tests/unit/test_openai_gateway.py` | STT·Responses·TTS SDK request와 timeout을 network 없이 검증한다. |
+| `tests/unit/test_assistant_service.py` | history commit·rollback·serialization과 privacy log를 검증한다. |
+| `tests/unit/test_voice_service.py` | Voice 상태 전이, follow-up, fatal 경계와 shutdown을 검증한다. |
 | `tests/unit/test_sqlite_database.py` | SQLite migration, schema, lifecycle, transaction과 cancellation을 검증한다. |
 | `tests/unit/test_profile_models.py` | 프로필 alias, 범위, 정규화와 부분 수정 입력을 검증한다. |
 | `tests/unit/test_profile_repository.py` | 임시 SQLite 파일에서 프로필 CRUD, 충돌, 영속성과 동시 부분 수정을 검증한다. |
@@ -259,6 +289,10 @@ frontend/src/
 | `tests/integration/test_dashboard_api.py` | Dashboard HTTP contract, 오류 상태와 SQLite profile CRUD를 검증한다. |
 | `tests/integration/test_application.py` | FastAPI lifespan, health API, React 정적 제공과 SPA fallback을 검증한다. |
 | `tests/integration/test_mqtt_emqx.py` | 로컬 EMQX에서 실제 QoS 1 왕복과 재연결·재구독을 선택적으로 검증한다. |
+| `tests/integration/test_voice_pipeline.py` | fake 장치와 실제 Voice 정책을 연결해 Wake Word 없는 3-turn을 검증한다. |
+| `tests/integration/test_wakeword_builtin.py` | Voice extra 환경에서 builtin HEY_JARVIS offline load·추론을 검증한다. |
+| `tests/integration/test_openai_voice_live.py` | opt-in OpenAI STT·2-turn Responses·streaming TTS를 검증한다. |
+| `tests/integration/test_voice_hardware.py` | opt-in microphone/speaker open과 local effect를 검증한다. |
 
 순수 상태전이와 검증은 `tests/unit/`, FastAPI·MQTT·시리얼처럼 둘 이상의 경계를
 연결하는 검증은 `tests/integration/`에 둔다.
@@ -284,7 +318,8 @@ frontend/src/
 
 ## 기능 영역
 
-MQTT, DeskIO와 Desk 제어는 구현했으며 media, Vision과 자동화는 아직 생성되지 않았다.
+MQTT, DeskIO, Desk 제어, media와 AI Voice는 구현했으며 Vision 추론과 자동화는 아직
+생성되지 않았다.
 이후 기능은 다음 형태를 기본으로 하되, 실제 파일이 생기기 전 빈 폴더는 만들지
 않는다.
 
@@ -293,7 +328,9 @@ src/smart_desk/modules/
 ├── mqtt/          EMQX 연결, 발행·구독과 토픽 (구현 완료)
 ├── serial/        Arduino 시리얼 라인 수신 (구현 완료)
 ├── desk/          높이 해석·ESP32 명령과 목표·수동 제어 (구현 완료)
-├── media/         FFmpeg 카메라 발행과 RTSP 최신 프레임
+├── media/         FFmpeg 카메라 발행과 RTSP 최신 프레임 (구현 완료)
+├── assistant/     OpenAI STT·Responses·TTS와 voice:local history (구현 완료)
+├── voice/         Wake Word·녹음·재생과 follow-up 상태 머신 (구현 완료)
 ├── vision/        전처리, 얼굴·자세·재실 판정
 ├── automation/    Vision·프로필을 이용한 목표 높이 결정
 ├── profiles/      프로필 모델과 SQLite 영속 저장 (구현 완료)

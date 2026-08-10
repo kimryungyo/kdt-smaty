@@ -7,11 +7,10 @@ FastAPI 프로세스와 `asyncio` 기반 구조로 단순화한다.
 ## 현재 구현 단계
 
 설정, `AppContainer`, 공유 자원 수명주기, `TaskManager`, 구조화 로그와 FastAPI
-health API에 더해 EMQX 연결·발행·구독·재연결을 담당하는 `MqttClient`까지
-구현되어 있다. Arduino 높이 입력과 ESP32 MQTT 계약을 담당하는 DeskIO 어댑터도
-구현됐으며, 목표·HOLD·STOP 정책을 담당할 `DeskController`와 Vision은 다음
-단계다. React + TypeScript + Vite 대시보드 골조와 FastAPI 정적 제공은 구현되어
-있다.
+health API에 더해 MQTT, Arduino 높이 입력, ESP32 relay, 목표·HOLD·STOP
+`DeskController`, React 대시보드와 camera media pipeline이 구현되어 있다. 로컬 AI
+스피커도 optional 기능으로 구현됐으며 장치 없는 자동 테스트까지 완료했다. 실제 audio
+장치와 OpenAI 계정 검증은 opt-in 단계이고 Vision 추론·자동화는 아직 구현되지 않았다.
 
 | 구현 영역 | 현재 코드 |
 | --- | --- |
@@ -27,6 +26,8 @@ health API에 더해 EMQX 연결·발행·구독·재연결을 담당하는 `Mqt
 | 상태 확인 | `src/smart_desk/api/routes/health.py` |
 | React 개발 소스 | `frontend/src` |
 | React 정적 제공 | `src/smart_desk/frontend.py` |
+| OpenAI text/audio adapter와 history | `src/smart_desk/modules/assistant` |
+| Wake Word·녹음·재생 상태 머신 | `src/smart_desk/modules/voice` |
 
 ## 문서 안내
 
@@ -37,6 +38,7 @@ health API에 더해 EMQX 연결·발행·구독·재연결을 담당하는 `Mqt
 | [컴포넌트 설계](architecture/component-design.md) | 클래스를 만들 때 | 클래스 책임, 공개 API, 의존 방향 |
 | [실행과 동시성](architecture/runtime-and-concurrency.md) | 앱 시작·비동기 루프를 구현할 때 | 컨테이너, singleton 접근, Task 수명주기 |
 | [AI 음성 스피커](architecture/ai-voice-assistant.md) | 로컬 음성 AI를 설계할 때 | Wake Word, 연속 대화, OpenAI STT·LLM·TTS, 후속 Dashboard·camera 연결 보류 |
+| [Voice third-party](third-party/voice.md) | Voice dependency를 설치·배포할 때 | pyopen-wakeword wheel provenance와 hey_jarvis license |
 | [React 대시보드](architecture/frontend.md) | UI를 개발·배포할 때 | Vite 개발 서버, FastAPI 운영 제공 |
 | [책상 제어와 안전](architecture/desk-safety.md) | 높이·릴레이 제어를 구현할 때 | 제어 상태, STOP 우선순위, 하드웨어 경계 |
 | [계획 및 설계 가이드](guides/README.md) | 새 구조나 작업을 제안하기 전에 | 프로젝트 규모, 복잡도, 계획·검증·커밋 판단 기준 |
@@ -62,6 +64,8 @@ health API에 더해 EMQX 연결·발행·구독·재연결을 담당하는 `Mqt
 - `DeskController`만 릴레이 명령을 결정하고, ESP32의 독립 안전 제한은 유지한다.
 - 현재 critical task 실패는 readiness를 내리는 데까지만 처리한다. 실제 ESP32
   STOP 보장은 Desk 제어 루프 구현 단계에서 추가한다.
+- Voice의 `voice-main`은 non-critical이며 audio 장치나 OpenAI turn 실패가 Desk,
+  Dashboard, MQTT와 media readiness를 내리지 않는다.
 
 ## 보존 전제
 

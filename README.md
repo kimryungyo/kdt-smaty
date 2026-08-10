@@ -43,8 +43,9 @@ AI: 후속 Dashboard 연결을 통해 단계별 풀이와 필요한 자료 제�
 AI: "상세한 해설을 화면에 표시했습니다."                     (짧은 음성)
 ```
 
-현재 먼저 구현할 범위는 Dashboard나 camera context와 연결되지 않은 로컬 AI
-스피커다.
+현재 Dashboard나 camera context와 연결되지 않은 로컬 AI 스피커 Phase 1 코드를
+구현했다. 장치 없는 자동 테스트는 완료됐으며 실제 microphone·speaker와 OpenAI 계정
+검증은 opt-in으로 수행한다.
 
 ```text
 Microphone → VoiceService → STT → AssistantService → TTS
@@ -129,6 +130,58 @@ npm run dev
 ```
 
 개발 대시보드는 `http://127.0.0.1:5173`에서 연다.
+
+## AI 스피커 실행
+
+Voice는 기본적으로 비활성화되어 기존 Desk·Dashboard 실행에 OpenAI SDK, PortAudio,
+microphone와 speaker를 요구하지 않는다. Voice 장비에서는 optional dependency를 설치한다.
+
+```bash
+.venv/bin/python -m pip install -e '.[dev,voice]'
+```
+
+Debian/Ubuntu 계열에서는 PortAudio package `libportaudio2`, 개발 header가 필요한 환경은
+`portaudio19-dev`를 확인한다. 운영 사용자가 PipeWire/PulseAudio session과 microphone
+권한에 접근할 수 있어야 하며 root 실행을 기본 해법으로 사용하지 않는다.
+
+최소 설정은 다음과 같다. 장치 이름을 비우면 PortAudio 기본 장치를 사용하고, 값을
+지정하면 공백과 대소문자를 제외한 전체 이름이 유일하게 일치해야 한다.
+
+```text
+SMART_DESK_OPENAI__API_KEY=<secret>
+SMART_DESK_VOICE__ENABLED=true
+SMART_DESK_VOICE__INPUT_DEVICE_NAME=<stable full name>
+SMART_DESK_VOICE__OUTPUT_DEVICE_NAME=<stable full name>
+```
+
+음성 흐름은 builtin `hey_jarvis` 호출어, local 확인음, 최대 10초 memory WAV,
+`gpt-transcribe`, 같은 `voice:local` Responses history, `gpt-4o-mini-tts` PCM 재생과
+6초 follow-up 순서다. 사용자 테스트 전에 사용자에게 **“이 음성은 AI가 생성합니다”**를
+고정 화면 문구, 물리 라벨 또는 온보딩으로 고지해야 한다.
+
+OpenAI live test에는 16kHz mono PCM16 WAV fixture를 별도로 지정한다.
+
+```bash
+SMART_DESK_RUN_OPENAI_VOICE_INTEGRATION=1 \
+SMART_DESK_OPENAI__API_KEY=... \
+SMART_DESK_OPENAI_VOICE_FIXTURE=/absolute/path/to/korean-voice.wav \
+  .venv/bin/python -m pytest -m openai_voice_integration \
+  tests/integration/test_openai_voice_live.py
+```
+
+실제 장치 open과 acknowledgement 재생 검증:
+
+```bash
+SMART_DESK_RUN_VOICE_HARDWARE=1 \
+SMART_DESK_VOICE__ENABLED=true \
+SMART_DESK_VOICE__INPUT_DEVICE_NAME='<stable full name>' \
+SMART_DESK_VOICE__OUTPUT_DEVICE_NAME='<stable full name>' \
+  .venv/bin/python -m pytest -m voice_hardware \
+  tests/integration/test_voice_hardware.py -s
+```
+
+Wake Word model의 사용 조건과 wheel provenance는
+[Voice third-party 문서](docs/third-party/voice.md)에 기록한다.
 
 ## 운영 실행
 
