@@ -3,7 +3,9 @@
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 
+from smart_desk.modules.assistant.models import AssistantReply, OpenAiTurn
 from smart_desk.modules.voice.models import (
     AudioChunk,
     AudioUtterance,
@@ -55,4 +57,27 @@ def test_voice_snapshot_rejects_exception_text_as_error_code() -> None:
             last_transition_at=datetime.now(timezone.utc),
             followup_expires_at=None,
             last_error="API key=secret!",
+        )
+
+
+def test_assistant_reply_is_frozen_single_paragraph_and_forbids_extra() -> None:
+    reply = AssistantReply(spoken_text="  짧은 답변입니다.  ")
+
+    assert reply.spoken_text == "짧은 답변입니다."
+    with pytest.raises(ValidationError):
+        AssistantReply(spoken_text="첫 줄\n둘째 줄")
+    with pytest.raises(ValidationError):
+        AssistantReply(spoken_text="가" * 241)
+    with pytest.raises(ValidationError):
+        AssistantReply(spoken_text="답변", unexpected=True)  # type: ignore[call-arg]
+
+
+def test_openai_turn_rejects_negative_token_count() -> None:
+    with pytest.raises(ValueError, match="음수"):
+        OpenAiTurn(
+            reply=AssistantReply(spoken_text="답변"),
+            output_items=(),
+            request_id=None,
+            input_tokens=-1,
+            output_tokens=None,
         )
