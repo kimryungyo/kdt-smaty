@@ -30,6 +30,7 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     mqtt = FakeResource("mqtt", events)
     height_monitor = FakeResource("desk", events)
     desk_controller = FakeResource("controller", events)
+    voice = FakeResource("voice", events)
     dashboard = DashboardService(desk_controller, profiles)  # type: ignore[arg-type]
     container = AppContainer(
         settings=Settings(environment="test", _env_file=None),
@@ -49,6 +50,14 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
             resource=database,
             startup_order=5,
             shutdown_order=5,
+        )
+    )
+    container.register(
+        ResourceRegistration(
+            name="voice",
+            resource=voice,
+            startup_order=70,
+            shutdown_order=70,
         )
     )
     container.register(
@@ -84,7 +93,9 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
         "start:mqtt",
         "start:desk",
         "start:controller",
+        "start:voice",
         "stop:desk",
+        "stop:voice",
         "stop:controller",
         "stop:mqtt",
         "stop:sqlite",

@@ -67,7 +67,14 @@ class PlaybackCoordinator:
                 ),
             }
         )
-        await self._output.start()
+        try:
+            await self._output.start()
+        except BaseException:
+            try:
+                await self._output.stop()
+            except Exception:
+                pass
+            raise
         self._effects = effects
         self._started = True
         self._stopping = False

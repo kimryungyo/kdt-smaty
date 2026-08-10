@@ -390,16 +390,28 @@ class RmsRecorder:
         speech_started_at: float | None = None
         last_high_at: float | None = None
         silence_started_at: float | None = None
+        utterance_deadline: float | None = None
 
         while True:
             now = time.monotonic()
             if frames is None and now >= speech_start_deadline:
                 return None, RecordingEnd.SPEECH_START_TIMEOUT
-            timeout = max(0.0, speech_start_deadline - now) if frames is None else None
+            timeout = (
+                max(0.0, speech_start_deadline - now)
+                if frames is None
+                else max(0.0, (utterance_deadline or now) - now)
+            )
             try:
                 chunk = await audio_input.read(timeout_seconds=timeout)
             except TimeoutError:
-                return None, RecordingEnd.SPEECH_START_TIMEOUT
+                if frames is None:
+                    return None, RecordingEnd.SPEECH_START_TIMEOUT
+                return self._finish(
+                    frames,
+                    speech_started_at,
+                    last_high_at,
+                    RecordingEnd.MAX_DURATION,
+                )
 
             above = calculate_rms(chunk.pcm) >= self._rms_threshold
             if frames is None:
@@ -416,6 +428,9 @@ class RmsRecorder:
                 frames = [item.pcm for item in preroll]
                 speech_started_at = first_high_at or chunk.captured_at
                 last_high_at = chunk.captured_at
+                utterance_deadline = time.monotonic() + (
+                    self._max_frames - len(frames)
+                ) * INPUT_FRAME_SECONDS
                 if len(frames) >= self._max_frames:
                     return self._finish(frames, speech_started_at, last_high_at, RecordingEnd.MAX_DURATION)
                 continue

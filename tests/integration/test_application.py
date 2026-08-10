@@ -63,6 +63,13 @@ class FakeDeskController(FakeHeightMonitor):
     """애플리케이션 테스트용 lifecycle 책상 제어기."""
 
 
+class VoiceErrorResource(FakeHeightMonitor):
+    """start가 예외를 전파하지 않고 Voice-only ERROR가 된 상황을 재현한다."""
+
+    async def start(self) -> None:
+        self.start_count += 1
+
+
 def build_test_container(
     settings: Settings,
 ) -> tuple[AppContainer, FakeMqttClient, FakeHeightMonitor]:
@@ -275,6 +282,36 @@ async def test_missing_arduino_does_not_prevent_application_start(
         assert container.height_monitor.get_snapshot().status is HeightStatus.ERROR
 
     assert container.runtime.snapshot().status is ApplicationStatus.STOPPED
+
+
+async def test_voice_only_start_error_does_not_fail_application(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        environment="test",
+        storage=StorageSettings(database_path=tmp_path / "smart-desk.db"),
+        dashboard=DashboardSettings(serve_frontend=False),
+        _env_file=None,
+    )
+    container, mqtt, height_monitor = build_test_container(settings)
+    voice = VoiceErrorResource()
+    container.register(
+        ResourceRegistration(
+            name="voice",
+            resource=voice,
+            startup_order=70,
+            shutdown_order=70,
+        )
+    )
+    application = create_application(settings=settings, container=container)
+
+    async with application.router.lifespan_context(application):
+        assert container.runtime.snapshot().status is ApplicationStatus.READY
+        assert mqtt.start_count == 1
+        assert height_monitor.start_count == 1
+        assert voice.start_count == 1
+
+    assert voice.stop_count == 1
 
 
 async def test_react_build_and_spa_fallback_are_served(tmp_path) -> None:

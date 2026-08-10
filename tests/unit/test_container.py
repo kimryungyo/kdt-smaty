@@ -1,5 +1,9 @@
 """AppContainer singleton 설치와 조회 테스트."""
 
+import subprocess
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from smart_desk.bootstrap import build_container
@@ -112,6 +116,55 @@ def test_build_container_registers_media_only_when_enabled() -> None:
         "camera-publisher-posture",
         "camera-publisher-user",
     ]
+
+
+def test_build_container_registers_voice_at_order_70_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = SimpleNamespace()
+    monkeypatch.setitem(
+        sys.modules,
+        "openai",
+        SimpleNamespace(AsyncOpenAI=lambda **_kwargs: fake_client),
+    )
+    settings = Settings(
+        voice={"enabled": True},
+        openai={"api_key": "test-key"},
+        _env_file=None,
+    )
+
+    container = build_container(settings)
+
+    assert container.assistant is not None
+    assert container.voice is not None
+    assert container.resources[-1].name == "voice"
+    assert container.resources[-1].startup_order == 70
+    assert container.resources[-1].shutdown_order == 70
+
+
+def test_disabled_voice_does_not_import_optional_packages() -> None:
+    code = """
+import builtins
+real_import = builtins.__import__
+def guarded_import(name, *args, **kwargs):
+    if name.split('.')[0] in {'openai', 'sounddevice', 'pyopen_wakeword'}:
+        raise AssertionError(f'unexpected optional import: {name}')
+    return real_import(name, *args, **kwargs)
+builtins.__import__ = guarded_import
+from smart_desk.bootstrap import build_container
+from smart_desk.config.settings import Settings
+container = build_container(Settings(_env_file=None))
+assert container.voice is None
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_container_cannot_be_installed_twice() -> None:

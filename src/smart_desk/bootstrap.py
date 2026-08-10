@@ -1,5 +1,7 @@
 """애플리케이션이 사용할 singleton 객체를 한곳에서 조립한다."""
 
+import logging
+
 from smart_desk.config.settings import Settings
 from smart_desk.core.container import AppContainer, ResourceRegistration
 from smart_desk.core.runtime import RuntimeState
@@ -15,6 +17,9 @@ from smart_desk.modules.media import CameraPublisher, RtspFrameSource
 from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.storage import SQLiteDatabase
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def build_container(settings: Settings) -> AppContainer:
@@ -158,4 +163,78 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=51,
             )
         )
+    if settings.voice.enabled:
+        try:
+            from smart_desk.modules.assistant.openai import OpenAiGateway
+            from smart_desk.modules.assistant.service import AssistantService
+            from smart_desk.modules.voice.audio import (
+                LocalAudioInput,
+                LocalPcmOutput,
+                RmsRecorder,
+            )
+            from smart_desk.modules.voice.playback import PlaybackCoordinator
+            from smart_desk.modules.voice.service import VoiceService
+            from smart_desk.modules.voice.wakeword import PyOpenWakeWordDetector
+
+            gateway = OpenAiGateway(settings.openai)
+            assistant = AssistantService(
+                gateway,
+                session_max_turns=settings.voice.session_max_turns,
+            )
+            audio_input = LocalAudioInput(
+                device_name=settings.voice.input_device_name,
+                queue_frames=settings.voice.input_queue_frames,
+            )
+            output = LocalPcmOutput(device_name=settings.voice.output_device_name)
+            playback = PlaybackCoordinator(
+                output,
+                acknowledgement_effect_path=(
+                    settings.voice.acknowledgement_effect_path
+                ),
+                error_effect_path=settings.voice.error_effect_path,
+            )
+            wakeword = PyOpenWakeWordDetector(
+                threshold=settings.voice.wakeword_threshold,
+                consecutive_frames=settings.voice.wakeword_consecutive_frames,
+            )
+            recorder = RmsRecorder(
+                rms_threshold=settings.voice.silence_rms_threshold,
+                speech_start_consecutive_frames=(
+                    settings.voice.speech_start_consecutive_frames
+                ),
+                silence_duration_seconds=settings.voice.silence_duration_seconds,
+                min_utterance_seconds=settings.voice.min_utterance_seconds,
+                max_utterance_seconds=settings.voice.max_utterance_seconds,
+                preroll_seconds=settings.voice.followup_preroll_seconds,
+            )
+            voice = VoiceService(
+                audio_input=audio_input,
+                wakeword=wakeword,
+                recorder=recorder,
+                gateway=gateway,
+                assistant=assistant,
+                playback=playback,
+                settings=settings.voice,
+                task_manager=task_manager,
+            )
+        except Exception:
+            LOGGER.error(
+                "Voice dependency를 초기화하지 못했습니다.",
+                extra={
+                    "component": "voice",
+                    "event": "voice_build_failed",
+                    "error_code": "voice_dependency_missing",
+                },
+            )
+        else:
+            container.assistant = assistant
+            container.voice = voice
+            container.register(
+                ResourceRegistration(
+                    name="voice",
+                    resource=voice,
+                    startup_order=70,
+                    shutdown_order=70,
+                )
+            )
     return container
