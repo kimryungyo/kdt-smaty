@@ -223,5 +223,5 @@ DEBUG_PAGE = """<!doctype html>
     for(const turn of [...s.turns].reverse()){const card=document.createElement("article");card.className="turn";const head=document.createElement("div");head.className="turn-head";const time=document.createElement("span"),request=document.createElement("span");time.textContent=localTime(turn.completed_at);request.textContent=turn.request_id ?? "request id 없음";head.append(time,request);const user=document.createElement("p"),reply=document.createElement("p"),meta=document.createElement("p");user.className="utterance";user.textContent=`사용자 · ${turn.user_text}`;reply.className="reply";reply.textContent=`AI · ${turn.spoken_text}`;meta.className="meta";meta.textContent=`tokens ${turn.input_tokens ?? "?"} → ${turn.output_tokens ?? "?"} · ${turn.output_item_types.join(", ")}`;card.append(head,user,reply,meta);turns.append(card)}
   };
   const refresh=async()=>{try{const response=await fetch("/api/snapshot",{cache:"no-store"});if(!response.ok)throw new Error(String(response.status));render(await response.json());text("connection","LIVE");byId("connection").classList.remove("offline")}catch(_){text("connection","연결 끊김");byId("connection").classList.add("offline")}};
-  refresh();setInterval(refresh,250);
+  refresh();setInterval(refresh,50);
 </script></body></html>"""

@@ -102,3 +102,4 @@ def test_debug_page_is_no_store_and_polls_snapshot() -> None:
     assert response.headers["cache-control"] == "no-store"
     assert "AI Speaker Debug" in response.text
     assert "/api/snapshot" in response.text
+    assert "setInterval(refresh,50)" in response.text

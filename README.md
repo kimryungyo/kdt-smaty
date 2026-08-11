@@ -196,7 +196,7 @@ SMART_DESK_VOICE_DEBUG__PORT=10000
 
 기본 FastAPI 서버를 평소처럼 실행한 뒤 `http://<장비 IP>:10000`에서 확인한다. 디버그
 서버는 Voice 다음에 시작되고 먼저 종료되므로 microphone, Wake Word model과 OpenAI
-session을 중복 생성하지 않는다. 화면은 250ms마다 read-only snapshot을 갱신한다.
+session을 중복 생성하지 않는다. 화면은 50ms(20Hz)마다 read-only snapshot을 갱신한다.
 
 이 페이지에는 transcript와 speaker가 읽은 응답이 평문으로 표시된다. API key와
 encrypted reasoning 원문은 제공하지 않지만, 임시 검증이 끝나면
