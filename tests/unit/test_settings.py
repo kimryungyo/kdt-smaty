@@ -230,7 +230,7 @@ def test_voice_is_disabled_by_default_without_api_key() -> None:
     assert settings.voice.enabled is False
     assert settings.openai.api_key is None
     assert settings.openai.response_model == "gpt-5.6-terra"
-    assert settings.voice.followup_timeout_seconds == 6.0
+    assert settings.voice.followup_timeout_seconds == 4.0
 
 
 def test_enabled_voice_requires_api_key() -> None:

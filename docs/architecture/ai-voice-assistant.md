@@ -304,7 +304,7 @@ input queue drain → post-playback guard → queue drain
     ▼
 WAITING_FOLLOWUP
     ├─ 음성 시작 감지 ───────────────→ RECORDING
-    └─ 6초 timeout ──────────────────→ WAITING_WAKE
+    └─ 4초 timeout ──────────────────→ WAITING_WAKE
 ```
 
 한 번에 voice turn 하나만 실행한다. `PROCESSING`과 `SPEAKING` 중 새 Wake Word를
@@ -346,7 +346,7 @@ TTS 시작 → microphone frame 무시 → TTS 종료 → input queue drain
 
 ### 연속 대화 정책
 
-TTS가 정상적으로 끝나고 `followup_enabled=true`이면 기본 6초의
+TTS가 정상적으로 끝나고 `followup_enabled=true`이면 기본 4초의
 `WAITING_FOLLOWUP` 창을 연다. 그렇지 않으면 바로 `WAITING_WAKE`로 복귀한다. 후속
 대기 상태에서는 Wake Word detector 대신 local 발화 시작 감지만 수행한다. 음성이
 시작되면 같은 recorder, STT와 `voice:local` Assistant session을 재사용하므로 사용자는
@@ -357,11 +357,11 @@ TTS가 정상적으로 끝나고 `followup_enabled=true`이면 기본 6초의
                                → WAITING_FOLLOWUP
 "그럼 내일은?"                 → 같은 session으로 내일 날씨 응답
                                → WAITING_FOLLOWUP
-6초간 발화 없음                 → WAITING_WAKE
+4초간 발화 없음                 → WAITING_WAKE
 ```
 
 - 후속 창 timeout은 listening만 닫고 `AssistantSession` history는 초기화하지 않는다.
-- 응답 뒤 6초 안에 계속 말하는 동안에는 횟수 제한 없이 후속 turn을 이어 간다.
+- 응답 뒤 4초 안에 계속 말하는 동안에는 횟수 제한 없이 후속 turn을 이어 간다.
 - 너무 짧은 소음으로 판정된 utterance는 원래 follow-up deadline이 남아 있으면
   `WAITING_FOLLOWUP`으로 돌아가고, deadline을 새로 늘리지 않는다.
 - `VoiceSnapshot`에는 후속 질문 대기 상태와 deadline만 노출한다. raw audio는 저장하거나
@@ -757,7 +757,7 @@ class VoiceSettings(BaseModel):
     min_utterance_seconds: float = 0.24
     max_utterance_seconds: float = 10.0
     followup_enabled: bool = True
-    followup_timeout_seconds: float = 6.0
+    followup_timeout_seconds: float = 4.0
     followup_preroll_seconds: float = 0.3
     post_playback_guard_seconds: float = 0.25
     input_queue_frames: int = 64
@@ -918,7 +918,7 @@ integration test로 STT·Responses·TTS를 각각 한 번씩 검증한다.
 - 발화 종료부터 첫 TTS PCM 재생까지 STT·LLM·TTS 구간별 시간 측정
 - TTS 도중 새 입력이 queue에 남아 다음 turn으로 오인되지 않는지 확인
 - TTS 잔향·키보드 소리가 후속 발화로 오인되지 않는지 확인
-- 응답 뒤 6초 안의 후속 질문이 Wake Word 없이 동작하고 timeout 뒤에는 거부되는지 확인
+- 응답 뒤 4초 안의 후속 질문이 Wake Word 없이 동작하고 timeout 뒤에는 거부되는지 확인
 - follow-up timeout이 snapshot에 정확히 반영되는지 확인
 - OpenAI 단절 후 Desk와 Dashboard가 계속 동작하는지 확인
 

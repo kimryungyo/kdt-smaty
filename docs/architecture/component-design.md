@@ -281,8 +281,8 @@ Wake Word 없는 follow-up 횟수를 제한하지 않는다.
 `PROCESSING`, `SPEAKING`, `WAITING_FOLLOWUP` 상태를 하나의 `voice-main` task에서 순차
 진행한다. callback thread는 80ms PCM을 event loop의 bounded queue로 전달하기만 한다.
 
-Voice는 half-duplex다. TTS 중 입력을 폐기하고 정상 drain 뒤 250ms guard를 거쳐 6초
-follow-up을 연다. 정상 후속 응답마다 새 6초 창을 만들며 횟수 제한은 없다. microphone,
+Voice는 half-duplex다. TTS 중 입력을 폐기하고 정상 drain 뒤 250ms guard를 거쳐 4초
+follow-up을 연다. 정상 후속 응답마다 새 4초 창을 만들며 횟수 제한은 없다. microphone,
 speaker와 Wake Word 오류만 Voice `ERROR`이고 OpenAI turn 오류는 local error effect 뒤
 `WAITING_WAKE`로 복귀한다.
 

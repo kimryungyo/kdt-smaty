@@ -156,7 +156,7 @@ SMART_DESK_VOICE__OUTPUT_DEVICE_NAME=<stable full name>
 
 음성 흐름은 builtin `hey_jarvis` 호출어, local 확인음, 최대 10초 memory WAV,
 `gpt-transcribe`, 같은 `voice:local` Responses history, `gpt-4o-mini-tts` PCM 재생과
-6초 follow-up 순서다. 사용자 테스트 전에 사용자에게 **“이 음성은 AI가 생성합니다”**를
+4초 follow-up 순서다. 사용자 테스트 전에 사용자에게 **“이 음성은 AI가 생성합니다”**를
 고정 화면 문구, 물리 라벨 또는 온보딩으로 고지해야 한다.
 
 OpenAI live test에는 16kHz mono PCM16 WAV fixture를 별도로 지정한다.

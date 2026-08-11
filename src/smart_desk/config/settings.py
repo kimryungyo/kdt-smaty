@@ -433,7 +433,7 @@ class VoiceSettings(BaseModel):
 
     followup_enabled: bool = True
     followup_timeout_seconds: float = Field(
-        default=6.0,
+        default=4.0,
         gt=0,
         le=30,
         allow_inf_nan=False,
