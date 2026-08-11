@@ -183,6 +183,25 @@ SMART_DESK_VOICE__OUTPUT_DEVICE_NAME='<stable full name>' \
 Wake Word model의 사용 조건과 wheel provenance는
 [Voice third-party 문서](docs/third-party/voice.md)에 기록한다.
 
+### 임시 AI 스피커 디버그 페이지
+
+Voice와 같은 프로세스에서 별도 HTTP 서버를 열어 Wake Word score, 상태 전이,
+microphone queue 통계와 성공한 사용자 발화·음성 응답 이력을 확인할 수 있다.
+
+```text
+SMART_DESK_VOICE_DEBUG__ENABLED=true
+SMART_DESK_VOICE_DEBUG__HOST=0.0.0.0
+SMART_DESK_VOICE_DEBUG__PORT=10000
+```
+
+기본 FastAPI 서버를 평소처럼 실행한 뒤 `http://<장비 IP>:10000`에서 확인한다. 디버그
+서버는 Voice 다음에 시작되고 먼저 종료되므로 microphone, Wake Word model과 OpenAI
+session을 중복 생성하지 않는다. 화면은 250ms마다 read-only snapshot을 갱신한다.
+
+이 페이지에는 transcript와 speaker가 읽은 응답이 평문으로 표시된다. API key와
+encrypted reasoning 원문은 제공하지 않지만, 임시 검증이 끝나면
+`SMART_DESK_VOICE_DEBUG__ENABLED=false`로 닫고 신뢰하는 네트워크에서만 사용한다.
+
 ## 운영 실행
 
 React를 빌드한 뒤 FastAPI만 실행한다. 빌드 결과는 `frontend/dist`에 생성되며,

@@ -293,6 +293,7 @@ frontend/src/
 | `tests/integration/test_wakeword_builtin.py` | Voice extra 환경에서 builtin HEY_JARVIS offline load·추론을 검증한다. |
 | `tests/integration/test_openai_voice_live.py` | opt-in OpenAI STT·2-turn Responses·streaming TTS를 검증한다. |
 | `tests/integration/test_voice_hardware.py` | opt-in microphone/speaker open과 local effect를 검증한다. |
+| `src/smart_desk/modules/voice/debug.py` | 10000 포트 임시 Voice 관측 페이지와 read-only snapshot API를 제공한다. |
 
 순수 상태전이와 검증은 `tests/unit/`, FastAPI·MQTT·시리얼처럼 둘 이상의 경계를
 연결하는 검증은 `tests/integration/`에 둔다.
