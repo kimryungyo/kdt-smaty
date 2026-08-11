@@ -476,7 +476,13 @@ class RmsRecorder:
             else:
                 if silence_started_at is None:
                     silence_started_at = chunk.captured_at
-                if chunk.captured_at - silence_started_at + INPUT_FRAME_SECONDS >= self._silence_seconds:
+                if (
+                    chunk.captured_at
+                    - silence_started_at
+                    + INPUT_FRAME_SECONDS
+                    + 1e-9
+                    >= self._silence_seconds
+                ):
                     return self._finish(frames, speech_started_at, last_high_at, RecordingEnd.SILENCE)
             if len(frames) >= self._max_frames:
                 return self._finish(frames, speech_started_at, last_high_at, RecordingEnd.MAX_DURATION)
