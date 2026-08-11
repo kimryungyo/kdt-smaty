@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypeAlias
 
 
 MqttQos = Literal[0, 1, 2]
@@ -20,4 +20,4 @@ class MqttMessage:
     received_at: datetime
 
 
-type MessageHandler = Callable[[MqttMessage], Awaitable[None]]
+MessageHandler: TypeAlias = Callable[[MqttMessage], Awaitable[None]]

@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 import logging
+from typing import TypeAlias
 
 from smart_desk.config.settings import DeskSettings
 from smart_desk.core.task_manager import TaskManager
@@ -19,7 +20,7 @@ from smart_desk.modules.serial.source import SerialLineSource, SerialStatus
 
 LOGGER = logging.getLogger(__name__)
 HEIGHT_MONITOR_TASK_NAME = "desk-height-monitor"
-type Now = Callable[[], datetime]
+Now: TypeAlias = Callable[[], datetime]
 
 
 def utc_now() -> datetime:

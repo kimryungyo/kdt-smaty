@@ -10,6 +10,7 @@ from enum import StrEnum
 import logging
 import math
 import time
+from typing import TypeAlias
 
 from smart_desk.config.settings import DeskSettings
 from smart_desk.core.task_manager import TaskManager
@@ -31,9 +32,9 @@ LOGGER = logging.getLogger(__name__)
 DESK_CONTROLLER_TASK_NAME = "desk-controller"
 SUPPORTED_RELAY_FIRMWARES = frozenset({"smartdesk-fin-relay-1.0.0"})
 
-type Now = Callable[[], datetime]
-type Monotonic = Callable[[], float]
-type WaitForWake = Callable[[asyncio.Event, float], Awaitable[bool]]
+Now: TypeAlias = Callable[[], datetime]
+Monotonic: TypeAlias = Callable[[], float]
+WaitForWake: TypeAlias = Callable[[asyncio.Event, float], Awaitable[bool]]
 
 
 def utc_now() -> datetime:

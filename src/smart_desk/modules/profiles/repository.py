@@ -5,13 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 import sqlite3
 from sqlite3 import Connection, Row
+from typing import TypeAlias
 from uuid import uuid4
 
 from smart_desk.modules.profiles.models import Profile, ProfileCreate, ProfileUpdate
 from smart_desk.storage import SQLiteDatabase
 
 
-type ProfileIdFactory = Callable[[], str]
+ProfileIdFactory: TypeAlias = Callable[[], str]
 
 PROFILE_SELECT_COLUMNS = (
     "id, name, sitting_height_cm, standing_height_cm, led_color"
