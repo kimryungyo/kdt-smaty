@@ -106,6 +106,7 @@ HTTP 요청 검증과 애플리케이션 서비스 호출을 담당한다.
 | `src/smart_desk/api/router.py` | 기능별 `APIRouter`를 하나의 최상위 router로 조립한다. |
 | `src/smart_desk/api/routes/__init__.py` | HTTP route 패키지를 선언한다. |
 | `src/smart_desk/api/routes/health.py` | `/health/live`, `/health/ready`와 응답 모델을 제공한다. |
+| `src/smart_desk/api/routes/wled.py` | 선택 WLED의 status, capabilities와 전체 조명 control HTTP 계약을 제공한다. |
 
 새 API는 `api/routes/<기능>.py`에 추가하고 `api/router.py`에서 연결한다. route는
 함수 안에서 `get_*()`로 singleton 서비스를 조회할 수 있지만, 장치 제어 정책을
@@ -126,6 +127,17 @@ EMQX와 통신하는 프로세스 공용 MQTT transport다. 토픽별 JSON 의�
 
 handler는 MQTT 시작 전에 등록한다. 최초 연결·구독 실패는 애플리케이션 시작
 실패로 처리하고, 시작 후 단절에는 같은 process에서 자동 재연결·재구독한다.
+
+### `modules/wled/`
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/smart_desk/modules/wled/models.py` | WLED snapshot, catalog와 camelCase API 모델을 정의한다. |
+| `src/smart_desk/modules/wled/client.py` | HTTP JSON API, 유효 segment 전체 적용과 응답 검증을 담당한다. |
+| `src/smart_desk/modules/wled/__init__.py` | 공개 타입·오류와 선택 client accessor를 제공한다. |
+
+WLED는 enabled일 때만 lifecycle order 60으로 생성된다. 장애는 마지막 관측 snapshot에만
+기록하며 Desk 안전 상태나 application readiness를 바꾸지 않는다.
 
 ### `modules/serial/`
 

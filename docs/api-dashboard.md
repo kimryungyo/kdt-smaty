@@ -67,3 +67,21 @@ unmount는 best-effort `STOP`을 보내며, 이 요청도 유실되면 `DeskCont
 모든 route는 요청 검증 오류를 `422`, 없는 profile을 `404`, profile ID 충돌 또는 현재
 Desk 안전 상태에서 거부된 명령을 `409`, controller·SQLite가 준비되지 않았거나 storage
 오류인 경우를 `503`으로 반환한다. 예상하지 못한 오류는 FastAPI 기본 `500`으로 남긴다.
+
+## WLED 전체 조명
+
+WLED는 선택 장치다. `GET /api/wled/status`는 비활성화 시에도 `200`과
+`{"status":"DISABLED", ...}`를 반환하며, 연결 실패도 마지막 관측값을 포함한
+`status: "ERROR"` snapshot으로 반환한다. 따라서 이 상태는 Desk polling에 포함하지 않는다.
+
+`GET /api/wled/capabilities`는 장치의 effect/palette 목록을 반환한다. `POST /api/wled/control`
+은 아래 세 요청만 받으며, 성공은 WLED가 전체 유효 segment에 요청 값을 적용했다고
+응답으로 확인한 경우다.
+
+```json
+{"action":"OFF"}
+{"action":"SOLID","color":"FF3000"}
+{"action":"EFFECT","effectId":42,"paletteId":6,"speed":160,"intensity":128,"color":"FF3000"}
+```
+
+지원하지 않는 effect/palette는 `409`, 장치 미연결은 `503`, 잘못된 장치 응답은 `502`이다.

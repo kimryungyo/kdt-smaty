@@ -30,6 +30,12 @@ export type Profile = {
 };
 
 export type ProfileInput = Omit<Profile, "id">;
+export type WledMode = "OFF" | "SOLID" | "EFFECT" | "MIXED";
+export type WledStatus = "DISABLED" | "UNKNOWN" | "ONLINE" | "ERROR";
+export type WledSnapshot = { status: WledStatus; on: boolean | null; mode: WledMode | null; color: string | null; effectId: number | null; effectName: string | null; paletteId: number | null; speed: number | null; intensity: number | null; observedAt: string | null; lastError: string | null };
+export type WledCatalogItem = { id: number; name: string };
+export type WledCapabilities = { deviceName: string; firmwareVersion: string; effects: WledCatalogItem[]; palettes: WledCatalogItem[]; observedAt: string };
+export type WledControl = { action: "OFF" } | { action: "SOLID"; color: string } | { action: "EFFECT"; effectId: number; paletteId?: number; speed?: number; intensity?: number; color?: string };
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -72,3 +78,6 @@ export const updateProfile = (id: string, profile: Partial<ProfileInput>) =>
     body: JSON.stringify(profile),
   });
 export const deleteProfile = (id: string) => request<void>(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const getWledStatus = () => request<WledSnapshot>("/api/wled/status");
+export const getWledCapabilities = () => request<WledCapabilities>("/api/wled/capabilities");
+export const controlWled = (command: WledControl) => request<WledSnapshot>("/api/wled/control", json(command));

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { type DeskStatus, type Profile, getDeskStatus } from "./api/dashboard";
+import { type DeskStatus, type Profile, type WledCapabilities, type WledSnapshot, controlWled, getDeskStatus, getWledCapabilities, getWledStatus, updateProfile } from "./api/dashboard";
 import { DeskPanel } from "./features/desk/DeskPanel";
 import { DebugPanel } from "./features/debug/DebugPanel";
 import { HeightSetup, ProfileBasics, ProfilePicker } from "./features/profiles/ProfilesPanel";
@@ -16,6 +16,16 @@ export default function App() {
   const [draftName, setDraftName] = useState("");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const requestInFlight = useRef(false);
+  const [wledStatus, setWledStatus] = useState<WledSnapshot | null>(null);
+  const [wledCapabilities, setWledCapabilities] = useState<WledCapabilities | null>(null);
+  const [wledError, setWledError] = useState<string | null>(null);
+  const [wledBusy, setWledBusy] = useState(false);
+  const [ledColor, setLedColor] = useState(selectedProfile?.ledColor ?? "0080FF");
+  const [ledTab, setLedTab] = useState<"solid" | "effect">("solid");
+  const [effectId, setEffectId] = useState(1);
+  const [paletteId, setPaletteId] = useState(0);
+  const [speed, setSpeed] = useState(128);
+  const [intensity, setIntensity] = useState(128);
 
   useEffect(() => {
     if (page !== "dashboard") return;
@@ -39,6 +49,45 @@ export default function App() {
       window.clearInterval(timer);
     };
   }, [page]);
+
+  useEffect(() => { setLedColor(selectedProfile?.ledColor ?? "0080FF"); }, [selectedProfile]);
+  useEffect(() => {
+    if (page !== "dashboard") return;
+    let active = true;
+    void (async () => {
+      try {
+        const state = await getWledStatus();
+        if (!active) return;
+        setWledStatus(state);
+        if (state.status !== "DISABLED") {
+          const capabilities = await getWledCapabilities();
+          if (active) { setWledCapabilities(capabilities); setEffectId((current) => capabilities.effects.some((item) => item.id === current) ? current : (capabilities.effects.find((item) => item.id > 0)?.id ?? 1)); }
+        }
+      } catch (error) { if (active) setWledError(error instanceof Error ? error.message : "WLED 상태를 확인하지 못했습니다."); }
+    })();
+    return () => { active = false; };
+  }, [page]);
+
+  const applySolid = async () => {
+    if (!selectedProfile || wledBusy) return;
+    setWledBusy(true); setWledError(null);
+    try {
+      const profile = await updateProfile(selectedProfile.id, { ledColor });
+      setSelectedProfile(profile);
+      try { setWledStatus(await controlWled({ action: "SOLID", color: ledColor })); }
+      catch (error) { setWledError(`색상은 저장했지만 조명 적용에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`); }
+    } catch (error) { setWledError(error instanceof Error ? error.message : "색상을 저장하지 못했습니다."); }
+    finally { setWledBusy(false); }
+  };
+  const saveProfileColor = async () => {
+    if (!selectedProfile || wledBusy) return;
+    setWledBusy(true); setWledError(null);
+    try { setSelectedProfile(await updateProfile(selectedProfile.id, { ledColor })); }
+    catch (error) { setWledError(error instanceof Error ? error.message : "색상을 저장하지 못했습니다."); }
+    finally { setWledBusy(false); }
+  };
+  const applyEffect = async () => { if (wledBusy) return; setWledBusy(true); setWledError(null); try { setWledStatus(await controlWled({ action: "EFFECT", effectId, paletteId, speed, intensity, color: ledColor })); } catch (error) { setWledError(error instanceof Error ? error.message : "이펙트를 적용하지 못했습니다."); } finally { setWledBusy(false); } };
+  const turnOffLed = async () => { if (wledBusy) return; setWledBusy(true); setWledError(null); try { setWledStatus(await controlWled({ action: "OFF" })); } catch (error) { setWledError(error instanceof Error ? error.message : "조명을 끄지 못했습니다."); } finally { setWledBusy(false); } };
 
   const updateStatus = useCallback((status: DeskStatus) => { setDeskStatus(status); setConnectionError(null); }, []);
   const reportError = useCallback((message: string) => setConnectionError(message), []);
@@ -88,7 +137,7 @@ export default function App() {
           <article className="card automation-card"><div className="card-header"><div><p className="card-label">AUTOMATION</p><h2>자동 높이 조절</h2></div><span className="card-number">04</span></div><div className="automation-content"><div><span>자동 조절 상태</span><strong>ON</strong></div><label className="switch" aria-label="자동 높이 조절"><input type="checkbox" checked disabled readOnly /><span /></label></div><p>자세 변화 감지 후 <strong>5초</strong> 뒤 높이를 조절합니다.</p></article>
         </section>
         <DeskPanel status={deskStatus} profile={selectedProfile} canControl={canControl} onStatus={updateStatus} onError={reportError} />
-        <section className="led-grid" aria-label="LED 조명 제어"><article className="card led-card"><div className="card-header"><div><p className="card-label">LED</p><h2>LED 조명 색상</h2></div><span className="led-mode-badge">자동</span></div><div className="led-content"><label className="led-swatch"><input type="color" value={`#${selectedProfile?.ledColor ?? "0080ff"}`} disabled readOnly /></label><div className="led-actions"><button type="button" className="complete-button" disabled>이 색상 적용</button><button type="button" className="previous-button" disabled>인식 색상으로 새로고침</button></div></div><p className="control-note">기본 색상은 흰색입니다. 색상을 적용하면 즉시 바뀌고 현재 프로필에 저장되어, 다음에 카메라가 이 사용자를 인식할 때 자동으로 이 색으로 바뀝니다. WLED 장치가 연결되어 있지 않으면 화면에는 반영되지만 조명은 바뀌지 않습니다.</p><p className="status-message" role="status" /></article></section>
+        <section className="led-grid" aria-label="LED 조명 제어"><article className="card led-card"><div className="card-header"><div><p className="card-label">LED</p><h2>LED 조명 제어</h2></div><span className="led-mode-badge">{wledStatus?.status ?? "확인 중"}</span></div><div className="led-actions"><button type="button" className="previous-button" onClick={() => setLedTab("solid")}>단색</button><button type="button" className="previous-button" onClick={() => setLedTab("effect")}>이펙트</button></div>{ledTab === "solid" ? <div className="led-content"><label className="led-swatch"><input type="color" value={`#${ledColor}`} onChange={(event) => setLedColor(event.target.value.slice(1).toUpperCase())} /></label><div className="led-actions"><button type="button" className="previous-button" disabled={wledBusy || !selectedProfile} onClick={() => void saveProfileColor()}>색상 저장</button><button type="button" className="complete-button" disabled={wledBusy || wledStatus?.status === "DISABLED" || !selectedProfile} onClick={() => void applySolid()}>이 색상 적용</button></div></div> : <div className="led-actions"><label>이펙트 <select value={effectId} onChange={(event) => setEffectId(Number(event.target.value))}>{wledCapabilities?.effects.filter((item) => item.id > 0).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>팔레트 <select value={paletteId} onChange={(event) => setPaletteId(Number(event.target.value))}>{wledCapabilities?.palettes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>속도 <input type="range" min="0" max="255" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} /></label><label>강도 <input type="range" min="0" max="255" value={intensity} onChange={(event) => setIntensity(Number(event.target.value))} /></label><button type="button" className="complete-button" disabled={wledBusy || wledStatus?.status === "DISABLED" || !wledCapabilities} onClick={() => void applyEffect()}>이 이펙트 적용</button></div>}<div className="led-actions"><button type="button" className="previous-button" disabled={wledBusy || wledStatus?.status === "DISABLED"} onClick={() => void turnOffLed()}>조명 끄기</button></div><p className="control-note">프로필 색상 저장과 장치 적용은 별도입니다. WLED가 비활성화되어도 프로필 색상 편집은 계속할 수 있습니다.</p>{wledError && <p className="status-message" role="alert">{wledError}</p>}{wledStatus?.lastError && <p className="status-message" role="status">WLED 오류: {wledStatus.lastError}</p>}</article></section>
         <nav className="dashboard-actions" aria-label="설정 바로가기"><a href="#profiles" onClick={(event) => { event.preventDefault(); setPage("picker"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 12h11M4 17h16" /></svg>프로필 전환</a><a href="#profile-edit" onClick={(event) => { event.preventDefault(); setDraftName(selectedProfile?.name ?? ""); setPage("basics"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3" /><path d="M5.5 20c.5-4 2.8-6 6.5-6s6 2 6.5 6" /></svg>프로필 수정</a><a className="primary-action" href="#height-settings" onClick={(event) => { event.preventDefault(); setPage("height-setup"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M8 4v6m8 4v6" /></svg>높이 설정</a><a href="#vision-debug" onClick={(event) => { event.preventDefault(); setPage("debug"); }}>Vision 디버그</a></nav>
       </main>
     </>
