@@ -72,6 +72,13 @@ async def test_input_queue_drops_oldest_and_rejects_stale_generation() -> None:
     assert (await audio.read()).captured_at == 2.0
     assert (await audio.read()).captured_at == 3.0
     assert audio._dropped_frames == 1  # noqa: SLF001
+    snapshot = audio.get_debug_snapshot()
+    assert snapshot.accepting is True
+    assert snapshot.queue_size == 0
+    assert snapshot.queue_capacity == 2
+    assert snapshot.dropped_frames == 1
+    assert snapshot.overflow_frames == 0
+    assert snapshot.callback_errors == 0
 
     audio._enqueue_from_loop(  # noqa: SLF001
         generation,

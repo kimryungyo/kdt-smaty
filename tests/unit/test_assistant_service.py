@@ -49,6 +49,20 @@ async def test_success_commits_user_and_every_output_item() -> None:
         {"type": "message", "id": "message-1"},
     )
     assert assistant._session.completed_turns == 2  # noqa: SLF001
+    snapshot = assistant.get_debug_snapshot()
+    assert snapshot.completed_turns == 2
+    assert snapshot.history_items == 6
+    assert snapshot.history_item_types == (
+        "user",
+        "reasoning",
+        "message",
+        "user",
+        "reasoning",
+        "message",
+    )
+    assert snapshot.turns[0].user_text == "첫 질문"
+    assert snapshot.turns[0].spoken_text == "응답 1"
+    assert snapshot.turns[0].output_item_types == ("reasoning", "message")
 
 
 async def test_failure_and_cancellation_leave_existing_history_unchanged() -> None:
@@ -85,6 +99,9 @@ async def test_session_resets_once_before_turn_after_maximum() -> None:
         "role": "user",
         "content": "새 질문",
     }
+    assert [turn.user_text for turn in assistant.get_debug_snapshot().turns] == [
+        "새 질문"
+    ]
 
 
 async def test_session_lock_serializes_concurrent_callers() -> None:

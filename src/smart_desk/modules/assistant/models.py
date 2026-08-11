@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
@@ -42,3 +43,27 @@ class OpenAiTurn:
         for tokens in (self.input_tokens, self.output_tokens):
             if tokens is not None and tokens < 0:
                 raise ValueError("token 수는 음수일 수 없습니다.")
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantDebugTurn:
+    """임시 Voice 디버그 화면에 공개할 성공 turn 요약이다."""
+
+    completed_at: datetime
+    user_text: str
+    spoken_text: str
+    request_id: str | None
+    input_tokens: int | None
+    output_tokens: int | None
+    output_item_types: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantDebugSnapshot:
+    """provider payload를 제외한 현재 local session 관측값이다."""
+
+    session_id: str
+    completed_turns: int
+    history_items: int
+    history_item_types: tuple[str, ...]
+    turns: tuple[AssistantDebugTurn, ...]

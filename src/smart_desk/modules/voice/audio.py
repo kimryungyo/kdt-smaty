@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Sequence
+from dataclasses import dataclass
 import importlib
 import io
 import logging
@@ -29,6 +30,18 @@ from smart_desk.modules.voice.models import (
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class AudioInputDebugSnapshot:
+    """원본 PCM을 제외한 microphone queue 관측값이다."""
+
+    accepting: bool
+    queue_size: int
+    queue_capacity: int
+    dropped_frames: int
+    overflow_frames: int
+    callback_errors: int
 
 
 class AudioInput(Protocol):
@@ -261,6 +274,18 @@ class LocalAudioInput:
                 "dropped_frames": self._dropped_frames,
                 "queue_size": self._queue.qsize(),
             },
+        )
+
+    def get_debug_snapshot(self) -> AudioInputDebugSnapshot:
+        """callback과 event loop 사이 queue 상태를 반환한다."""
+
+        return AudioInputDebugSnapshot(
+            accepting=self._accepting,
+            queue_size=self._queue.qsize(),
+            queue_capacity=self._queue.maxsize,
+            dropped_frames=self._dropped_frames,
+            overflow_frames=self._overflow_frames,
+            callback_errors=self._callback_errors,
         )
 
 

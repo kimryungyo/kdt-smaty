@@ -80,10 +80,22 @@ async def test_detector_selects_builtin_and_requires_consecutive_frames(
     assert selected == ["hey-jarvis-builtin"]
     assert await detector.detect(pcm) is False  # initial context has no score
     assert await detector.detect(pcm) is False
+    snapshot = detector.get_debug_snapshot()
+    assert snapshot.score == 0.7
+    assert snapshot.activation_streak == 1
+    assert snapshot.armed is True
     assert await detector.detect(pcm) is True
+    snapshot = detector.get_debug_snapshot()
+    assert snapshot.score == 0.5
+    assert snapshot.threshold == 0.5
+    assert snapshot.activation_streak == 2
+    assert snapshot.consecutive_frames == 2
+    assert snapshot.armed is False
     assert await detector.detect(pcm) is False  # activation 뒤 disarmed
 
     detector.reset()
+    assert detector.get_debug_snapshot().score == 0.5
+    assert detector.get_debug_snapshot().armed is True
     assert await detector.detect(pcm) is False
     assert features.reset_count == 2
     assert classifier.reset_count == 2

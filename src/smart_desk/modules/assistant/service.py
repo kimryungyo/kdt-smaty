@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
 import unicodedata
 
-from smart_desk.modules.assistant.models import AssistantReply, HistoryItem
+from smart_desk.modules.assistant.models import (
+    AssistantDebugSnapshot,
+    AssistantDebugTurn,
+    AssistantReply,
+    HistoryItem,
+)
 from smart_desk.modules.assistant.openai import OpenAiGatewayPort
 
 
@@ -48,6 +54,7 @@ class AssistantService:
         self._gateway = gateway
         self._session_max_turns = session_max_turns
         self._session = _AssistantSession(history=[], completed_turns=0)
+        self._debug_turns: list[AssistantDebugTurn] = []
         self._lock = asyncio.Lock()
 
     async def reply(self, user_text: str) -> AssistantReply:
@@ -59,6 +66,7 @@ class AssistantService:
             if self._session.completed_turns >= self._session_max_turns:
                 self._session.history.clear()
                 self._session.completed_turns = 0
+                self._debug_turns.clear()
 
             old_history = tuple(self._session.history)
             turn = await self._gateway.create_response(
@@ -72,6 +80,19 @@ class AssistantService:
                 *turn.output_items,
             ]
             self._session.completed_turns += 1
+            self._debug_turns.append(
+                AssistantDebugTurn(
+                    completed_at=datetime.now(timezone.utc),
+                    user_text=normalized,
+                    spoken_text=turn.reply.spoken_text,
+                    request_id=turn.request_id,
+                    input_tokens=turn.input_tokens,
+                    output_tokens=turn.output_tokens,
+                    output_item_types=tuple(
+                        str(item.get("type", "unknown")) for item in turn.output_items
+                    ),
+                )
+            )
             LOGGER.info(
                 "AI 음성 응답 history를 갱신했습니다.",
                 extra={
@@ -86,3 +107,17 @@ class AssistantService:
                 },
             )
             return turn.reply
+
+    def get_debug_snapshot(self) -> AssistantDebugSnapshot:
+        """현재 session을 provider 비밀값 없이 디버그용으로 복사한다."""
+
+        return AssistantDebugSnapshot(
+            session_id=self.SESSION_ID,
+            completed_turns=self._session.completed_turns,
+            history_items=len(self._session.history),
+            history_item_types=tuple(
+                str(item.get("type", item.get("role", "unknown")))
+                for item in self._session.history
+            ),
+            turns=tuple(self._debug_turns),
+        )
