@@ -448,7 +448,8 @@ transcript를 매번 검색 결과로 주입하지 않는다.
 
 기본 후보는 `gpt-4o-mini-tts`다. `response_format="pcm"`으로 요청하고 첫 chunk부터
 재생한다. 공식 PCM 형식은 header 없는 24kHz, 16-bit signed little-endian이므로
-speaker adapter가 이 계약을 명시적으로 사용한다.
+speaker adapter가 이 계약을 명시적으로 사용한다. 현재 운영 스피커에서는 장치가
+지원하는 48kHz stereo로 2배 upsample·channel duplicate하여 출력한다.
 
 TTS text는 `spoken_text`만 사용한다. 실제 사용자 테스트 전에 고정 화면 문구, 물리 라벨
 또는 온보딩으로 **“이 음성은 AI가 생성합니다”**를 고지한다. 이 고지는 Dashboard AI

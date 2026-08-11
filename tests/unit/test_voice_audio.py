@@ -8,11 +8,13 @@ import time
 import wave
 from io import BytesIO
 
+import numpy as np
 import pytest
 
 from smart_desk.modules.voice.audio import (
     LocalAudioInput,
     RmsRecorder,
+    _to_device_pcm,
     build_wav,
     calculate_rms,
 )
@@ -53,6 +55,20 @@ def test_build_wav_has_expected_header_format_and_duration() -> None:
         assert wav_file.getframerate() == 16_000
         assert wav_file.getnframes() == 2_560
     assert utterance.duration_seconds == pytest.approx(0.16)
+
+
+def test_output_pcm_is_upsampled_and_duplicated_to_stereo() -> None:
+    converted = np.frombuffer(
+        _to_device_pcm(struct.pack("<hh", 100, -200)),
+        dtype="<i2",
+    ).reshape(-1, 2)
+
+    assert converted.tolist() == [
+        [100, 100],
+        [100, 100],
+        [-200, -200],
+        [-200, -200],
+    ]
 
 
 async def test_input_queue_drops_oldest_and_rejects_stale_generation() -> None:

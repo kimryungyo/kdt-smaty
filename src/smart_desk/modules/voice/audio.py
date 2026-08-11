@@ -30,6 +30,7 @@ from smart_desk.modules.voice.models import (
 
 
 LOGGER = logging.getLogger(__name__)
+OUTPUT_DEVICE_SAMPLE_RATE = 48_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,7 +291,7 @@ class LocalAudioInput:
 
 
 class LocalPcmOutput:
-    """24kHz mono PCM16을 local speaker에 순차 출력한다."""
+    """24kHz mono PCM16을 48kHz stereo local speaker 출력으로 변환한다."""
 
     def __init__(self, *, device_name: str | None) -> None:
         self._device_name = device_name
@@ -310,9 +311,9 @@ class LocalPcmOutput:
             )
             self._stream = await asyncio.to_thread(
                 sounddevice.RawOutputStream,
-                samplerate=OUTPUT_SAMPLE_RATE,
+                samplerate=OUTPUT_DEVICE_SAMPLE_RATE,
                 device=device,
-                channels=1,
+                channels=2,
                 dtype="int16",
             )
         except asyncio.CancelledError:
@@ -332,7 +333,7 @@ class LocalPcmOutput:
             if not self._active:
                 await asyncio.to_thread(stream.start)
                 self._active = True
-            await asyncio.to_thread(stream.write, pcm)
+            await asyncio.to_thread(stream.write, _to_device_pcm(pcm))
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -378,6 +379,14 @@ class LocalPcmOutput:
             errors.append(error)
         if errors:
             raise VoiceFatalError("speaker_close_failed") from errors[0]
+
+
+def _to_device_pcm(pcm: bytes) -> bytes:
+    """24kHz mono PCM16을 48kHz stereo PCM16으로 변환한다."""
+
+    samples = np.frombuffer(pcm, dtype="<i2")
+    upsampled = np.repeat(samples, 2)
+    return np.repeat(upsampled[:, np.newaxis], 2, axis=1).tobytes()
 
 
 class RmsRecorder:
