@@ -6,6 +6,7 @@ from functools import lru_cache
 from math import ceil
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -334,6 +335,25 @@ class DashboardSettings(BaseModel):
     frontend_directory: Path = Path("frontend/dist")
 
 
+class WledSettings(BaseModel):
+    """선택적으로 연결하는 단일 WLED 장치 설정이다."""
+
+    enabled: bool = False
+    base_url: str = "http://wled.local"
+    timeout_seconds: float = Field(default=2.0, gt=0, le=10, allow_inf_nan=False)
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: str) -> str:
+        normalized = value.strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("WLED URL은 http:// 또는 https:// 주소여야 합니다.")
+        if parsed.query or parsed.fragment:
+            raise ValueError("WLED URL에는 query 또는 fragment를 사용할 수 없습니다.")
+        return normalized
+
+
 class OpenAiSettings(BaseModel):
     """AI 음성 turn에 사용하는 OpenAI API 설정을 보관한다."""
 
@@ -525,6 +545,7 @@ class Settings(BaseSettings):
     vision: VisionSettings = VisionSettings()
     storage: StorageSettings = StorageSettings()
     dashboard: DashboardSettings = DashboardSettings()
+    wled: WledSettings = WledSettings()
     openai: OpenAiSettings = OpenAiSettings()
     voice: VoiceSettings = VoiceSettings()
     voice_debug: VoiceDebugSettings = VoiceDebugSettings()

@@ -16,6 +16,7 @@ from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
 from smart_desk.modules.media import CameraPublisher, RtspFrameSource
 from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.serial.source import SerialLineSource
+from smart_desk.modules.wled.client import WledClient
 from smart_desk.storage import SQLiteDatabase
 
 
@@ -161,6 +162,17 @@ def build_container(settings: Settings) -> AppContainer:
                 ),
                 startup_order=51,
                 shutdown_order=51,
+            )
+        )
+    if settings.wled.enabled:
+        wled = WledClient(settings.wled)
+        container.wled = wled
+        container.register(
+            ResourceRegistration(
+                name="wled",
+                resource=wled,
+                startup_order=60,
+                shutdown_order=60,
             )
         )
     if settings.voice.enabled:
