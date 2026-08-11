@@ -1,11 +1,11 @@
-"""Voice extra 환경에서 builtin HEY_JARVIS를 offline load하는 통합 테스트."""
+"""Voice extra 환경에서 공식 HEY_JARVIS ONNX 모델을 검증한다."""
 
 from smart_desk.modules.voice.models import INPUT_FRAME_BYTES
-from smart_desk.modules.voice.wakeword import PyOpenWakeWordDetector
+from smart_desk.modules.voice.wakeword import OpenWakeWordOnnxDetector
 
 
 async def test_builtin_model_loads_infers_resets_and_closes() -> None:
-    detector = PyOpenWakeWordDetector(threshold=0.5, consecutive_frames=2)
+    detector = OpenWakeWordOnnxDetector(threshold=0.5, consecutive_frames=2)
 
     await detector.start()
     try:

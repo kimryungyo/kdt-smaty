@@ -22,7 +22,7 @@ dependencies = [
 voice = [
     "openai>=2.53,<3",
     "sounddevice>=0.5.5,<0.6",
-    "pyopen-wakeword>=1.1,<2",
+    "openwakeword>=0.6,<0.7",
 ]
 dev = [
     "httpx>=0.28,<1",

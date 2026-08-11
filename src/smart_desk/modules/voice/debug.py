@@ -18,7 +18,7 @@ from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.assistant.service import AssistantService
 from smart_desk.modules.voice.audio import LocalAudioInput
 from smart_desk.modules.voice.service import VoiceService
-from smart_desk.modules.voice.wakeword import PyOpenWakeWordDetector
+from smart_desk.modules.voice.wakeword import OpenWakeWordOnnxDetector
 
 
 LOGGER = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class VoiceDebugView:
         self,
         *,
         voice: VoiceService,
-        wakeword: PyOpenWakeWordDetector,
+        wakeword: OpenWakeWordOnnxDetector,
         audio_input: LocalAudioInput,
         assistant: AssistantService,
     ) -> None:

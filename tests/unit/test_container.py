@@ -174,7 +174,7 @@ def test_disabled_voice_does_not_import_optional_packages() -> None:
 import builtins
 real_import = builtins.__import__
 def guarded_import(name, *args, **kwargs):
-    if name.split('.')[0] in {'openai', 'sounddevice', 'pyopen_wakeword'}:
+    if name.split('.')[0] in {'openai', 'sounddevice', 'openwakeword'}:
         raise AssertionError(f'unexpected optional import: {name}')
     return real_import(name, *args, **kwargs)
 builtins.__import__ = guarded_import

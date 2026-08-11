@@ -175,7 +175,7 @@ def build_container(settings: Settings) -> AppContainer:
             from smart_desk.modules.voice.debug import VoiceDebugServer, VoiceDebugView
             from smart_desk.modules.voice.playback import PlaybackCoordinator
             from smart_desk.modules.voice.service import VoiceService
-            from smart_desk.modules.voice.wakeword import PyOpenWakeWordDetector
+            from smart_desk.modules.voice.wakeword import OpenWakeWordOnnxDetector
 
             gateway = OpenAiGateway(settings.openai)
             assistant = AssistantService(
@@ -194,7 +194,7 @@ def build_container(settings: Settings) -> AppContainer:
                 ),
                 error_effect_path=settings.voice.error_effect_path,
             )
-            wakeword = PyOpenWakeWordDetector(
+            wakeword = OpenWakeWordOnnxDetector(
                 threshold=settings.voice.wakeword_threshold,
                 consecutive_frames=settings.voice.wakeword_consecutive_frames,
             )
