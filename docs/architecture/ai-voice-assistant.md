@@ -707,7 +707,7 @@ src/smart_desk/modules/
     ├── models.py       AudioChunk, AudioUtterance, VoiceSnapshot
     ├── audio.py        LocalAudioInput, local speaker adapter
     ├── playback.py     PlaybackCoordinator
-    ├── wakeword.py     PyOpenWakeWordDetector
+    ├── wakeword.py     OpenWakeWordOnnxDetector
     └── service.py      VoiceService state machine
 ```
 
@@ -798,7 +798,7 @@ AsyncOpenAI
 → LocalAudioInput
 → LocalPcmOutput
 → PlaybackCoordinator
-→ PyOpenWakeWordDetector
+→ OpenWakeWordOnnxDetector
 → VoiceService
 ```
 
@@ -854,7 +854,7 @@ Python 의존성 후보:
 ```text
 openai
 sounddevice
-pyopen-wakeword>=1.1,<2
+openwakeword>=0.6,<0.7
 mem0ai  # Phase 2에서만 추가
 ```
 
@@ -866,11 +866,11 @@ NumPy를 사용한다. 별도 WAV package, provider registry, event bus와 audio
 PipeWire/PulseAudio 환경에서 microphone와 speaker의 안정적인 device name을 확인하고,
 system service가 사용하는 사용자의 audio session에서 FastAPI를 실행해야 한다.
 
-`pyopen-wakeword` wheel에 TFLite runtime과 `hey_jarvis` 모델이 포함되므로 별도 ONNX
-runtime, 모델 경로, 시작 시 download 절차를 두지 않는다. 운영 Linux는 해당 wheel이
-지원하는 x86_64 또는 aarch64와 glibc 2.35 이상인지 배포 전에 검증한다. 비상업 개인
-프로젝트에서 모델의 CC BY-NC-SA 4.0 attribution/share-alike 의무는 별도 third-party
-문서에 기록한다.
+`openwakeword` 0.6의 공식 `hey_jarvis` ONNX 모델을 사용한다. 최초 시작에서 feature
+모델과 Wake Word 모델을 package cache에 다운로드하고 이후 재사용하므로, 최초
+설치 시에는 GitHub release 접속과 쓰기 가능한 Python 환경이 필요하다. Python 3.11
+Linux와 ONNX Runtime 조합을 운영 기준으로 한다. 비상업 개인 프로젝트에서 모델의
+CC BY-NC-SA 4.0 attribution/share-alike 의무는 별도 third-party 문서에 기록한다.
 
 ## 16. 검증 전략
 

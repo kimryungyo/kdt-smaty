@@ -197,7 +197,7 @@ Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표
 | --- | --- |
 | `src/smart_desk/modules/voice/models.py` | PCM format 상수, audio DTO, 상태 enum과 content-free snapshot을 정의한다. |
 | `src/smart_desk/modules/voice/audio.py` | PortAudio callback queue, local output, RMS recorder와 memory WAV를 구현한다. |
-| `src/smart_desk/modules/voice/wakeword.py` | `pyopen-wakeword` builtin `HEY_JARVIS` load·추론·reset·close를 담당한다. |
+| `src/smart_desk/modules/voice/wakeword.py` | 공식 `openwakeword` `hey_jarvis` ONNX load·추론·reset·close를 담당한다. |
 | `src/smart_desk/modules/voice/playback.py` | local effect와 streaming TTS PCM을 같은 speaker에 직렬 출력한다. |
 | `src/smart_desk/modules/voice/service.py` | 하나의 `voice-main` task로 turn, follow-up, 오류와 aggregate lifecycle을 관리한다. |
 

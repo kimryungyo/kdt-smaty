@@ -276,7 +276,7 @@ Wake Word 없는 follow-up 횟수를 제한하지 않는다.
 
 ### `VoiceService`
 
-`VoiceService`는 `LocalAudioInput`, `PyOpenWakeWordDetector`, `RmsRecorder`,
+`VoiceService`는 `LocalAudioInput`, `OpenWakeWordOnnxDetector`, `RmsRecorder`,
 `AssistantService`와 `PlaybackCoordinator`를 연결해 `WAITING_WAKE`, `RECORDING`,
 `PROCESSING`, `SPEAKING`, `WAITING_FOLLOWUP` 상태를 하나의 `voice-main` task에서 순차
 진행한다. callback thread는 80ms PCM을 event loop의 bounded queue로 전달하기만 한다.
