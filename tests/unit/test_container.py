@@ -142,6 +142,33 @@ def test_build_container_registers_voice_at_order_70_when_enabled(
     assert container.resources[-1].shutdown_order == 70
 
 
+def test_build_container_registers_voice_debug_after_voice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = SimpleNamespace()
+    monkeypatch.setitem(
+        sys.modules,
+        "openai",
+        SimpleNamespace(AsyncOpenAI=lambda **_kwargs: fake_client),
+    )
+    settings = Settings(
+        voice={"enabled": True},
+        voice_debug={"enabled": True},
+        openai={"api_key": "test-key"},
+        _env_file=None,
+    )
+
+    container = build_container(settings)
+
+    assert container.voice_debug is not None
+    assert [resource.name for resource in container.resources[-2:]] == [
+        "voice",
+        "voice-debug-http",
+    ]
+    assert container.resources[-1].startup_order == 80
+    assert container.resources[-1].shutdown_order == 80
+
+
 def test_disabled_voice_does_not_import_optional_packages() -> None:
     code = """
 import builtins

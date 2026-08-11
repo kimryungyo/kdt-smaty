@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.profiles.repository import ProfileRepository
     from smart_desk.modules.assistant.service import AssistantService
     from smart_desk.modules.voice.service import VoiceService
+    from smart_desk.modules.voice.debug import VoiceDebugServer
     from smart_desk.storage import SQLiteDatabase
 
 
@@ -59,6 +60,7 @@ class AppContainer:
     desk: DeskController
     assistant: AssistantService | None = None
     voice: VoiceService | None = None
+    voice_debug: VoiceDebugServer | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
 

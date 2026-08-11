@@ -487,6 +487,22 @@ class VoiceSettings(BaseModel):
         return self
 
 
+class VoiceDebugSettings(BaseModel):
+    """임시 AI 스피커 관측 페이지의 별도 HTTP 서버 설정이다."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = Field(default=10_000, ge=1, le=65_535)
+
+    @field_validator("host")
+    @classmethod
+    def normalize_host(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Voice debug host는 비어 있을 수 없습니다.")
+        return normalized
+
+
 class Settings(BaseSettings):
     """시작 시 한 번 로드해 프로세스에서 공유하는 전체 설정 모델이다."""
 
@@ -511,6 +527,7 @@ class Settings(BaseSettings):
     dashboard: DashboardSettings = DashboardSettings()
     openai: OpenAiSettings = OpenAiSettings()
     voice: VoiceSettings = VoiceSettings()
+    voice_debug: VoiceDebugSettings = VoiceDebugSettings()
 
     @model_validator(mode="after")
     def require_voice_api_key(self) -> Settings:
@@ -518,6 +535,10 @@ class Settings(BaseSettings):
 
         if self.voice.enabled and self.openai.api_key is None:
             raise ValueError("Voice가 활성화되면 OpenAI API key가 필요합니다.")
+        if self.voice_debug.enabled and not self.voice.enabled:
+            raise ValueError("Voice debug를 활성화하려면 Voice가 활성화되어야 합니다.")
+        if self.voice_debug.enabled and self.voice_debug.port == self.server.port:
+            raise ValueError("Voice debug 포트는 기본 서버 포트와 달라야 합니다.")
         return self
 
 

@@ -172,6 +172,7 @@ def build_container(settings: Settings) -> AppContainer:
                 LocalPcmOutput,
                 RmsRecorder,
             )
+            from smart_desk.modules.voice.debug import VoiceDebugServer, VoiceDebugView
             from smart_desk.modules.voice.playback import PlaybackCoordinator
             from smart_desk.modules.voice.service import VoiceService
             from smart_desk.modules.voice.wakeword import PyOpenWakeWordDetector
@@ -237,4 +238,24 @@ def build_container(settings: Settings) -> AppContainer:
                     shutdown_order=70,
                 )
             )
+            if settings.voice_debug.enabled:
+                voice_debug = VoiceDebugServer(
+                    VoiceDebugView(
+                        voice=voice,
+                        wakeword=wakeword,
+                        audio_input=audio_input,
+                        assistant=assistant,
+                    ),
+                    settings.voice_debug,
+                    task_manager,
+                )
+                container.voice_debug = voice_debug
+                container.register(
+                    ResourceRegistration(
+                        name="voice-debug-http",
+                        resource=voice_debug,
+                        startup_order=80,
+                        shutdown_order=80,
+                    )
+                )
     return container

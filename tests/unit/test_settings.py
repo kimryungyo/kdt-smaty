@@ -238,6 +238,28 @@ def test_enabled_voice_requires_api_key() -> None:
         Settings(voice={"enabled": True}, _env_file=None)
 
 
+def test_voice_debug_requires_voice_and_distinct_port() -> None:
+    with pytest.raises(ValidationError, match="Voice debug"):
+        Settings(voice_debug={"enabled": True}, _env_file=None)
+
+    with pytest.raises(ValidationError, match="포트"):
+        Settings(
+            voice={"enabled": True},
+            voice_debug={"enabled": True, "port": 9090},
+            openai={"api_key": "test-key"},
+            _env_file=None,
+        )
+
+    settings = Settings(
+        voice={"enabled": True},
+        voice_debug={"enabled": True, "host": " 0.0.0.0 ", "port": 10_000},
+        openai={"api_key": "test-key"},
+        _env_file=None,
+    )
+    assert settings.voice_debug.host == "0.0.0.0"
+    assert settings.voice_debug.port == 10_000
+
+
 def test_voice_environment_and_blank_values_are_normalized(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
