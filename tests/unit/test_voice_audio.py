@@ -14,6 +14,7 @@ import pytest
 from smart_desk.modules.voice.audio import (
     LocalAudioInput,
     RmsRecorder,
+    _refresh_portaudio_devices,
     _to_device_pcm,
     build_wav,
     calculate_rms,
@@ -22,6 +23,7 @@ from smart_desk.modules.voice.models import (
     AudioChunk,
     INPUT_FRAME_BYTES,
     RecordingEnd,
+    VoiceFatalError,
 )
 
 
@@ -69,6 +71,23 @@ def test_output_pcm_is_upsampled_and_duplicated_to_stereo() -> None:
         [-200, -200],
         [-200, -200],
     ]
+
+
+def test_portaudio_device_refresh_reinitializes_runtime() -> None:
+    calls: list[str] = []
+
+    class SoundDevice:
+        @staticmethod
+        def _terminate() -> None:
+            calls.append("terminate")
+
+        @staticmethod
+        def _initialize() -> None:
+            calls.append("initialize")
+
+    _refresh_portaudio_devices(SoundDevice())
+
+    assert calls == ["terminate", "initialize"]
 
 
 async def test_input_queue_drops_oldest_and_rejects_stale_generation() -> None:
@@ -131,6 +150,24 @@ async def test_callback_moves_owned_pcm_to_event_loop_queue() -> None:
     chunk = await audio.read(timeout_seconds=0.1)
     assert chunk.pcm == pcm_frame(321)
     assert chunk.captured_at > 0
+
+
+async def test_input_detects_stalled_callback_while_stream_reports_active() -> None:
+    audio = LocalAudioInput(device_name=None, queue_frames=2)
+    audio._stream = type("Stream", (), {"active": True})()  # noqa: SLF001
+    audio._last_callback_at = time.monotonic() - 2  # noqa: SLF001
+
+    with pytest.raises(VoiceFatalError, match="microphone_inactive"):
+        await audio.read(timeout_seconds=0.001)
+
+
+async def test_input_keeps_normal_timeout_for_recent_callback() -> None:
+    audio = LocalAudioInput(device_name=None, queue_frames=2)
+    audio._stream = type("Stream", (), {"active": True})()  # noqa: SLF001
+    audio._last_callback_at = time.monotonic()  # noqa: SLF001
+
+    with pytest.raises(TimeoutError):
+        await audio.read(timeout_seconds=0.001)
 
 
 async def test_recorder_uses_two_frame_start_preroll_and_silence_end() -> None:

@@ -31,6 +31,7 @@ from smart_desk.modules.voice.models import (
 
 LOGGER = logging.getLogger(__name__)
 OUTPUT_DEVICE_SAMPLE_RATE = 48_000
+INPUT_CALLBACK_STALE_SECONDS = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +123,17 @@ def _resolve_device_index(
     return matches[0]
 
 
+def _refresh_portaudio_devices(sounddevice: object) -> None:
+    """닫힌 audio runtime의 PortAudio 장치 목록을 hot-plug 이후 갱신한다."""
+
+    terminate = getattr(sounddevice, "_terminate", None)
+    initialize = getattr(sounddevice, "_initialize", None)
+    if not callable(terminate) or not callable(initialize):
+        return
+    terminate()
+    initialize()
+
+
 class LocalAudioInput:
     """PortAudio callback PCM을 event-loop-owned bounded queue로 전달한다."""
 
@@ -136,6 +148,7 @@ class LocalAudioInput:
         self._overflow_frames = 0
         self._callback_errors = 0
         self._last_drop_log_at = 0.0
+        self._last_callback_at: float | None = None
 
     async def start(self) -> None:
         if self._stream is not None:
@@ -144,6 +157,7 @@ class LocalAudioInput:
         stream: object | None = None
         try:
             sounddevice = importlib.import_module("sounddevice")
+            await asyncio.to_thread(_refresh_portaudio_devices, sounddevice)
             device = await asyncio.to_thread(
                 _resolve_device_index,
                 sounddevice,
@@ -172,12 +186,14 @@ class LocalAudioInput:
                     pass
             raise VoiceFatalError("microphone_open_failed") from error
         self._stream = stream
+        self._last_callback_at = time.monotonic()
         self.discard_pending()
         self._accepting = True
 
     async def stop(self) -> None:
         self._accepting = False
         self.discard_pending()
+        self._last_callback_at = None
         stream, self._stream = self._stream, None
         if stream is None:
             return
@@ -199,6 +215,14 @@ class LocalAudioInput:
         except TimeoutError:
             stream = self._stream
             if stream is not None and not bool(getattr(stream, "active", True)):
+                raise VoiceFatalError("microphone_inactive")
+            last_callback_at = self._last_callback_at
+            if (
+                stream is not None
+                and last_callback_at is not None
+                and time.monotonic() - last_callback_at
+                >= INPUT_CALLBACK_STALE_SECONDS
+            ):
                 raise VoiceFatalError("microphone_inactive")
             raise
 
@@ -223,6 +247,7 @@ class LocalAudioInput:
         try:
             pcm = bytes(indata)
             captured_at = time.monotonic()
+            self._last_callback_at = captured_at
             input_overflow = bool(getattr(status, "input_overflow", False))
             has_status = bool(status)
             loop = self._loop

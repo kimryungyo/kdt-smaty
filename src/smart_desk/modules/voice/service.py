@@ -121,10 +121,10 @@ class VoiceService:
         try:
             await self._wakeword.start()
             self._detector_started = True
-            await self._playback.start()
-            self._playback_started = True
             await self._audio.start()
             self._input_started = True
+            await self._playback.start()
+            self._playback_started = True
             self._audio.discard_pending()
             self._wakeword.reset()
             self._enter_waiting_wake(clear_followup=True, clear_error=True)

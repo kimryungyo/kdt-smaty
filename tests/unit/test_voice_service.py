@@ -324,14 +324,12 @@ async def test_device_start_failure_retries_and_recovers(
     audio.fail_start = False
     await wait_for_state(service, VoiceState.WAITING_WAKE)
 
-    assert events[:5] == [
+    assert events[:3] == [
         "wake:start",
-        "playback:start",
         "input:start",
-        "playback:stop",
         "wake:stop",
     ]
-    assert events[5:] == ["wake:start", "playback:start", "input:start"]
+    assert events[3:] == ["wake:start", "input:start", "playback:start"]
     assert service.get_snapshot().last_error is None
     await service.stop()
     assert gateway.closed == 1
