@@ -152,3 +152,23 @@ async def test_detector_limits_inference_frequency(
 
     await feed_frames(detector, 1)
     assert len(model.processed) == 2
+
+
+async def test_detector_confirms_positive_score_on_next_audio_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = FakeModel([0.6, 0.7])
+    install_fake_module(monkeypatch, model)
+    detector = LiveKitWakeWordOnnxDetector(
+        model_path=MODEL_PATH,
+        threshold=0.5,
+        consecutive_frames=2,
+        inference_interval_frames=5,
+    )
+
+    await detector.start()
+    assert await feed_frames(detector, WINDOW_FRAMES) == [False] * WINDOW_FRAMES
+    assert detector.get_debug_snapshot().activation_streak == 1
+
+    assert await feed_frames(detector, 1) == [True]
+    assert len(model.processed) == 2

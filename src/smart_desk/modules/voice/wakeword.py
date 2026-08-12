@@ -114,7 +114,10 @@ class LiveKitWakeWordOnnxDetector:
         if len(self._frames) < WINDOW_FRAMES:
             return False
         self._frames_since_inference += 1
-        if self._frames_since_inference < self._inference_interval_frames:
+        inference_interval = (
+            1 if self._activation_streak else self._inference_interval_frames
+        )
+        if self._frames_since_inference < inference_interval:
             return False
         self._frames_since_inference = 0
 

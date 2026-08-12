@@ -419,8 +419,8 @@ class VoiceSettings(BaseModel):
     wakeword_model_path: Path = Path(
         "assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx"
     )
-    wakeword_threshold: float = Field(default=0.13, gt=0, le=1, allow_inf_nan=False)
-    wakeword_consecutive_frames: int = Field(default=2, ge=1, le=5)
+    wakeword_threshold: float = Field(default=0.35, gt=0, le=1, allow_inf_nan=False)
+    wakeword_consecutive_frames: int = Field(default=1, ge=1, le=5)
     wakeword_inference_interval_frames: int = Field(default=5, ge=1, le=25)
 
     silence_rms_threshold: float = Field(
