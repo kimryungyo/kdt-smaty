@@ -550,7 +550,7 @@ Desk STOP 처리가 지연되면 안 된다.
 ```text
 사용자 transcript
   ↓
-활성 profile ID 확인
+서버가 얼굴로 확정한 현재 사용자 profile ID 확인
   ├─ 없음/불확실 → 장기 기억 사용 안 함
   └─ 있음
        ↓ MemoryService.search(user_id, transcript, limit)
@@ -591,10 +591,11 @@ Mem0의 `user_id`는 voice session ID가 아니라 기존 Profile의 안정적�
 profile:<profile_id>
 ```
 
-얼굴이 보였다는 이유만으로 임의 user ID를 만들지 않는다. 활성 profile을 신뢰할 수
-있게 확정하지 못한 경우 장기 기억 검색과 저장을 모두 생략한다. 여러 사용자의 기억을
-공용 `voice:local` ID에 섞지 않는다. `agent_id`와 `run_id`는 실제 구분 요구가 생기기
-전에는 사용하지 않는다.
+Dashboard에서 열거나 편집한 profile을 현재 사용자로 사용하지 않는다. 서버의 background
+얼굴 식별과 안정화가 등록 profile 한 명을 신뢰할 수 있게 확정한 경우에만 그 profile ID를
+사용한다. 미등록 얼굴, 여러 명, 오래되거나 불확실한 관측에서는 장기 기억 검색과 저장을
+모두 생략한다. 여러 사용자의 기억을 공용 `voice:local` ID에 섞지 않는다. `agent_id`와
+`run_id`는 실제 구분 요구가 생기기 전에는 사용하지 않는다.
 
 ### 저장 정책
 

@@ -33,6 +33,7 @@ health API에 더해 MQTT, Arduino 높이 입력, ESP32 relay, 목표·HOLD·STO
 
 | 문서 | 읽는 시점 | 다루는 내용 |
 | --- | --- | --- |
+| [Dashboard·기능 워크플로우](workflow/README.md) | 사용자 흐름과 내부 동작을 함께 설계할 때 | profile 설정, 얼굴 등록·식별, 서버 현재 사용자와 자동화 상태 흐름 |
 | [프로젝트 구조](PROJECT_STRUCTURE.md) | 파일을 찾거나 추가할 때 | 현재 폴더·파일 책임과 배치 기준 |
 | [시스템 구조](architecture/system-design.md) | 전체 구조를 정할 때 | 프로세스 경계, 계층, 데이터 흐름 |
 | [컴포넌트 설계](architecture/component-design.md) | 클래스를 만들 때 | 클래스 책임, 공개 API, 의존 방향 |

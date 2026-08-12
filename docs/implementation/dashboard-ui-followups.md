@@ -17,8 +17,9 @@
 | --- | --- | --- |
 | Vision 자세·얼굴 등록·프로필 제안 | UI placeholder | Vision module/API가 아직 없다. |
 | 자동 높이 조절 toggle·5초 유지 시간 | 비활성 UI | 자동화 정책과 profile field가 현재 없다. |
+| 높이 preset 목록 | 앉은/선 버튼만 존재 | 자세별 높이와 사용자 preset을 서버에서 합성하고 MANUAL 전환 실행 계약이 필요하다. |
 | WLED 색상 적용·자동 색상 새로고침 | 비활성 UI | `ledColor` 저장 외 WLED command API가 없다. |
-| 서버 active profile | 화면 내부 선택 상태 | SQLite schema에 active profile field가 없다. |
+| 서버 현재 사용자 | 화면에서 선택한 profile을 메인 사용자처럼 표시 | 현재 사용자는 Dashboard 선택이 아니라 서버의 안정화된 얼굴 식별로만 결정해야 한다. |
 | 사용자 키 | 화면 입력만 존재 | 현재 `Profile`에는 키 영속 field가 없다. |
 | Vision 디버그 카메라·상태 | placeholder | 카메라와 Vision 상태 공급자가 없다. |
 

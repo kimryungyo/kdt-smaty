@@ -326,6 +326,12 @@ frontend/src/
 | `docs/guides/project-principles.md` | 단기 소규모 범위, 우선순위와 과도한 구조를 피하는 기준을 정의한다. |
 | `docs/guides/design-decision-guide.md` | 클래스·모듈·async·singleton 경계를 선택하는 기준을 제공한다. |
 | `docs/guides/planning-and-delivery-guide.md` | 작업 계획, 검증, 완료와 커밋 단위를 정하는 기준을 제공한다. |
+| `docs/workflow/README.md` | Dashboard와 서버 기능 워크플로 문서의 탐색 진입점이다. |
+| `docs/workflow/dashboard.md` | profile 설정, 메인 Dashboard와 debug 화면 흐름을 정의한다. |
+| `docs/workflow/identity-and-vision.md` | 얼굴 등록·식별, 재실·자세와 서버 현재 사용자 결정을 정의한다. |
+| `docs/workflow/desk-control.md` | `AUTO`/`MANUAL`, 자세 자동화와 높이 preset 흐름을 정의한다. |
+| `docs/workflow/api-contracts.md` | 워크플로가 요구하는 HTTP endpoint와 오류 의미를 정의한다. |
+| `docs/workflow/implementation-plan.md` | 현재 구현 차이, 순서와 검증 항목을 관리한다. |
 | `docs/implementation/roadmap.md` | 2~3개월 구현 순서와 단계별 완료 조건을 정리한다. |
 | `docs/tasks/README.md` | 번호가 붙은 실행 작업 문서와 현재 진행 순서를 안내한다. |
 | `docs/tasks/01-*.md` ~ `08-*.md` | 기능별 선행 조건, 작업 목록, 검증과 완료 기준을 제공한다. |
