@@ -5,8 +5,20 @@ import logging
 
 import pytest
 
-from smart_desk.modules.assistant.models import AssistantReply, OpenAiTurn
+from pydantic import BaseModel, ConfigDict
+
+from smart_desk.modules.assistant.models import (
+    AssistantReply,
+    OpenAiResponseStep,
+    OpenAiTurn,
+)
 from smart_desk.modules.assistant.service import AssistantService
+from smart_desk.modules.assistant.tooling import (
+    AssistantToolCall,
+    AssistantToolOutput,
+    AssistantToolRegistry,
+    AssistantToolSpec,
+)
 
 
 class FakeGateway:
@@ -133,3 +145,97 @@ async def test_logs_do_not_contain_user_or_reasoning_content(
     rendered = " ".join(record.getMessage() for record in caplog.records)
     assert canary not in rendered
     assert "reason-1" not in rendered
+
+
+class NoArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ToolProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def specs(self) -> tuple[AssistantToolSpec, ...]:
+        return (AssistantToolSpec("turn_off_wled", "끄기", NoArguments),)
+
+    async def execute(self, name: str, arguments: BaseModel) -> AssistantToolOutput:
+        assert name == "turn_off_wled"
+        assert isinstance(arguments, NoArguments)
+        self.calls += 1
+        return AssistantToolOutput.success({"on": False})
+
+
+class ToolLoopGateway:
+    def __init__(self, *, endless: bool = False) -> None:
+        self.requests: list[dict[str, object]] = []
+        self.endless = endless
+
+    async def create_response_step(self, **request: object) -> OpenAiResponseStep:
+        self.requests.append(request)
+        number = len(self.requests)
+        if number == 1 or self.endless:
+            return OpenAiResponseStep(
+                reply=None,
+                output_items=(
+                    {
+                        "type": "function_call",
+                        "call_id": f"call-{number}",
+                        "name": "turn_off_wled",
+                        "arguments": "{}",
+                    },
+                ),
+                tool_calls=(
+                    AssistantToolCall(f"call-{number}", "turn_off_wled", "{}"),
+                ),
+                request_id=f"req-{number}",
+                input_tokens=number,
+                output_tokens=number,
+            )
+        return OpenAiResponseStep(
+            reply=AssistantReply(spoken_text="조명을 껐어요."),
+            output_items=({"type": "message", "id": "final"},),
+            tool_calls=(),
+            request_id=f"req-{number}",
+            input_tokens=number,
+            output_tokens=number,
+        )
+
+
+async def test_tool_loop_executes_and_commits_matching_output() -> None:
+    gateway = ToolLoopGateway()
+    provider = ToolProvider()
+    assistant = AssistantService(
+        gateway,  # type: ignore[arg-type]
+        AssistantToolRegistry((provider,)),
+        session_max_turns=12,
+    )
+
+    reply = await assistant.reply("불 꺼줘")
+
+    assert reply.spoken_text == "조명을 껐어요."
+    assert provider.calls == 1
+    assert len(gateway.requests) == 2
+    second_input = gateway.requests[1]["input_items"]
+    assert second_input[-1]["type"] == "function_call_output"  # type: ignore[index]
+    assert second_input[-1]["call_id"] == "call-1"  # type: ignore[index]
+    debug = assistant.get_debug_snapshot().turns[0]
+    assert debug.request_ids == ("req-1", "req-2")
+    assert debug.tool_names == ("turn_off_wled",)
+    assert debug.input_tokens == 3
+
+
+async def test_tool_limit_prevents_additional_side_effect_and_rolls_back_history() -> None:
+    gateway = ToolLoopGateway(endless=True)
+    provider = ToolProvider()
+    assistant = AssistantService(
+        gateway,  # type: ignore[arg-type]
+        AssistantToolRegistry((provider,)),
+        session_max_turns=12,
+        max_tool_calls_per_turn=1,
+    )
+
+    with pytest.raises(Exception, match="tool_call_limit_exceeded"):
+        await assistant.reply("계속 실행")
+
+    assert provider.calls == 1
+    assert assistant._session.history == []  # noqa: SLF001

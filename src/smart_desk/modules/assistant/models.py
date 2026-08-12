@@ -8,6 +8,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
 
+from smart_desk.modules.assistant.tooling import AssistantToolCall
+
 
 HistoryItem = dict[str, object]
 
@@ -28,14 +30,15 @@ class AssistantReply(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class OpenAiTurn:
-    """검증된 응답과 다음 요청에 재전달할 전체 output item이다."""
+class OpenAiResponseStep:
+    """Responses API 한 단계의 검증된 결과다."""
 
-    reply: AssistantReply
+    reply: AssistantReply | None
     output_items: tuple[HistoryItem, ...]
     request_id: str | None
     input_tokens: int | None
     output_tokens: int | None
+    tool_calls: tuple[AssistantToolCall, ...] = ()
 
     def __post_init__(self) -> None:
         if any(not isinstance(item, dict) for item in self.output_items):
@@ -43,6 +46,12 @@ class OpenAiTurn:
         for tokens in (self.input_tokens, self.output_tokens):
             if tokens is not None and tokens < 0:
                 raise ValueError("token 수는 음수일 수 없습니다.")
+        if not self.tool_calls and self.reply is None:
+            raise ValueError("tool call이 없는 response에는 최종 reply가 필요합니다.")
+
+
+# 기존 import 사용자를 위한 이름이다. 새 코드는 step 계약을 사용한다.
+OpenAiTurn = OpenAiResponseStep
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +65,9 @@ class AssistantDebugTurn:
     input_tokens: int | None
     output_tokens: int | None
     output_item_types: tuple[str, ...]
+    request_ids: tuple[str, ...] = ()
+    tool_names: tuple[str, ...] = ()
+    tool_call_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

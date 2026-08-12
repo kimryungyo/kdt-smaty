@@ -3,12 +3,18 @@
 import asyncio
 from types import SimpleNamespace
 
+from pydantic import BaseModel, ConfigDict
 import pytest
 
 from smart_desk.config.settings import OpenAiSettings
 from smart_desk.modules.assistant.models import AssistantReply
 from smart_desk.modules.assistant.openai import OpenAiGateway, OpenAiTurnError
+from smart_desk.modules.assistant.tooling import AssistantToolSpec
 from smart_desk.modules.voice.audio import build_wav
+
+
+class NoArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class FakeTranscriptions:
@@ -40,7 +46,13 @@ class FakeResponses:
                     "encrypted_content": "reasoning-canary",
                 }
             ),
-            FakeOutputItem({"type": "message", "role": "assistant"}),
+            FakeOutputItem(
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "parsed": {"private": True}}],
+                }
+            ),
         ]
 
     async def parse(self, **request: object):
@@ -168,11 +180,56 @@ async def test_responses_parse_replays_all_items_and_disables_storage(
     assert request["text_format"] is AssistantReply
     assert request["reasoning"] == {"effort": "low"}
     assert turn.output_items[0]["encrypted_content"] == "reasoning-canary"
+    assert "parsed" not in turn.output_items[1]["content"][0]
     assert turn.request_id == "req_test"
     assert turn.input_tokens == 10
     assert client.responses.items[0].dump_calls == [
-        {"mode": "json", "exclude_none": True}
+        {"mode": "json", "exclude_none": True, "warnings": False}
     ]
+
+
+async def test_response_step_sends_strict_tool_and_extracts_function_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway, client, _constructor_args = make_gateway(monkeypatch)
+    client.responses.items = [
+        FakeOutputItem(
+            {
+                "type": "function_call",
+                "call_id": "call-1",
+                "name": "turn_off_wled",
+                "arguments": "{}",
+                "parsed_arguments": {},
+            }
+        )
+    ]
+
+    async def parse(**request: object):
+        client.responses.requests.append(request)
+        return SimpleNamespace(
+            output_parsed=None,
+            output=client.responses.items,
+            usage=None,
+            _request_id="req-tool",
+        )
+
+    client.responses.parse = parse  # type: ignore[method-assign]
+    step = await gateway.create_response_step(
+        input_items=[{"role": "user", "content": "불 꺼줘"}],
+        instructions="지침",
+        tools=[AssistantToolSpec("turn_off_wled", "끄기", NoArguments)],
+    )
+
+    request = client.responses.requests[0]
+    tool = request["tools"][0]["function"]  # type: ignore[index]
+    assert tool["strict"] is True
+    assert tool["parameters"]["additionalProperties"] is False
+    assert request["tool_choice"] == "auto"
+    assert request["parallel_tool_calls"] is False
+    assert step.reply is None
+    assert step.tool_calls[0].call_id == "call-1"
+    assert step.tool_calls[0].name == "turn_off_wled"
+    assert "parsed_arguments" not in step.output_items[0]
 
 
 async def test_tts_is_lazy_streaming_pcm_and_closes_context(

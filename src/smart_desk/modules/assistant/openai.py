@@ -13,14 +13,29 @@ from smart_desk.config.settings import OpenAiSettings
 from smart_desk.modules.assistant.models import (
     AssistantReply,
     HistoryItem,
-    OpenAiTurn,
+    OpenAiResponseStep,
 )
+from smart_desk.modules.assistant.tooling import AssistantToolCall, AssistantToolSpec
 
 if TYPE_CHECKING:
     from smart_desk.modules.voice.models import AudioUtterance
 
 
 MAX_TRANSCRIPTION_BYTES = 25 * 1024 * 1024
+
+
+def _without_sdk_parse_metadata(value: object) -> object:
+    """Responses input wire schema에 없는 parse helper 필드를 재귀적으로 제거한다."""
+
+    if isinstance(value, dict):
+        return {
+            key: _without_sdk_parse_metadata(item)
+            for key, item in value.items()
+            if key not in {"parsed", "parsed_arguments"}
+        }
+    if isinstance(value, list):
+        return [_without_sdk_parse_metadata(item) for item in value]
+    return value
 
 
 class OpenAiTurnError(Exception):
@@ -35,13 +50,13 @@ class OpenAiTurnError(Exception):
 class OpenAiGatewayPort(Protocol):
     async def transcribe(self, utterance: AudioUtterance) -> str: ...
 
-    async def create_response(
+    async def create_response_step(
         self,
         *,
-        history: Sequence[HistoryItem],
-        user_text: str,
+        input_items: Sequence[HistoryItem],
         instructions: str,
-    ) -> OpenAiTurn: ...
+        tools: Sequence[AssistantToolSpec],
+    ) -> OpenAiResponseStep: ...
 
     def synthesize(self, text: str) -> AsyncIterator[bytes]: ...
 
@@ -73,6 +88,7 @@ class OpenAiGateway:
         if settings.api_key is None:
             raise ValueError("OpenAI API key가 필요합니다.")
         package = importlib.import_module("openai")
+        self._pydantic_function_tool = getattr(package, "pydantic_function_tool", None)
         self._client = package.AsyncOpenAI(
             api_key=settings.api_key.get_secret_value(),
             max_retries=0,
@@ -109,23 +125,47 @@ class OpenAiGateway:
             raise OpenAiTurnError(stage="stt", code="stt_result_invalid")
         return text
 
-    async def create_response(
+    def _to_openai_tool(self, spec: AssistantToolSpec) -> object:
+        if self._pydantic_function_tool is not None:
+            return self._pydantic_function_tool(
+                spec.arguments_model,
+                name=spec.name,
+                description=spec.description,
+            )
+        return {
+            "type": "function",
+            "function": {
+                "name": spec.name,
+                "description": spec.description,
+                "strict": True,
+                "parameters": spec.arguments_model.model_json_schema(),
+            },
+        }
+
+    async def create_response_step(
         self,
         *,
-        history: Sequence[HistoryItem],
-        user_text: str,
+        input_items: Sequence[HistoryItem],
         instructions: str,
-    ) -> OpenAiTurn:
+        tools: Sequence[AssistantToolSpec],
+    ) -> OpenAiResponseStep:
+        request: dict[str, object] = {
+            "model": self._settings.response_model,
+            "instructions": instructions,
+            "input": list(input_items),
+            "reasoning": {"effort": self._settings.reasoning_effort},
+            "text_format": AssistantReply,
+            "store": False,
+        }
+        if tools:
+            request.update(
+                tools=[self._to_openai_tool(spec) for spec in tools],
+                tool_choice="auto",
+                parallel_tool_calls=False,
+            )
         try:
             async with asyncio.timeout(self._settings.response_timeout_seconds):
-                response = await self._client.responses.parse(
-                    model=self._settings.response_model,
-                    instructions=instructions,
-                    input=[*history, {"role": "user", "content": user_text}],
-                    reasoning={"effort": self._settings.reasoning_effort},
-                    text_format=AssistantReply,
-                    store=False,
-                )
+                response = await self._client.responses.parse(**request)
         except asyncio.CancelledError:
             raise
         except TimeoutError as error:
@@ -140,16 +180,23 @@ class OpenAiGateway:
             ) from error
 
         reply = getattr(response, "output_parsed", None)
-        if not isinstance(reply, AssistantReply):
+        if reply is not None and not isinstance(reply, AssistantReply):
             raise OpenAiTurnError(
                 stage="responses",
                 code="structured_reply_invalid",
             )
         try:
-            output_items = tuple(
-                item.model_dump(mode="json", exclude_none=True)
+            dumped_items = [
+                _without_sdk_parse_metadata(
+                    item.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                        warnings=False,
+                    )
+                )
                 for item in response.output
-            )
+            ]
+            output_items = tuple(dumped_items)
             if any(not isinstance(item, dict) for item in output_items):
                 raise TypeError("output item is not an object")
         except Exception as error:
@@ -158,16 +205,59 @@ class OpenAiGateway:
                 code="response_history_invalid",
             ) from error
 
+        try:
+            tool_calls = tuple(
+                AssistantToolCall(
+                    call_id=item["call_id"],
+                    name=item["name"],
+                    arguments_json=item["arguments"],
+                )
+                for item in output_items
+                if item.get("type") == "function_call"
+            )
+            if any(
+                not isinstance(value, str)
+                for call in tool_calls
+                for value in (call.call_id, call.name, call.arguments_json)
+            ):
+                raise TypeError("function call field is not a string")
+        except Exception as error:
+            raise OpenAiTurnError(
+                stage="responses",
+                code="function_call_invalid",
+            ) from error
+        if not tool_calls and reply is None:
+            raise OpenAiTurnError(
+                stage="responses",
+                code="structured_reply_invalid",
+            )
+
         usage = getattr(response, "usage", None)
         input_tokens = getattr(usage, "input_tokens", None)
         output_tokens = getattr(usage, "output_tokens", None)
         request_id = getattr(response, "_request_id", None)
-        return OpenAiTurn(
+        return OpenAiResponseStep(
             reply=reply,
             output_items=output_items,
+            tool_calls=tool_calls,
             request_id=request_id if isinstance(request_id, str) else None,
             input_tokens=input_tokens if isinstance(input_tokens, int) else None,
             output_tokens=output_tokens if isinstance(output_tokens, int) else None,
+        )
+
+    async def create_response(
+        self,
+        *,
+        history: Sequence[HistoryItem],
+        user_text: str,
+        instructions: str,
+    ) -> OpenAiResponseStep:
+        """기존 one-shot 호출자를 위한 호환 wrapper다."""
+
+        return await self.create_response_step(
+            input_items=[*history, {"role": "user", "content": user_text}],
+            instructions=instructions,
+            tools=(),
         )
 
     def synthesize(self, text: str) -> AsyncIterator[bytes]:
