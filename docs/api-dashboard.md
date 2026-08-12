@@ -72,16 +72,21 @@ Desk 안전 상태에서 거부된 명령을 `409`, controller·SQLite가 준비
 
 WLED는 선택 장치다. `GET /api/wled/status`는 비활성화 시에도 `200`과
 `{"status":"DISABLED", ...}`를 반환하며, 연결 실패도 마지막 관측값을 포함한
-`status: "ERROR"` snapshot으로 반환한다. 따라서 이 상태는 Desk polling에 포함하지 않는다.
+`status: "ERROR"` snapshot으로 반환한다. snapshot의 `brightness`는 장치가 보고한
+master 밝기 0~255다. 따라서 이 상태는 Desk polling에 포함하지 않는다.
 
 `GET /api/wled/capabilities`는 장치의 effect/palette 목록을 반환한다. `POST /api/wled/control`
-은 아래 세 요청만 받으며, 성공은 WLED가 전체 유효 segment에 요청 값을 적용했다고
+은 아래 네 요청만 받으며, 성공은 WLED가 전체 유효 segment에 요청 값을 적용했다고
 응답으로 확인한 경우다.
 
 ```json
 {"action":"OFF"}
+{"action":"BRIGHTNESS","brightness":64}
 {"action":"SOLID","color":"FF3000"}
 {"action":"EFFECT","effectId":42,"paletteId":6,"speed":160,"intensity":128,"color":"FF3000"}
 ```
+
+`BRIGHTNESS`는 전원과 segment의 색상·effect를 바꾸지 않고 master 밝기만 적용한다.
+응답의 `brightness`가 요청값과 일치할 때만 성공한다.
 
 지원하지 않는 effect/palette는 `409`, 장치 미연결은 `503`, 잘못된 장치 응답은 `502`이다.

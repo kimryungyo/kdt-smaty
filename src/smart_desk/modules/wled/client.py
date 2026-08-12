@@ -36,7 +36,7 @@ class WledClient:
         self._settings = settings
         self._client: httpx.AsyncClient | None = None
         self._request_lock = asyncio.Lock()
-        self._snapshot = WledSnapshot(WledStatus.UNKNOWN, None, None, None, None, None, None, None, None, None, None)
+        self._snapshot = WledSnapshot(WledStatus.UNKNOWN, None, None, None, None, None, None, None, None, None, None, None)
         self._capabilities: WledCapabilities | None = None
 
     async def start(self) -> None:
@@ -78,7 +78,40 @@ class WledClient:
         async with self._request_lock:
             try:
                 response = await self._post_state({"on": False, "v": True})
+                if response.get("on") is not False:
+                    raise WledProtocolError("WLED가 전원 끄기를 확인하지 못했습니다.")
                 self._snapshot = self._snapshot_from_state(response)
+                return self._snapshot
+            except WledError as error:
+                self._record_failure(error)
+                raise
+
+    async def turn_on(self) -> WledSnapshot:
+        """현재 밝기와 segment 설정을 유지하면서 master 전원을 켠다."""
+
+        async with self._request_lock:
+            try:
+                response = await self._post_state({"on": True, "v": True})
+                if response.get("on") is not True:
+                    raise WledProtocolError("WLED가 전원 켜기를 확인하지 못했습니다.")
+                self._snapshot = self._snapshot_from_state(response)
+                return self._snapshot
+            except WledError as error:
+                self._record_failure(error)
+                raise
+
+    async def set_brightness(self, brightness: int) -> WledSnapshot:
+        """WLED master 밝기만 바꾸며 전원과 segment 설정은 유지한다."""
+
+        if isinstance(brightness, bool) or not isinstance(brightness, int) or not 0 <= brightness <= 255:
+            raise WledProtocolError("밝기는 0에서 255 사이의 정수여야 합니다.")
+        async with self._request_lock:
+            try:
+                response = await self._post_state({"bri": brightness, "v": True})
+                if response.get("bri") != brightness:
+                    raise WledProtocolError("WLED가 요청한 밝기를 확인하지 못했습니다.")
+                self._snapshot = self._snapshot_from_state(response)
+                self._log_applied("BRIGHTNESS", brightness=brightness)
                 return self._snapshot
             except WledError as error:
                 self._record_failure(error)
@@ -176,21 +209,24 @@ class WledClient:
 
     def _snapshot_from_state(self, state: dict[str, Any]) -> WledSnapshot:
         if not isinstance(state.get("on"), bool): raise WledProtocolError("WLED 전원 상태가 올바르지 않습니다.")
+        brightness = state.get("bri")
+        if not isinstance(brightness, int) or not 0 <= brightness <= 255:
+            raise WledProtocolError("WLED 밝기 상태가 올바르지 않습니다.")
         segments = self._valid_segments(state)
-        if not state["on"]: return WledSnapshot(WledStatus.ONLINE, False, WledMode.OFF, None, None, None, None, None, None, datetime.now(UTC), None)
+        if not state["on"]: return WledSnapshot(WledStatus.ONLINE, False, brightness, WledMode.OFF, None, None, None, None, None, None, datetime.now(UTC), None)
         values = [self._segment_values(segment) for segment in segments]
         fx_values = {value[0] for value in values}
         colors = {value[4] for value in values}
         if fx_values == {0} and len(colors) == 1:
             fx, pal, sx, ix, color = values[0]
-            return WledSnapshot(WledStatus.ONLINE, True, WledMode.SOLID, color, 0, "Solid", pal, sx, ix, datetime.now(UTC), None)
+            return WledSnapshot(WledStatus.ONLINE, True, brightness, WledMode.SOLID, color, 0, "Solid", pal, sx, ix, datetime.now(UTC), None)
         same_effect = all(value[:4] == values[0][:4] for value in values[1:]) and values[0][0] != 0
         if not same_effect:
-            return WledSnapshot(WledStatus.ONLINE, True, WledMode.MIXED, None, None, None, None, None, None, datetime.now(UTC), None)
+            return WledSnapshot(WledStatus.ONLINE, True, brightness, WledMode.MIXED, None, None, None, None, None, None, datetime.now(UTC), None)
         fx, pal, sx, ix, color = values[0]
         color = color if len(colors) == 1 else None
         effect_name = next((item.name for item in (self._capabilities.effects if self._capabilities else ()) if item.id == fx), None)
-        return WledSnapshot(WledStatus.ONLINE, True, WledMode.EFFECT, color, fx, effect_name, pal, sx, ix, datetime.now(UTC), None)
+        return WledSnapshot(WledStatus.ONLINE, True, brightness, WledMode.EFFECT, color, fx, effect_name, pal, sx, ix, datetime.now(UTC), None)
 
     @staticmethod
     def _valid_segments(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -237,7 +273,7 @@ class WledClient:
 
     def _record_failure(self, error: WledError) -> None:
         previous = self._snapshot
-        self._snapshot = WledSnapshot(WledStatus.ERROR, previous.on, previous.mode, previous.color, previous.effect_id, previous.effect_name, previous.palette_id, previous.speed, previous.intensity, previous.observed_at, str(error))
+        self._snapshot = WledSnapshot(WledStatus.ERROR, previous.on, previous.brightness, previous.mode, previous.color, previous.effect_id, previous.effect_name, previous.palette_id, previous.speed, previous.intensity, previous.observed_at, str(error))
         LOGGER.warning("WLED request failed", extra={"component": "wled", "event": "wled_request_failed", "error_code": type(error).__name__})
     @staticmethod
     def _log_applied(mode: str, **extra: Any) -> None:

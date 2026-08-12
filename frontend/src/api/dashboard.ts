@@ -32,10 +32,10 @@ export type Profile = {
 export type ProfileInput = Omit<Profile, "id">;
 export type WledMode = "OFF" | "SOLID" | "EFFECT" | "MIXED";
 export type WledStatus = "DISABLED" | "UNKNOWN" | "ONLINE" | "ERROR";
-export type WledSnapshot = { status: WledStatus; on: boolean | null; mode: WledMode | null; color: string | null; effectId: number | null; effectName: string | null; paletteId: number | null; speed: number | null; intensity: number | null; observedAt: string | null; lastError: string | null };
+export type WledSnapshot = { status: WledStatus; on: boolean | null; brightness: number | null; mode: WledMode | null; color: string | null; effectId: number | null; effectName: string | null; paletteId: number | null; speed: number | null; intensity: number | null; observedAt: string | null; lastError: string | null };
 export type WledCatalogItem = { id: number; name: string };
 export type WledCapabilities = { deviceName: string; firmwareVersion: string; effects: WledCatalogItem[]; palettes: WledCatalogItem[]; observedAt: string };
-export type WledControl = { action: "OFF" } | { action: "SOLID"; color: string } | { action: "EFFECT"; effectId: number; paletteId?: number; speed?: number; intensity?: number; color?: string };
+export type WledControl = { action: "OFF" } | { action: "BRIGHTNESS"; brightness: number } | { action: "SOLID"; color: string } | { action: "EFFECT"; effectId: number; paletteId?: number; speed?: number; intensity?: number; color?: string };
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {

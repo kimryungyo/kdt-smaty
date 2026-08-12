@@ -44,6 +44,7 @@ class WledCapabilities:
 class WledSnapshot:
     status: WledStatus
     on: bool | None
+    brightness: int | None
     mode: WledMode | None
     color: str | None
     effect_id: int | None
@@ -91,12 +92,24 @@ class EffectControlRequest(WledApiModel):
         return SolidControlRequest(action="SOLID", color=value).color if value is not None else None
 
 
+class BrightnessControlRequest(WledApiModel):
+    action: Literal["BRIGHTNESS"]
+    brightness: int = Field(ge=0, le=255)
+
+    @field_validator("brightness", mode="before")
+    @classmethod
+    def reject_boolean_brightness(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("밝기는 bool일 수 없습니다.")
+        return value
+
+
 class OffControlRequest(WledApiModel):
     action: Literal["OFF"]
 
 
 ControlRequest = Annotated[
-    SolidControlRequest | EffectControlRequest | OffControlRequest,
+    SolidControlRequest | EffectControlRequest | BrightnessControlRequest | OffControlRequest,
     Field(discriminator="action"),
 ]
 
@@ -117,6 +130,7 @@ class WledCapabilitiesResponse(WledApiModel):
 class WledSnapshotResponse(WledApiModel):
     status: WledStatus
     on: bool | None
+    brightness: int | None
     mode: WledMode | None
     color: str | None
     effect_id: int | None

@@ -13,6 +13,7 @@ from smart_desk.modules.wled import (
     get_wled,
 )
 from smart_desk.modules.wled.models import (
+    BrightnessControlRequest,
     ControlRequest,
     EffectControlRequest,
     OffControlRequest,
@@ -41,7 +42,7 @@ async def get_status() -> WledSnapshotResponse:
         client = get_wled()
     except WledDisabledError:
         from smart_desk.modules.wled.models import WledSnapshot, WledStatus
-        return snapshot_response(WledSnapshot(WledStatus.DISABLED, None, None, None, None, None, None, None, None, None, None))
+        return snapshot_response(WledSnapshot(WledStatus.DISABLED, None, None, None, None, None, None, None, None, None, None, None))
     try:
         return snapshot_response(await client.refresh_state())
     except WledError:
@@ -62,6 +63,7 @@ async def control(command: ControlRequest) -> WledSnapshotResponse:
         client = get_wled()
         if isinstance(command, SolidControlRequest): result = await client.set_solid(command.color)
         elif isinstance(command, EffectControlRequest): result = await client.set_effect(command.effect_id, palette_id=command.palette_id, speed=command.speed, intensity=command.intensity, color=command.color)
+        elif isinstance(command, BrightnessControlRequest): result = await client.set_brightness(command.brightness)
         else:
             assert isinstance(command, OffControlRequest)
             result = await client.turn_off()
