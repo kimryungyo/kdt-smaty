@@ -12,6 +12,7 @@
 | 마이크 | Python 음성 모듈이 로컬 장치를 직접 읽음 |
 | 스피커 | 로컬 오디오 계층으로 직접 출력하고 MediaMTX를 경유하지 않음 |
 | 대화 API | OpenAI Responses API |
+| 장치 제어 | 로컬 function calling과 명시적 registry를 통한 WLED 전체 조명 제어 |
 | STT | 발화 종료 후 메모리 WAV를 Transcriptions API에 한 번 전송 |
 | TTS | Speech API의 PCM streaming을 첫 chunk부터 재생 |
 | 대화 상태 | 프로세스 메모리의 고정 `voice:local` session, 서버 재시작 시 초기화 |
@@ -58,6 +59,7 @@ Dashboard에 AI 결과를 전달하는 API·event·화면 모델은 아직 설�
 - 처리 중에는 새 voice turn을 받지 않는 half-duplex
 - voice 상태·마지막 오류를 읽을 수 있는 최소 snapshot
 - fake audio와 fake OpenAI gateway를 사용한 상태 머신 test
+- WLED 상태·켜기·끄기·밝기·단색·effect를 제어하는 로컬 function tool
 
 1차 응답 모델에는 `spoken_text`만 둔다. Dashboard 결과 모델을 예상해 placeholder
 필드를 미리 추가하지 않고, 사용자가 후속 설계를 확정할 때 별도 계약을 추가한다.
@@ -147,12 +149,19 @@ Desk, MQTT, MediaMTX, camera와 dashboard 내부 구현은 알지 않는다.
 
 - session별 turn 직렬화
 - developer instruction 적용
-- Responses API 호출
+- Responses API 호출과 한 사용자 turn 안의 순차 function call 실행(최대 3회)
 - 최종 structured reply 검증
-- session history 갱신과 제한
+- function output을 포함한 session history의 성공 시 일괄 갱신과 제한
 
-microphone, speaker와 Wake Word를 알지 않는다. 다른 입력·출력 채널과 tool 연결은
-후속 설계 전까지 가정하지 않는다.
+microphone, speaker와 Wake Word를 알지 않는다. 장치 실행은
+`AssistantToolRegistry`에 등록된 provider만 사용한다.
+
+### `AssistantToolRegistry`
+
+정적으로 등록된 tool schema의 이름 중복을 검사하고, JSON 인자를 Pydantic으로 다시
+검증한 뒤 domain provider로 전달한다. 현재 `WledAssistantTools`는 같은 프로세스의
+`WledClient`를 직접 사용하며 내부 HTTP route를 우회 호출하지 않는다. WLED가 비활성화된
+실행에서는 provider를 등록하지 않는다.
 
 ### `OpenAiGateway`
 
@@ -163,13 +172,13 @@ adapter다. 하나의 `AsyncOpenAI` client를 공유한다.
 class OpenAiGateway:
     async def transcribe(self, utterance: AudioUtterance) -> str: ...
 
-    async def create_response(
+    async def create_response_step(
         self,
         *,
-        history: Sequence[dict[str, object]],
-        user_text: str,
+        input_items: Sequence[dict[str, object]],
         instructions: str,
-    ) -> OpenAiTurn: ...
+        tools: Sequence[AssistantToolSpec],
+    ) -> OpenAiResponseStep: ...
 
     def synthesize(self, text: str) -> AsyncIterator[bytes]: ...
 
@@ -239,19 +248,22 @@ class AssistantReply(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class OpenAiTurn:
-    reply: AssistantReply
+class OpenAiResponseStep:
+    reply: AssistantReply | None
     output_items: tuple[dict[str, object], ...]
+    tool_calls: tuple[AssistantToolCall, ...]
 ```
 
 Responses API의 structured output으로 이 형태를 요청하고 애플리케이션에서 다시
 검증한다.
 
-- `spoken_text`는 반드시 존재하며 기본적으로 한국어 1~2문장이다.
+- tool call이 없는 최종 step의 `spoken_text`는 반드시 존재하며 기본적으로 한국어
+  1~2문장이다.
 - 화면에 표시했다고 말하거나 아직 없는 Dashboard·camera 기능을 사용할 수 있다고
   안내하지 않는다.
 - `output_items`는 `store=false` session의 다음 turn에 다시 전달할 provider history다.
   `AssistantReply`만 꺼낸 뒤 버리지 않는다.
+- function call과 matching function output도 같은 history transaction에 보존한다.
 
 Dashboard 연결을 설계할 때 필요한 response model을 별도로 정의한다. 현재는 사용하지
 않을 범용 content tree나 화면 placeholder를 미리 만들지 않는다.

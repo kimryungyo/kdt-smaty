@@ -179,6 +179,8 @@ def build_container(settings: Settings) -> AppContainer:
         try:
             from smart_desk.modules.assistant.openai import OpenAiGateway
             from smart_desk.modules.assistant.service import AssistantService
+            from smart_desk.modules.assistant.tooling import AssistantToolRegistry
+            from smart_desk.modules.assistant.wled_tools import WledAssistantTools
             from smart_desk.modules.voice.audio import (
                 LocalAudioInput,
                 LocalPcmOutput,
@@ -190,8 +192,14 @@ def build_container(settings: Settings) -> AppContainer:
             from smart_desk.modules.voice.wakeword import LiveKitWakeWordOnnxDetector
 
             gateway = OpenAiGateway(settings.openai)
+            tool_registry = AssistantToolRegistry(
+                (WledAssistantTools(container.wled),)
+                if container.wled is not None
+                else ()
+            )
             assistant = AssistantService(
                 gateway,
+                tool_registry,
                 session_max_turns=settings.voice.session_max_turns,
             )
             audio_input = LocalAudioInput(
