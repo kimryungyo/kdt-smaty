@@ -18,7 +18,7 @@ from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.assistant.service import AssistantService
 from smart_desk.modules.voice.audio import LocalAudioInput
 from smart_desk.modules.voice.service import VoiceService
-from smart_desk.modules.voice.wakeword import OpenWakeWordOnnxDetector
+from smart_desk.modules.voice.wakeword import LiveKitWakeWordOnnxDetector
 
 
 LOGGER = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class VoiceDebugView:
         self,
         *,
         voice: VoiceService,
-        wakeword: OpenWakeWordOnnxDetector,
+        wakeword: LiveKitWakeWordOnnxDetector,
         audio_input: LocalAudioInput,
         assistant: AssistantService,
     ) -> None:
@@ -193,7 +193,7 @@ DEBUG_PAGE = """<!doctype html>
 <body><main>
   <header><div><p class="eyebrow">TEMPORARY · PORT 10000</p><h1>AI Speaker Debug</h1><p>Wake Word부터 OpenAI 음성 응답까지 실시간 관측</p></div><div id="connection" class="status offline">연결 확인 중</div></header>
   <div class="grid">
-    <article class="score"><div class="score-row"><div><span>HEY JARVIS SCORE</span><strong id="score">--</strong></div><div><span>THRESHOLD</span><strong id="threshold">--</strong></div></div><progress id="scoreBar" max="1" value="0"></progress></article>
+    <article class="score"><div class="score-row"><div><span>HI SMARTY SCORE</span><strong id="score">--</strong></div><div><span>THRESHOLD</span><strong id="threshold">--</strong></div></div><progress id="scoreBar" max="1" value="0"></progress></article>
     <article><span>VOICE STATE</span><strong id="state">--</strong></article>
     <article><span>DETECTOR</span><strong id="armed">--</strong></article>
     <article><span>ACTIVATION STREAK</span><strong id="streak">--</strong></article>

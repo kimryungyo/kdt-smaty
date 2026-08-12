@@ -1,10 +1,13 @@
-"""openWakeWord 공식 HEY_JARVIS ONNX adapter를 구현한다."""
+"""프로젝트의 `하이 스마티` ONNX Wake Word adapter를 구현한다."""
 
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 import importlib
+import math
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
@@ -34,32 +37,40 @@ class WakeWordDebugSnapshot:
     armed: bool
 
 
-MODEL_NAME = "hey_jarvis"
+MODEL_NAME = "hi_smarty_ko"
+WINDOW_FRAMES = 25
 
 
-def _load_builtin() -> object:
-    model_module = importlib.import_module("openwakeword.model")
-    utils_module = importlib.import_module("openwakeword.utils")
-    utils_module.download_models(model_names=[MODEL_NAME])
-    return model_module.Model(
-        wakeword_models=[MODEL_NAME],
-        inference_framework="onnx",
-    )
+def _load_model(model_path: Path) -> object:
+    wakeword_module = importlib.import_module("livekit.wakeword")
+    model = wakeword_module.WakeWordModel()
+    model.load_model(model_path, model_name=MODEL_NAME)
+    return model
 
 
-def _infer(model: object, pcm: bytes) -> float:
-    samples = np.frombuffer(pcm, dtype="<i2")
+def _infer(model: object, samples: np.ndarray) -> float:
     scores: dict[str, object] = model.predict(samples)  # type: ignore[attr-defined]
-    return float(scores.get(MODEL_NAME, 0.0))
+    score = float(scores[MODEL_NAME])
+    if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+        raise ValueError("invalid wakeword score")
+    return score
 
 
-class OpenWakeWordOnnxDetector:
-    """공식 hey_jarvis ONNX score의 연속 frame activation을 관리한다."""
+class LiveKitWakeWordOnnxDetector:
+    """2초 PCM 창에서 `하이 스마티` 점수와 연속 activation을 관리한다."""
 
-    def __init__(self, *, threshold: float, consecutive_frames: int) -> None:
+    def __init__(
+        self,
+        *,
+        model_path: Path,
+        threshold: float,
+        consecutive_frames: int,
+    ) -> None:
+        self._model_path = model_path
         self._threshold = threshold
         self._consecutive_frames = consecutive_frames
         self._model: object | None = None
+        self._frames: deque[np.ndarray] = deque(maxlen=WINDOW_FRAMES)
         self._activation_streak = 0
         self._disarmed = False
         self._last_score: float | None = None
@@ -68,25 +79,22 @@ class OpenWakeWordOnnxDetector:
         if self._model is not None:
             return
         try:
-            self._model = await asyncio.to_thread(_load_builtin)
+            self._model = await asyncio.to_thread(_load_model, self._model_path)
         except asyncio.CancelledError:
             raise
         except Exception as error:
             raise VoiceFatalError("wakeword_unavailable") from error
+        self._frames.clear()
         self._activation_streak = 0
         self._disarmed = False
         self._last_score = None
 
     async def stop(self) -> None:
-        model, self._model = self._model, None
+        self._model = None
+        self._frames.clear()
         self._activation_streak = 0
         self._disarmed = False
         self._last_score = None
-        if model is not None:
-            try:
-                await asyncio.to_thread(model.reset)  # type: ignore[attr-defined]
-            except Exception as error:
-                raise VoiceFatalError("wakeword_close_failed") from error
 
     async def detect(self, pcm: bytes) -> bool:
         if len(pcm) != INPUT_FRAME_BYTES:
@@ -96,12 +104,14 @@ class OpenWakeWordOnnxDetector:
             raise VoiceFatalError("wakeword_not_started")
         if self._disarmed:
             return False
+
+        self._frames.append(np.frombuffer(pcm, dtype="<i2").copy())
+        if len(self._frames) < WINDOW_FRAMES:
+            return False
+
+        samples = np.concatenate(tuple(self._frames))
         try:
-            score = await asyncio.to_thread(
-                _infer,
-                model,
-                pcm,
-            )
+            score = await asyncio.to_thread(_infer, model, samples)
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -117,11 +127,7 @@ class OpenWakeWordOnnxDetector:
         return True
 
     def reset(self) -> None:
-        try:
-            if self._model is not None:
-                self._model.reset()  # type: ignore[attr-defined]
-        except Exception as error:
-            raise VoiceFatalError("wakeword_reset_failed") from error
+        self._frames.clear()
         self._activation_streak = 0
         self._disarmed = False
 

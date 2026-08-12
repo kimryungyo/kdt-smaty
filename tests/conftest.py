@@ -19,7 +19,10 @@ def pytest_ignore_collect(collection_path, config):  # type: ignore[no-untyped-d
     if name == "test_voice_hardware.py":
         return os.getenv("SMART_DESK_RUN_VOICE_HARDWARE") != "1"
     if name == "test_wakeword_builtin.py":
-        return importlib.util.find_spec("openwakeword") is None
+        return (
+            importlib.util.find_spec("livekit") is None
+            or importlib.util.find_spec("livekit.wakeword") is None
+        )
     return None
 
 

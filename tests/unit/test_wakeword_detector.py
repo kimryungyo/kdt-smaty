@@ -1,121 +1,126 @@
-"""공식 openWakeWord HEY_JARVIS ONNX adapter 테스트."""
+"""`하이 스마티` livekit-wakeword ONNX adapter 테스트."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from smart_desk.modules.voice.models import INPUT_FRAME_BYTES, VoiceFatalError
-from smart_desk.modules.voice.wakeword import OpenWakeWordOnnxDetector
+from smart_desk.modules.voice.wakeword import LiveKitWakeWordOnnxDetector, WINDOW_FRAMES
+
+
+MODEL_PATH = Path("assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx")
 
 
 class FakeModel:
     def __init__(self, scores: list[float]) -> None:
         self._scores = iter(scores)
+        self.load_calls: list[tuple[Path, str]] = []
         self.processed: list[np.ndarray] = []
-        self.reset_count = 0
+
+    def load_model(self, model_path: Path, *, model_name: str) -> None:
+        self.load_calls.append((model_path, model_name))
 
     def predict(self, samples: np.ndarray) -> dict[str, float]:
         self.processed.append(samples.copy())
-        return {"hey_jarvis": next(self._scores)}
-
-    def reset(self) -> None:
-        self.reset_count += 1
+        return {"hi_smarty_ko": next(self._scores)}
 
 
-def install_fake_modules(
-    monkeypatch: pytest.MonkeyPatch,
-    model: FakeModel,
-) -> tuple[list[list[str]], list[dict[str, object]]]:
-    downloads: list[list[str]] = []
-    constructions: list[dict[str, object]] = []
-
-    def build_model(**kwargs: object) -> FakeModel:
-        constructions.append(kwargs)
-        return model
-
-    modules = {
-        "openwakeword.model": SimpleNamespace(Model=build_model),
-        "openwakeword.utils": SimpleNamespace(
-            download_models=lambda *, model_names: downloads.append(model_names)
-        ),
-    }
+def install_fake_module(monkeypatch: pytest.MonkeyPatch, model: FakeModel) -> None:
+    module = SimpleNamespace(WakeWordModel=lambda: model)
     monkeypatch.setattr(
         "smart_desk.modules.voice.wakeword.importlib.import_module",
-        modules.__getitem__,
+        lambda name: module if name == "livekit.wakeword" else None,
     )
-    return downloads, constructions
 
 
-async def test_detector_uses_official_onnx_model_and_consecutive_frames(
+async def feed_frames(
+    detector: LiveKitWakeWordOnnxDetector,
+    count: int,
+    *,
+    value: int = 0,
+) -> list[bool]:
+    pcm = np.full(1_280, value, dtype="<i2").tobytes()
+    return [await detector.detect(pcm) for _ in range(count)]
+
+
+async def test_detector_uses_two_second_rolling_window_and_consecutive_frames(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model = FakeModel([0.0, 0.7, 0.5, 0.9])
-    downloads, constructions = install_fake_modules(monkeypatch, model)
-    detector = OpenWakeWordOnnxDetector(threshold=0.5, consecutive_frames=2)
-    pcm = (np.arange(1_280, dtype="<i2")).tobytes()
+    install_fake_module(monkeypatch, model)
+    detector = LiveKitWakeWordOnnxDetector(
+        model_path=MODEL_PATH,
+        threshold=0.5,
+        consecutive_frames=2,
+    )
 
     await detector.start()
-    assert downloads == [["hey_jarvis"]]
-    assert constructions == [
-        {"wakeword_models": ["hey_jarvis"], "inference_framework": "onnx"}
-    ]
-    assert await detector.detect(pcm) is False
-    assert await detector.detect(pcm) is False
+    assert model.load_calls == [(MODEL_PATH, "hi_smarty_ko")]
+    assert await feed_frames(detector, WINDOW_FRAMES - 1) == [False] * 24
+    assert model.processed == []
+    assert await feed_frames(detector, 1) == [False]
+    assert await feed_frames(detector, 1) == [False]
     snapshot = detector.get_debug_snapshot()
     assert snapshot.score == 0.7
     assert snapshot.activation_streak == 1
     assert snapshot.armed is True
-    assert await detector.detect(pcm) is True
+    assert await feed_frames(detector, 1) == [True]
     snapshot = detector.get_debug_snapshot()
     assert snapshot.score == 0.5
     assert snapshot.threshold == 0.5
     assert snapshot.activation_streak == 2
     assert snapshot.consecutive_frames == 2
     assert snapshot.armed is False
-    assert await detector.detect(pcm) is False
+    assert await feed_frames(detector, 1) == [False]
     assert model.processed[0].dtype == np.dtype("int16")
-    assert model.processed[0].shape == (1_280,)
+    assert model.processed[0].shape == (32_000,)
 
     detector.reset()
     assert detector.get_debug_snapshot().score == 0.5
     assert detector.get_debug_snapshot().armed is True
-    assert await detector.detect(pcm) is False
-    assert model.reset_count == 1
+    assert await feed_frames(detector, WINDOW_FRAMES - 1) == [False] * 24
+    assert len(model.processed) == 3
+    assert await feed_frames(detector, 1) == [False]
+    assert len(model.processed) == 4
     await detector.stop()
-    assert model.reset_count == 2
+    assert detector.get_debug_snapshot().score is None
 
 
 async def test_detector_rejects_wrong_pcm_size(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model = FakeModel([])
-    install_fake_modules(monkeypatch, model)
-    detector = OpenWakeWordOnnxDetector(threshold=0.5, consecutive_frames=2)
+    install_fake_module(monkeypatch, model)
+    detector = LiveKitWakeWordOnnxDetector(
+        model_path=MODEL_PATH,
+        threshold=0.13,
+        consecutive_frames=2,
+    )
     await detector.start()
 
-    with pytest.raises(ValueError, match="2560"):
+    with pytest.raises(ValueError, match=str(INPUT_FRAME_BYTES)):
         await detector.detect(b"\0\0")
 
 
 async def test_model_load_failure_is_content_free(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    modules = {
-        "openwakeword.model": SimpleNamespace(
-            Model=lambda **_kwargs: (_ for _ in ()).throw(
-                RuntimeError("broken model path with secret")
-            )
-        ),
-        "openwakeword.utils": SimpleNamespace(
-            download_models=lambda **_kwargs: None
-        ),
-    }
+    module = SimpleNamespace(
+        WakeWordModel=lambda: (_ for _ in ()).throw(
+            RuntimeError("broken model path with secret")
+        )
+    )
     monkeypatch.setattr(
         "smart_desk.modules.voice.wakeword.importlib.import_module",
-        modules.__getitem__,
+        lambda _name: module,
     )
-    detector = OpenWakeWordOnnxDetector(threshold=0.5, consecutive_frames=2)
+    detector = LiveKitWakeWordOnnxDetector(
+        model_path=MODEL_PATH,
+        threshold=0.13,
+        consecutive_frames=2,
+    )
 
     with pytest.raises(VoiceFatalError, match="wakeword_unavailable") as captured:
         await detector.start()

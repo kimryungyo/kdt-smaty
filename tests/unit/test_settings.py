@@ -230,6 +230,10 @@ def test_voice_is_disabled_by_default_without_api_key() -> None:
     assert settings.voice.enabled is False
     assert settings.openai.api_key is None
     assert settings.openai.response_model == "gpt-5.6-terra"
+    assert settings.voice.wakeword_model_path == Path(
+        "assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx"
+    )
+    assert settings.voice.wakeword_threshold == 0.13
     assert settings.voice.followup_timeout_seconds == 4.0
 
 

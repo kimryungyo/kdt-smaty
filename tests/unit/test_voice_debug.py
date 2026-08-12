@@ -30,9 +30,9 @@ class FakeVoice:
 class FakeWakeWord:
     def get_debug_snapshot(self) -> WakeWordDebugSnapshot:
         return WakeWordDebugSnapshot(
-            model="hey_jarvis",
+            model="hi_smarty_ko",
             score=0.73,
-            threshold=0.5,
+            threshold=0.13,
             activation_streak=2,
             consecutive_frames=2,
             armed=False,
