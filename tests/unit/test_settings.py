@@ -234,6 +234,7 @@ def test_voice_is_disabled_by_default_without_api_key() -> None:
         "assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx"
     )
     assert settings.voice.wakeword_threshold == 0.13
+    assert settings.voice.wakeword_inference_interval_frames == 5
     assert settings.voice.followup_timeout_seconds == 4.0
 
 

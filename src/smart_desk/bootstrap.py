@@ -218,6 +218,9 @@ def build_container(settings: Settings) -> AppContainer:
                 model_path=settings.voice.wakeword_model_path,
                 threshold=settings.voice.wakeword_threshold,
                 consecutive_frames=settings.voice.wakeword_consecutive_frames,
+                inference_interval_frames=(
+                    settings.voice.wakeword_inference_interval_frames
+                ),
             )
             recorder = RmsRecorder(
                 rms_threshold=settings.voice.silence_rms_threshold,

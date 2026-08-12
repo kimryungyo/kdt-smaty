@@ -11,6 +11,7 @@ async def test_bundled_model_loads_infers_resets_and_closes() -> None:
         model_path=Path("assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx"),
         threshold=0.13,
         consecutive_frames=2,
+        inference_interval_frames=1,
     )
 
     await detector.start()

@@ -65,12 +65,15 @@ class LiveKitWakeWordOnnxDetector:
         model_path: Path,
         threshold: float,
         consecutive_frames: int,
+        inference_interval_frames: int,
     ) -> None:
         self._model_path = model_path
         self._threshold = threshold
         self._consecutive_frames = consecutive_frames
+        self._inference_interval_frames = inference_interval_frames
         self._model: object | None = None
         self._frames: deque[np.ndarray] = deque(maxlen=WINDOW_FRAMES)
+        self._frames_since_inference = inference_interval_frames - 1
         self._activation_streak = 0
         self._disarmed = False
         self._last_score: float | None = None
@@ -85,6 +88,7 @@ class LiveKitWakeWordOnnxDetector:
         except Exception as error:
             raise VoiceFatalError("wakeword_unavailable") from error
         self._frames.clear()
+        self._frames_since_inference = self._inference_interval_frames - 1
         self._activation_streak = 0
         self._disarmed = False
         self._last_score = None
@@ -92,6 +96,7 @@ class LiveKitWakeWordOnnxDetector:
     async def stop(self) -> None:
         self._model = None
         self._frames.clear()
+        self._frames_since_inference = self._inference_interval_frames - 1
         self._activation_streak = 0
         self._disarmed = False
         self._last_score = None
@@ -108,6 +113,10 @@ class LiveKitWakeWordOnnxDetector:
         self._frames.append(np.frombuffer(pcm, dtype="<i2").copy())
         if len(self._frames) < WINDOW_FRAMES:
             return False
+        self._frames_since_inference += 1
+        if self._frames_since_inference < self._inference_interval_frames:
+            return False
+        self._frames_since_inference = 0
 
         samples = np.concatenate(tuple(self._frames))
         try:
@@ -128,6 +137,7 @@ class LiveKitWakeWordOnnxDetector:
 
     def reset(self) -> None:
         self._frames.clear()
+        self._frames_since_inference = self._inference_interval_frames - 1
         self._activation_streak = 0
         self._disarmed = False
 

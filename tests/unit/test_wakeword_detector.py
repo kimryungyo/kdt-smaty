@@ -54,6 +54,7 @@ async def test_detector_uses_two_second_rolling_window_and_consecutive_frames(
         model_path=MODEL_PATH,
         threshold=0.5,
         consecutive_frames=2,
+        inference_interval_frames=1,
     )
 
     await detector.start()
@@ -97,6 +98,7 @@ async def test_detector_rejects_wrong_pcm_size(
         model_path=MODEL_PATH,
         threshold=0.13,
         consecutive_frames=2,
+        inference_interval_frames=1,
     )
     await detector.start()
 
@@ -120,9 +122,33 @@ async def test_model_load_failure_is_content_free(
         model_path=MODEL_PATH,
         threshold=0.13,
         consecutive_frames=2,
+        inference_interval_frames=1,
     )
 
     with pytest.raises(VoiceFatalError, match="wakeword_unavailable") as captured:
         await detector.start()
 
     assert "secret" not in str(captured.value)
+
+
+async def test_detector_limits_inference_frequency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = FakeModel([0.1, 0.2])
+    install_fake_module(monkeypatch, model)
+    detector = LiveKitWakeWordOnnxDetector(
+        model_path=MODEL_PATH,
+        threshold=0.5,
+        consecutive_frames=2,
+        inference_interval_frames=5,
+    )
+
+    await detector.start()
+    await feed_frames(detector, WINDOW_FRAMES)
+    assert len(model.processed) == 1
+
+    await feed_frames(detector, 4)
+    assert len(model.processed) == 1
+
+    await feed_frames(detector, 1)
+    assert len(model.processed) == 2

@@ -147,6 +147,11 @@ Debian/Ubuntu 계열에서는 PortAudio package `libportaudio2`, 개발 header�
 최소 설정은 다음과 같다. 장치 이름을 비우면 PortAudio 기본 장치를 사용하고, 값을
 지정하면 공백과 대소문자를 제외한 전체 이름이 유일하게 일치해야 한다.
 
+기본 저부하 설정은 80ms microphone frame 5개마다 Wake Word를 추론하여 ONNX 실행
+횟수를 400ms당 한 번으로 제한한다. 더 빠른 반응이 필요하면
+`SMART_DESK_VOICE__WAKEWORD_INFERENCE_INTERVAL_FRAMES`를 낮추고, CPU 사용량을 더
+줄이려면 높인다.
+
 ```text
 SMART_DESK_OPENAI__API_KEY=<secret>
 SMART_DESK_VOICE__ENABLED=true
