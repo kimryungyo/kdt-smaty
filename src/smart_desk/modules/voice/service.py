@@ -30,6 +30,17 @@ from smart_desk.modules.voice.wakeword import WakeWordDetector
 
 LOGGER = logging.getLogger(__name__)
 
+DEVICE_RETRY_INTERVAL_SECONDS = 2.0
+RECOVERABLE_DEVICE_ERRORS = frozenset(
+    {
+        "input_device_name_invalid",
+        "microphone_inactive",
+        "microphone_open_failed",
+        "output_device_name_invalid",
+        "speaker_open_failed",
+    }
+)
+
 
 class VoiceService:
     """microphone부터 speaker까지 하나의 순차 voice turn을 소유한다."""
@@ -73,9 +84,40 @@ class VoiceService:
     async def start(self) -> None:
         if self._main_task is not None and not self._main_task.done():
             return
-        if self._state is VoiceState.ERROR:
-            return
         self._stopping = False
+        needs_start = True
+        try:
+            await self._start_components()
+            needs_start = False
+        except asyncio.CancelledError:
+            await self._cleanup_started_resources(
+                close_gateway=False,
+                partial_start=True,
+            )
+            raise
+        except VoiceFatalError as error:
+            await self._cleanup_started_resources(
+                close_gateway=False,
+                partial_start=True,
+            )
+            if error.code not in RECOVERABLE_DEVICE_ERRORS:
+                self._transition(VoiceState.ERROR, last_error=error.code)
+                return
+            self._transition_device_retry(error.code)
+        except Exception:
+            await self._cleanup_started_resources(
+                close_gateway=False,
+                partial_start=True,
+            )
+            self._transition(VoiceState.ERROR, last_error="voice_start_failed")
+            return
+        self._main_task = self._task_manager.create(
+            "voice-main",
+            self._supervise(needs_start=needs_start),
+            critical=False,
+        )
+
+    async def _start_components(self) -> None:
         try:
             await self._wakeword.start()
             self._detector_started = True
@@ -85,30 +127,53 @@ class VoiceService:
             self._input_started = True
             self._audio.discard_pending()
             self._wakeword.reset()
-            self._enter_waiting_wake(clear_followup=True)
-            self._main_task = self._task_manager.create(
-                "voice-main",
-                self._run(),
-                critical=False,
-            )
+            self._enter_waiting_wake(clear_followup=True, clear_error=True)
         except asyncio.CancelledError:
-            await self._cleanup_started_resources(
-                close_gateway=True,
-                partial_start=True,
-            )
             raise
-        except VoiceFatalError as error:
-            await self._cleanup_started_resources(
-                close_gateway=True,
-                partial_start=True,
-            )
-            self._transition(VoiceState.ERROR, last_error=error.code)
-        except Exception:
-            await self._cleanup_started_resources(
-                close_gateway=True,
-                partial_start=True,
-            )
-            self._transition(VoiceState.ERROR, last_error="voice_start_failed")
+
+    async def _supervise(self, *, needs_start: bool) -> None:
+        """분리·지연된 audio 장치를 복구하면서 Voice main loop를 유지한다."""
+
+        while not self._stopping:
+            try:
+                if needs_start:
+                    await asyncio.sleep(DEVICE_RETRY_INTERVAL_SECONDS)
+                    await self._start_components()
+                    needs_start = False
+                await self._run()
+                return
+            except asyncio.CancelledError:
+                raise
+            except VoiceFatalError as error:
+                await self._cleanup_started_resources(
+                    close_gateway=False,
+                    partial_start=True,
+                )
+                if error.code not in RECOVERABLE_DEVICE_ERRORS:
+                    self._transition(VoiceState.ERROR, last_error=error.code)
+                    return
+                self._transition_device_retry(error.code)
+                needs_start = True
+            except Exception:
+                await self._cleanup_started_resources(
+                    close_gateway=False,
+                    partial_start=True,
+                )
+                self._transition(VoiceState.ERROR, last_error="voice_start_failed")
+                return
+
+    def _transition_device_retry(self, code: str) -> None:
+        if self._state is not VoiceState.ERROR or self._snapshot.last_error != code:
+            self._transition(VoiceState.ERROR, last_error=code)
+        LOGGER.warning(
+            "음성 장치를 사용할 수 없어 자동 재시도합니다.",
+            extra={
+                "component": "voice",
+                "event": "device_retry_scheduled",
+                "error_code": code,
+                "retry_seconds": DEVICE_RETRY_INTERVAL_SECONDS,
+            },
+        )
 
     async def stop(self) -> None:
         if self._stopping and self._state is VoiceState.DISABLED:
@@ -131,36 +196,28 @@ class VoiceService:
         return self._snapshot
 
     async def _run(self) -> None:
-        try:
-            while not self._stopping:
-                if self._state is VoiceState.WAITING_WAKE:
-                    try:
-                        chunk = await self._audio.read(timeout_seconds=1.0)
-                    except TimeoutError:
-                        continue
-                    if await self._wakeword.detect(chunk.pcm):
-                        await self._run_turn(RecordingTrigger.WAKE_WORD)
-                elif self._state is VoiceState.WAITING_FOLLOWUP:
-                    candidate = await self._wait_for_followup_candidate()
-                    if candidate is None:
-                        self._enter_waiting_wake(clear_followup=True)
-                    else:
-                        pre_roll, streak = candidate
-                        await self._run_turn(
-                            RecordingTrigger.FOLLOWUP,
-                            initial_chunks=pre_roll,
-                            initial_above_threshold_frames=streak,
-                            original_followup_deadline=self._followup_deadline,
-                        )
+        while not self._stopping:
+            if self._state is VoiceState.WAITING_WAKE:
+                try:
+                    chunk = await self._audio.read(timeout_seconds=1.0)
+                except TimeoutError:
+                    continue
+                if await self._wakeword.detect(chunk.pcm):
+                    await self._run_turn(RecordingTrigger.WAKE_WORD)
+            elif self._state is VoiceState.WAITING_FOLLOWUP:
+                candidate = await self._wait_for_followup_candidate()
+                if candidate is None:
+                    self._enter_waiting_wake(clear_followup=True)
                 else:
-                    raise VoiceFatalError("voice_state_invalid")
-        except asyncio.CancelledError:
-            raise
-        except VoiceFatalError as error:
-            await self._enter_fatal_error(error.code)
-        except Exception:
-            await self._enter_fatal_error("voice_main_failed")
-            raise
+                    pre_roll, streak = candidate
+                    await self._run_turn(
+                        RecordingTrigger.FOLLOWUP,
+                        initial_chunks=pre_roll,
+                        initial_above_threshold_frames=streak,
+                        original_followup_deadline=self._followup_deadline,
+                    )
+            else:
+                raise VoiceFatalError("voice_state_invalid")
 
     async def _run_turn(
         self,

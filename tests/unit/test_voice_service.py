@@ -32,13 +32,15 @@ class FakeAudioInput:
         self.started = False
         self.events = events
         self.fail_start = False
+        self.start_error_code = "microphone_open_failed"
+        self.read_error: VoiceFatalError | None = None
         self.discard_count = 0
 
     async def start(self) -> None:
         if self.events is not None:
             self.events.append("input:start")
         if self.fail_start:
-            raise VoiceFatalError("microphone_open_failed")
+            raise VoiceFatalError(self.start_error_code)
         self.started = True
         self.accepting = True
 
@@ -48,6 +50,9 @@ class FakeAudioInput:
         self.started = False
 
     async def read(self, timeout_seconds: float | None = None) -> AudioChunk:
+        if self.read_error is not None:
+            error, self.read_error = self.read_error, None
+            raise error
         if timeout_seconds is None:
             return await self.queue.get()
         async with asyncio.timeout(timeout_seconds):
@@ -297,7 +302,9 @@ async def test_fatal_speaker_error_moves_only_voice_to_error() -> None:
     await service.stop()
 
 
-async def test_partial_start_failure_cleans_started_resources_in_reverse() -> None:
+async def test_device_start_failure_retries_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     events: list[str] = []
     service, audio, _wakeword, gateway, _assistant, _playback = make_service(
         recorder_results=[],
@@ -305,17 +312,72 @@ async def test_partial_start_failure_cleans_started_resources_in_reverse() -> No
         events=events,
     )
     audio.fail_start = True
+    monkeypatch.setattr(
+        "smart_desk.modules.voice.service.DEVICE_RETRY_INTERVAL_SECONDS",
+        0.01,
+    )
 
     await service.start()
+    await wait_for_state(service, VoiceState.ERROR)
+    assert gateway.closed == 0
 
-    assert service.get_snapshot().state is VoiceState.ERROR
-    assert events == [
+    audio.fail_start = False
+    await wait_for_state(service, VoiceState.WAITING_WAKE)
+
+    assert events[:5] == [
         "wake:start",
         "playback:start",
         "input:start",
         "playback:stop",
         "wake:stop",
     ]
+    assert events[5:] == ["wake:start", "playback:start", "input:start"]
+    assert service.get_snapshot().last_error is None
+    await service.stop()
+    assert gateway.closed == 1
+
+
+async def test_runtime_microphone_disconnect_retries_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, audio, _wakeword, gateway, _assistant, _playback = make_service(
+        recorder_results=[],
+        transcripts=[],
+    )
+    monkeypatch.setattr(
+        "smart_desk.modules.voice.service.DEVICE_RETRY_INTERVAL_SECONDS",
+        0.01,
+    )
+    await service.start()
+    await wait_for_state(service, VoiceState.WAITING_WAKE)
+
+    audio.fail_start = True
+    audio.read_error = VoiceFatalError("microphone_inactive")
+    await wait_for_state(service, VoiceState.ERROR)
+    assert service.get_snapshot().last_error == "microphone_inactive"
+    assert gateway.closed == 0
+
+    audio.fail_start = False
+    await wait_for_state(service, VoiceState.WAITING_WAKE)
+    await service.stop()
+    assert gateway.closed == 1
+
+
+async def test_nonrecoverable_start_failure_stays_in_error() -> None:
+    service, audio, _wakeword, gateway, _assistant, _playback = make_service(
+        recorder_results=[],
+        transcripts=[],
+    )
+    audio.fail_start = True
+    audio.start_error_code = "wakeword_model_invalid"
+
+    await service.start()
+    await wait_for_state(service, VoiceState.ERROR)
+    await asyncio.sleep(0.01)
+
+    assert service.get_snapshot().last_error == "wakeword_model_invalid"
+    assert gateway.closed == 0
+    await service.stop()
     assert gateway.closed == 1
 
 

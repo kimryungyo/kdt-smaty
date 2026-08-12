@@ -1,0 +1,3 @@
+# AKG Ara가 로그인 화면에서 재연결돼도 smart-desk 실행 사용자가 접근할 수 있게 한다.
+# 이 장비의 smart-desk 계정은 공통 iot group에 속해야 한다.
+SUBSYSTEM=="sound", ATTRS{idVendor}=="0ecb", ATTRS{idProduct}=="2057", GROUP="iot", MODE="0660"
