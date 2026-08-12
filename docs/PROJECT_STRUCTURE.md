@@ -19,7 +19,7 @@ smart-desk-fin/
 ```
 
 MediaMTX는 기존 호스트 프로세스를 사용하고 FFmpeg는 FastAPI가 `Popen`으로
-실행하므로 Task 05를 위한 `infra/`와 Compose 파일은 만들지 않는다.
+실행하므로 별도 `infra/`와 Compose 파일은 만들지 않는다.
 
 ## 루트 파일
 
@@ -334,7 +334,7 @@ frontend/src/
 | `docs/workflow/implementation-plan.md` | 현재 구현 차이, 순서와 검증 항목을 관리한다. |
 | `docs/implementation/roadmap.md` | 2~3개월 구현 순서와 단계별 완료 조건을 정리한다. |
 | `docs/tasks/README.md` | 번호가 붙은 실행 작업 문서와 현재 진행 순서를 안내한다. |
-| `docs/tasks/01-*.md` ~ `08-*.md` | 기능별 선행 조건, 작업 목록, 검증과 완료 기준을 제공한다. |
+| `docs/tasks/01-*.md` ~ `09-*.md` | 앞으로 구현할 기능의 선행 조건, 개략 범위와 완료 기준을 제공한다. |
 
 ## 기능 영역
 

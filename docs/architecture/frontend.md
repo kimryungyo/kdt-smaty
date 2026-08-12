@@ -80,7 +80,8 @@ FastAPI의 정적 제공만 끌 수 있다.
 ## 카메라 미리보기
 
 React는 Python API에서 JPEG 프레임을 반복 요청하지 않는다. `CameraPublisher`가
-MediaMTX에 올린 스트림을 후속 Task 06에서 WebRTC 또는 HLS 주소로 재생한다.
+MediaMTX에 올린 스트림을 [Vision 관측 작업](../tasks/04-vision-observation.md)에서
+WebRTC 또는 HLS 주소로 재생한다.
 
 ```text
 Browser ─ WebRTC/HLS ─ MediaMTX
@@ -89,9 +90,9 @@ FastAPI ─ JSON API ─── Browser
 
 FastAPI는 카메라 연결 상태, 최신 프레임 시각과 Vision 결과 같은 JSON만
 제공한다. 개발·배포 환경에서 MediaMTX 주소가 달라질 수 있으므로 React 코드에
-호스트를 하드코딩하지 않고 frontend 환경 설정 한 곳에서 관리한다. Task 05는
-최신 원본 프레임 제공까지만 구현하며 구체적인 WebRTC/HLS 선택과 URL은
-[Vision 파이프라인 작업](../tasks/06-vision-pipeline.md)에서 실측 후 확정한다.
+호스트를 하드코딩하지 않고 frontend 환경 설정 한 곳에서 관리한다. 최신 원본 프레임
+제공 기반은 구현돼 있으며 구체적인 WebRTC/HLS 선택과 URL은
+[Vision 관측 작업](../tasks/04-vision-observation.md)에서 실측 후 확정한다.
 
 ## 검증
 

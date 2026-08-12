@@ -1,0 +1,105 @@
+# 04. Vision 관측
+
+## 사용자 결과
+
+서버는 Dashboard가 열려 있지 않아도 두 카메라의 최신 프레임을 계속 처리해 책상 영역의
+인원수, 재실과 앉음·섬 상태를 제공한다. 카메라나 모델이 불확실하면 오래된 결과 대신
+명확한 `UNKNOWN`과 차단 근거를 반환한다.
+
+이 작업은 얼굴로 profile을 식별하지 않는다. 사람과 자세의 관측 기반을 먼저 만들고,
+[얼굴 식별과 사용자 세션](05-face-identity-session.md)이 신원과 결합한다.
+
+## 현재 상태
+
+- 사용자·자세 카메라용 `CameraPublisher`와 `RtspFrameSource`가 lifecycle에 등록된다.
+- 각 source는 queue 없이 최신 `(frame, captured_at)` 하나를 유지하고 재연결한다.
+- source 객체가 `bootstrap.py`에서 resource로만 생성돼 후속 Vision service가 직접 참조할
+  container 필드는 아직 없다.
+- 사람 수, 재실, 자세 detector·모델과 `/api/vision/status`는 없다.
+- Dashboard와 debug 화면의 Vision 내용은 placeholder다.
+
+## 첫 구현의 관측 범위
+
+첫 버전은 범용 다중 사람 추적이나 카메라 간 Re-ID를 목표로 하지 않는다. 하나의 책상 ROI에
+한 명만 있는 경우를 정상 자동화 후보로 보고 다음 상황은 fail-closed한다.
+
+- 어느 카메라든 책상 ROI에서 여러 사람이 검출됨
+- 두 카메라의 인원수 또는 관측 시각이 허용 범위를 벗어남
+- 현재 자세를 어느 한 사람에게 귀속할 수 없음
+- frame, detector 결과 또는 model 상태가 만료됨
+
+실제 설치에서 두 카메라의 시야가 충분히 겹치지 않는다면 “동일 인물”을 추정하지 않고
+자동화 차단 조건과 필요한 추가 추적 작업을 문서화한다.
+
+## 공개 관측 모델
+
+구체적 이름은 task 01에서 확정하되 Vision API는 최소한 다음을 분리해 제공한다.
+
+| 정보 | 예시 내용 |
+| --- | --- |
+| 카메라 | 연결 상태, 마지막 frame 시각, frame age와 오류 |
+| 인원수 | 카메라별 raw count, 안정화 count와 ROI |
+| 재실 | `PRESENT`, `VACANT`, `UNKNOWN`, 관측·만료 시각 |
+| 자세 | `SITTING`, `STANDING`, `UNKNOWN`, 후보와 유지 시간 |
+| 결합 상태 | 두 카메라 시각 일치, 인원수 일치와 자동화 사용 가능 여부 |
+
+내부 freshness 판단에는 monotonic clock을 사용하고, API에는 브라우저가 해석할 수 있는 wall
+clock 시각 또는 age를 일관되게 제공한다. 프로세스 재시작 전의 monotonic 값을 저장하거나
+API로 노출하지 않는다.
+
+## 구현 단계
+
+### 입력과 전처리
+
+- [ ] 두 `RtspFrameSource`를 container에서 Vision service에 주입할 수 있게 보관한다.
+- [ ] 실제 카메라 경로, 설치 방향, 해상도·FPS와 책상 ROI를 확인한다.
+- [ ] 카메라별 처리 주기, frame 만료와 detector 결과 만료 설정을 정의한다.
+- [ ] 같은 frame을 중복 추론하지 않도록 frame sequence 또는 captured time을 추적한다.
+- [ ] resize, crop과 색공간 변환을 담당하는 최소 전처리 경계를 구현한다.
+
+### detector와 안정화
+
+- [ ] 사람 수·재실 detector와 자세 detector의 모델·입력·출력을 선정한다.
+- [ ] 무거운 model load와 추론을 event loop 밖에서 수행한다.
+- [ ] model 인스턴스는 시작 시 한 번 생성하고 동시 호출 안전성을 보장한다.
+- [ ] raw 결과와 안정화 결과를 구분하고 앉음·섬 후보 유지 timer를 구현한다.
+- [ ] frame·결과 만료, model 오류와 task 종료에서 `UNKNOWN`으로 전환한다.
+- [ ] 두 카메라 결과의 시각·인원수 일치 여부를 계산한다.
+
+### lifecycle과 API
+
+- [ ] Vision loop를 container singleton과 lifecycle resource로 등록한다.
+- [ ] 시작 전에는 안전한 초기 snapshot, 종료 시에는 만료된 snapshot을 제공한다.
+- [ ] `/api/vision/status`에 raw·안정화 상태와 차단 이유를 노출한다.
+- [ ] debug 화면용 데이터와 일반 Dashboard용 최소 상태의 노출 범위를 구분한다.
+- [ ] MediaMTX WebRTC/HLS preview를 실제 브라우저에서 실측해 한 방식을 확정한다.
+
+## 제외 범위
+
+- 얼굴 임베딩, 등록 profile 비교와 현재 사용자 session
+- 카메라 간 범용 사람 Re-ID 또는 장기 trajectory 저장
+- 영상 녹화, raw frame DB 저장과 FastAPI JPEG polling API
+- 자세에 따른 실제 책상 이동
+
+## 검증
+
+- fake 최신 frame으로 재실·자세 후보와 안정화 전이를 결정적으로 재현한다.
+- 같은 frame을 여러 loop에서 새 관측으로 반복 사용하지 않는다.
+- 오래된 frame, RTSP 단절과 model 예외가 새 관측이나 PRESENT로 남지 않는다.
+- 다중 사용자와 두 카메라 count·timestamp 불일치가 결합 불가 상태가 된다.
+- 처리 속도가 입력 FPS보다 느려도 frame queue와 메모리가 지속 증가하지 않는다.
+- 추론 부하 중 health, Dashboard 조회와 STOP 응답 시간이 허용 기준을 넘지 않는다.
+- 두 카메라를 동시에 장시간 실행해 독립 재연결과 최신 frame 교체를 확인한다.
+
+## 실물 확인 항목
+
+- 앉음·섬·이탈과 책상 주변 통행을 ROI에서 촬영해 오검출 패턴을 기록한다.
+- 조명, 안경·모자, 의자 위치와 책상 높이 변화가 사람 수·자세 판정에 미치는 영향을 본다.
+- camera 한 대 제거, MediaMTX 중단과 복귀 후 snapshot과 memory 사용량을 확인한다.
+
+## 완료 조건
+
+- 재실·자세·인원수와 각 관측 freshness를 API로 독립 조회할 수 있다.
+- 불확실·다중·불일치·오래된 결과가 자동화 가능 상태로 표현되지 않는다.
+- Dashboard·STOP event loop와 frame memory가 추론 지연의 영향을 받지 않는다.
+- 얼굴 task가 source나 detector loop를 다시 만들지 않고 Vision 관측을 입력으로 사용할 수 있다.

@@ -38,8 +38,9 @@ Python·fake 검증과 firmware clean build는 완료했다. relay 분리 board 
 
 - 기존 호스트 MediaMTX를 사용하고 FastAPI가 카메라별 FFmpeg publisher를
   `Popen` 자식 process로 실행한다.
-- Task 05에서 카메라별 `RtspFrameSource`가 최신 프레임 하나를 제공한다.
-- Task 06에서 `FramePreprocessor`와 Vision 판정을 설계·구현한다.
+- 카메라별 `RtspFrameSource`가 최신 프레임 하나를 제공하는 기반은 구현돼 있다.
+- [Vision 관측 작업](../tasks/04-vision-observation.md)에서 `FramePreprocessor`와
+  Vision 판정을 설계·구현한다.
 - 자세, 얼굴, 재실 detector와 `VisionStateService`를 연결한다.
 - RTSP 읽기와 추론이 FastAPI·Desk 제어 이벤트 루프를 막지 않는지 확인한다.
 
