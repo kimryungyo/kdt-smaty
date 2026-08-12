@@ -209,13 +209,14 @@ Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표
 | --- | --- |
 | `src/smart_desk/modules/voice/models.py` | PCM format 상수, audio DTO, 상태 enum과 content-free snapshot을 정의한다. |
 | `src/smart_desk/modules/voice/audio.py` | PortAudio callback queue, local output, RMS recorder와 memory WAV를 구현한다. |
-| `src/smart_desk/modules/voice/wakeword.py` | 공식 `openwakeword` `hey_jarvis` ONNX load·추론·reset·close를 담당한다. |
+| `src/smart_desk/modules/voice/wakeword.py` | `livekit-wakeword`로 `하이 스마티` ONNX의 2초 rolling 추론·reset을 담당한다. |
 | `src/smart_desk/modules/voice/playback.py` | local effect와 streaming TTS PCM을 같은 speaker에 직렬 출력한다. |
 | `src/smart_desk/modules/voice/service.py` | 하나의 `voice-main` task로 turn, follow-up, 오류와 aggregate lifecycle을 관리한다. |
 
 Voice는 optional `voice` dependency extra로 설치하며 비활성 상태에서는 OpenAI,
 sounddevice와 Wake Word package를 import하지 않는다. `assets/voice/effects/`에는 프로젝트가
-직접 합성한 24kHz PCM16 acknowledgement/error WAV와 provenance가 있다.
+직접 합성한 24kHz PCM16 acknowledgement/error WAV가 있고, `assets/voice/models/`에는
+`하이 스마티` classifier와 provenance가 있다.
 
 ### `modules/dashboard/`
 

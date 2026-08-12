@@ -708,7 +708,7 @@ src/smart_desk/modules/
     ├── models.py       AudioChunk, AudioUtterance, VoiceSnapshot
     ├── audio.py        LocalAudioInput, local speaker adapter
     ├── playback.py     PlaybackCoordinator
-    ├── wakeword.py     OpenWakeWordOnnxDetector
+    ├── wakeword.py     LiveKitWakeWordOnnxDetector
     └── service.py      VoiceService state machine
 ```
 
@@ -748,7 +748,10 @@ class VoiceSettings(BaseModel):
     enabled: bool = False
     input_device_name: str | None = None
     output_device_name: str | None = None
-    wakeword_threshold: float = 0.5
+    wakeword_model_path: Path = Path(
+        "assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx"
+    )
+    wakeword_threshold: float = 0.13
     wakeword_consecutive_frames: int = 2
     silence_rms_threshold: float = 500.0
     speech_start_consecutive_frames: int = 2
@@ -799,7 +802,7 @@ AsyncOpenAI
 → LocalAudioInput
 → LocalPcmOutput
 → PlaybackCoordinator
-→ OpenWakeWordOnnxDetector
+→ LiveKitWakeWordOnnxDetector
 → VoiceService
 ```
 
@@ -855,7 +858,7 @@ Python 의존성 후보:
 ```text
 openai
 sounddevice
-openwakeword>=0.6,<0.7
+livekit-wakeword==0.2.1
 mem0ai  # Phase 2에서만 추가
 ```
 
@@ -867,11 +870,12 @@ NumPy를 사용한다. 별도 WAV package, provider registry, event bus와 audio
 PipeWire/PulseAudio 환경에서 microphone와 speaker의 안정적인 device name을 확인하고,
 system service가 사용하는 사용자의 audio session에서 FastAPI를 실행해야 한다.
 
-`openwakeword` 0.6의 공식 `hey_jarvis` ONNX 모델을 사용한다. 최초 시작에서 feature
-모델과 Wake Word 모델을 package cache에 다운로드하고 이후 재사용하므로, 최초
-설치 시에는 GitHub release 접속과 쓰기 가능한 Python 환경이 필요하다. Python 3.11
-Linux와 ONNX Runtime 조합을 운영 기준으로 한다. 비상업 개인 프로젝트에서 모델의
-CC BY-NC-SA 4.0 attribution/share-alike 의무는 별도 third-party 문서에 기록한다.
+`livekit-wakeword` 0.2.1과 프로젝트에서 학습한 `hi_smarty_ko` ONNX를 사용한다.
+16kHz mono PCM16의 80ms frame 25개를 2초 rolling window로 유지하며, package에 포함된
+feature model과 repository의 classifier만 사용하므로 시작 시 model download가 없다.
+현재 classifier는 합성 데이터 기준선이므로 실제 장치의 연속 오디오로 threshold와
+오탐률을 다시 검증한다. provenance와 재배포 검토 사항은 별도 third-party 문서에
+기록한다.
 
 ## 16. 검증 전략
 
