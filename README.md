@@ -288,15 +288,25 @@ publisher 하나만 연결하며, 원격 publish를 허용할 때는 MediaMTX �
 cd frontend && npm run build
 ```
 
-FIN relay firmware의 native 계약 test와 ESP32-C3 build:
+펌웨어 도구 설치:
 
 ```bash
-pio test -d firmware/relay-controller -e native
-pio run -d firmware/relay-controller -e esp32-c3-devkitm-1
+python3 -m venv firmware/.venv
+firmware/.venv/bin/python -m pip install -r firmware/requirements.txt
 ```
 
-build는 장치를 변경하지 않는다. firmware upload와 실제 UP/DOWN은 relay 분리 검증과
-사용자 승인 뒤에만 수행한다.
+Arduino 세그먼트 리더 build와 FIN relay firmware의 native 계약 test·ESP32-C3 build:
+
+```bash
+firmware/.venv/bin/pio run -d firmware/segment-reader
+firmware/.venv/bin/pio test -d firmware/relay-controller -e native
+firmware/.venv/bin/pio run -d firmware/relay-controller -e esp32-c3-devkitm-1
+```
+
+전용 환경은 애플리케이션 `.venv`와 PlatformIO의 웹 의존성 충돌을 막는다. build는
+장치를 변경하지 않는다. Arduino upload 전에는 서버를 종료해 시리얼 포트를
+해제한다. ESP32 firmware upload와 실제 UP/DOWN은 relay 분리 검증과 사용자 승인 뒤에만
+수행한다. 세부 절차는 [펌웨어 안내](firmware/README.md)를 따른다.
 
 기본 테스트는 MQTT broker 없이 실행된다. 로컬 EMQX와 실제 QoS 1 발행·구독 및
 재연결·재구독까지 확인하려면 다음 명령을 추가로 실행한다.

@@ -234,6 +234,13 @@ ESP32-C3의 GPIO 3/4 active-high relay를 실행하는 FIN 전용 PlatformIO 프
 strict MQTT parser, height session arming·lease, 방향 경계와 IRAM hardware timer ISR을
 포함한다. `test/test_policy/`는 host native에서 wire와 경계 정책을 검증한다.
 
+### `firmware/segment-reader/`
+
+Arduino Uno 호환 CH340 보드에서 3자리 7-segment 멀티플렉싱 신호를 읽는 FIN 전용
+PlatformIO 프로젝트다. 한 자리만 선택된 안정 구간에서 mask와 소수점을 반복 확인하고,
+같은 후보가 세 번 연속 확인된 자리만 50ms JSON frame의 `fresh` bitset에 포함한다.
+모든 표시기 관련 핀은 고임피던스 `INPUT`이며 표시기나 모터를 구동하지 않는다.
+
 ## React 대시보드
 
 `frontend/`는 Python 패키지와 분리된 독립 Node.js 프로젝트다. 개발 시 Vite가
