@@ -65,8 +65,10 @@ class AppContainer:
     voice_debug: VoiceDebugServer | None = None
     wled: WledClient | None = None
     user_camera_publisher: CameraPublisher | None = None
+    workspace_camera_publisher: CameraPublisher | None = None
     posture_camera_publisher: CameraPublisher | None = None
     user_frame_source: RtspFrameSource | None = None
+    workspace_frame_source: RtspFrameSource | None = None
     posture_frame_source: RtspFrameSource | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)

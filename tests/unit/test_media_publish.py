@@ -16,15 +16,22 @@ def test_build_publishers_uses_only_enabled_camera_configuration() -> None:
                 "publish_url": "rtsp://media.example/user-cam",
             },
             "posture": {"publish_enabled": False},
+            "workspace": {
+                "publish_enabled": True,
+                "publish_url": "rtsp://media.example/workspace-cam",
+            },
         },
         _env_file=None,
     )
 
     publishers = build_publishers(settings)
 
-    assert list(publishers) == ["user"]
+    assert list(publishers) == ["user", "workspace"]
     assert publishers["user"]._rtsp_url == (  # noqa: SLF001
         "rtsp://media.example/user-cam"
+    )
+    assert publishers["workspace"]._rtsp_url == (  # noqa: SLF001
+        "rtsp://media.example/workspace-cam"
     )
 
 
@@ -32,7 +39,7 @@ def test_build_publishers_rejects_explicitly_disabled_camera() -> None:
     settings = Settings(_env_file=None)
 
     with pytest.raises(RuntimeError, match="비활성화된 카메라"):
-        build_publishers(settings, ("posture",))
+        build_publishers(settings, ("workspace",))
 
 
 async def test_run_publishers_stops_every_started_publisher(

@@ -237,12 +237,23 @@ curl http://127.0.0.1:9090/health/ready
 
 카메라 publish와 RTSP frame 수신은 카메라별로 독립적으로 활성화한다. 모든 역할은
 기본적으로 비활성화되어 있어 장치나 FFmpeg 없이 개발·테스트할 수 있다. 실제 실행
-전에는 호스트에서 MediaMTX가 실행 중이고 `user-cam`, `posture-cam` RTSP path publish를
-허용해야 한다. FastAPI는 MediaMTX를 설치·시작·종료하지 않는다.
+전에는 호스트에서 MediaMTX가 실행 중이고 `user-cam`, `workspace-cam`, `posture-cam`
+RTSP path publish를 허용해야 한다. FastAPI는 MediaMTX를 설치·시작·종료하지 않는다.
 
-두 카메라의 실제 capture index, input format, 해상도와 FPS를 먼저 확인한 뒤 `.env`에
-안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. `.env.example`의 capture 값은
-검증 전 후보이며, 두 카메라의 역할을 제품명만으로 확정하지 않는다.
+현재 호스트에서 확인한 역할과 기본 capture 설정은 다음과 같다. ABKO 장치는 제품명과
+달리 V4L2에서 `2560x1440`이 아닌 `2592x1944`를 최대 해상도로 광고하므로 실제 광고값을
+사용한다. posture 카메라는 아직 연결된 장치가 없어 `/dev/posture-cam`을 자리표시자로
+두며, 해당 symlink 또는 환경변수 장치 경로를 구성하기 전에는 publish를 켜지 않는다.
+
+| 역할 | 장치 | 기본 해상도 | MediaMTX path |
+| --- | --- | --- | --- |
+| `user` | Alcorlink USB 2.0 Camera | 1920x1080 | `user-cam` |
+| `workspace` | ABKO APC930 QHD Webcam | 2592x1944 | `workspace-cam` |
+| `posture` | 미지정 | 1280x720 후보 | `posture-cam` |
+
+장치를 바꾸면 실제 capture index, input format, 해상도와 FPS를 먼저 확인한 뒤 `.env`에
+안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. 현재 `workspace`는 publish와 최신
+프레임 수신 기반까지만 등록되어 있으며, 업무 영역 분석 로직은 별도 작업에서 연결한다.
 
 ```bash
 command -v ffmpeg
@@ -257,6 +268,8 @@ ss -ltn | rg ':8554\b'
 ```text
 SMART_DESK_MEDIA__USER__PUBLISH_ENABLED=true
 SMART_DESK_MEDIA__USER__RECEIVE_ENABLED=true
+SMART_DESK_MEDIA__WORKSPACE__PUBLISH_ENABLED=true
+SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED=true
 SMART_DESK_MEDIA__POSTURE__PUBLISH_ENABLED=true
 SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED=true
 ```
@@ -273,7 +286,7 @@ publish가 활성화된 카메라는 FFmpeg 자식 process를 시작하며 장�
 `PUBLISH_URL=rtsp://<MediaMTX-host>:8554/<path>`와 로컬 장치 경로를 설정한다.
 
 ```bash
-.venv/bin/python -m smart_desk.media_publish --camera user
+.venv/bin/python -m smart_desk.media_publish --camera workspace
 ```
 
 MediaMTX 호스트에서는 같은 카메라의 publish를 끄고 receive만 켠다. 하나의 path에는

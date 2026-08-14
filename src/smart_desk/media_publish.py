@@ -15,8 +15,8 @@ from smart_desk.modules.media import CameraPublisher
 
 
 LOGGER = logging.getLogger(__name__)
-CameraName = Literal["user", "posture"]
-CAMERA_NAMES: tuple[CameraName, ...] = ("user", "posture")
+CameraName = Literal["user", "posture", "workspace"]
+CAMERA_NAMES: tuple[CameraName, ...] = ("user", "posture", "workspace")
 PROCESS_CHECK_INTERVAL_SECONDS = 0.5
 
 
@@ -29,6 +29,7 @@ def build_publishers(
     configurations: dict[CameraName, CameraMediaSettings] = {
         "user": settings.media.user,
         "posture": settings.media.posture,
+        "workspace": settings.media.workspace,
     }
     selected_names = tuple(dict.fromkeys(requested_names)) or CAMERA_NAMES
     explicitly_disabled = [

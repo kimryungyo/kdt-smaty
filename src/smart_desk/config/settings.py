@@ -296,15 +296,27 @@ class UserCameraMediaSettings(CameraMediaSettings):
     )
     publish_url: str = "rtsp://127.0.0.1:8554/user-cam"
     receive_url: str = "rtsp://127.0.0.1:8554/user-cam"
+    width: int = Field(default=1920, gt=0, le=8192)
+    height: int = Field(default=1080, gt=0, le=8192)
 
 
-class PostureCameraMediaSettings(CameraMediaSettings):
-    """자세 카메라의 기본 장치와 MediaMTX 경로를 정의한다."""
+class WorkspaceCameraMediaSettings(CameraMediaSettings):
+    """책상 전체 카메라의 기본 장치와 MediaMTX 경로를 정의한다."""
 
     device: str = (
         "/dev/v4l/by-id/usb-SunplusIT_Inc_ABKO_APC930_QHD_WEBCAM_"
         "CY2M20201014V0-video-index0"
     )
+    publish_url: str = "rtsp://127.0.0.1:8554/workspace-cam"
+    receive_url: str = "rtsp://127.0.0.1:8554/workspace-cam"
+    width: int = Field(default=2592, gt=0, le=8192)
+    height: int = Field(default=1944, gt=0, le=8192)
+
+
+class PostureCameraMediaSettings(CameraMediaSettings):
+    """자세 카메라의 기본 장치와 MediaMTX 경로를 정의한다."""
+
+    device: str = "/dev/posture-cam"
     publish_url: str = "rtsp://127.0.0.1:8554/posture-cam"
     receive_url: str = "rtsp://127.0.0.1:8554/posture-cam"
 
@@ -320,6 +332,9 @@ class MediaSettings(BaseModel):
         allow_inf_nan=False,
     )
     user: UserCameraMediaSettings = Field(default_factory=UserCameraMediaSettings)
+    workspace: WorkspaceCameraMediaSettings = Field(
+        default_factory=WorkspaceCameraMediaSettings
+    )
     posture: PostureCameraMediaSettings = Field(
         default_factory=PostureCameraMediaSettings
     )

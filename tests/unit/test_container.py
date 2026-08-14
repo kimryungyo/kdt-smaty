@@ -77,7 +77,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         Settings(
             media={
                 "user": {"receive_enabled": True},
-                "posture": {"publish_enabled": True},
+                "workspace": {"publish_enabled": True},
             },
             _env_file=None,
         )
@@ -90,20 +90,24 @@ def test_build_container_registers_media_roles_independently() -> None:
         "desk-controller",
     ]
     assert disabled.user_camera_publisher is None
+    assert disabled.workspace_camera_publisher is None
     assert disabled.posture_camera_publisher is None
     assert disabled.user_frame_source is None
+    assert disabled.workspace_frame_source is None
     assert disabled.posture_frame_source is None
     assert [registration.name for registration in split.resources] == [
         "sqlite",
         "mqtt",
         "desk-height-monitor",
         "desk-controller",
-        "camera-publisher-posture",
+        "camera-publisher-workspace",
         "rtsp-frame-source-user",
     ]
     assert split.user_camera_publisher is None
-    assert split.posture_camera_publisher is not None
+    assert split.workspace_camera_publisher is not None
+    assert split.posture_camera_publisher is None
     assert split.user_frame_source is not None
+    assert split.workspace_frame_source is None
     assert split.posture_frame_source is None
 
 
@@ -113,16 +117,17 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             media={
                 "user": {"publish_enabled": True, "receive_enabled": True},
                 "posture": {"publish_enabled": True, "receive_enabled": True},
+                "workspace": {"publish_enabled": True, "receive_enabled": True},
             },
             _env_file=None,
         )
     )
 
-    assert [registration.startup_order for registration in enabled.resources][-4:] == [
-        40, 41, 50, 51
+    assert [registration.startup_order for registration in enabled.resources][-6:] == [
+        40, 41, 42, 50, 51, 52
     ]
-    assert [registration.shutdown_order for registration in enabled.resources][-4:] == [
-        40, 41, 50, 51
+    assert [registration.shutdown_order for registration in enabled.resources][-6:] == [
+        40, 41, 42, 50, 51, 52
     ]
     assert [
         registration.name
@@ -131,9 +136,11 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             key=lambda registration: registration.shutdown_order,
             reverse=True,
         )
-    ][:4] == [
+    ][:6] == [
+        "rtsp-frame-source-workspace",
         "rtsp-frame-source-posture",
         "rtsp-frame-source-user",
+        "camera-publisher-workspace",
         "camera-publisher-posture",
         "camera-publisher-user",
     ]

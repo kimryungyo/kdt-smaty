@@ -141,6 +141,26 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=41,
             )
         )
+    if settings.media.workspace.publish_enabled:
+        workspace_camera_publisher = CameraPublisher(
+            name="workspace",
+            device=settings.media.workspace.device,
+            rtsp_url=settings.media.workspace.publish_url,
+            ffmpeg_path=settings.media.ffmpeg_path,
+            input_format=settings.media.workspace.input_format,
+            width=settings.media.workspace.width,
+            height=settings.media.workspace.height,
+            fps=settings.media.workspace.fps,
+        )
+        container.workspace_camera_publisher = workspace_camera_publisher
+        container.register(
+            ResourceRegistration(
+                name="camera-publisher-workspace",
+                resource=workspace_camera_publisher,
+                startup_order=42,
+                shutdown_order=42,
+            )
+        )
     if settings.media.user.receive_enabled:
         user_frame_source = RtspFrameSource(
             name="user",
@@ -173,6 +193,23 @@ def build_container(settings: Settings) -> AppContainer:
                 resource=posture_frame_source,
                 startup_order=51,
                 shutdown_order=51,
+            )
+        )
+    if settings.media.workspace.receive_enabled:
+        workspace_frame_source = RtspFrameSource(
+            name="workspace",
+            rtsp_url=settings.media.workspace.receive_url,
+            reconnect_interval_seconds=(
+                settings.media.rtsp_reconnect_interval_seconds
+            ),
+        )
+        container.workspace_frame_source = workspace_frame_source
+        container.register(
+            ResourceRegistration(
+                name="rtsp-frame-source-workspace",
+                resource=workspace_frame_source,
+                startup_order=52,
+                shutdown_order=52,
             )
         )
     if settings.wled.enabled:

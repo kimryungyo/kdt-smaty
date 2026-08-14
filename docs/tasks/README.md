@@ -44,7 +44,8 @@ profile 저장과 Vision 관측을 결합하며, 06은 이 사용자 세션을 �
 - MQTT, Arduino 높이 입력과 ESP32 relay 계약이 구현돼 있다.
 - `DeskController`가 목표 이동, HOLD, STOP과 기본 안전 정책을 소유한다.
 - SQLite version 1 profile CRUD와 React Dashboard 골조가 구현돼 있다.
-- 두 카메라의 `CameraPublisher`와 최신 프레임 `RtspFrameSource`가 구현돼 있다.
+- user·workspace·posture 세 카메라 역할의 `CameraPublisher`와 최신 프레임
+  `RtspFrameSource`가 구현돼 있다.
 - WLED와 Voice 기능 코드는 있지만 생성·시작 여부가 아직 `enabled` 설정에 의존한다.
 - 얼굴·재실·자세 추론, 현재 사용자 세션과 `AutomationService`는 아직 없다.
 - Dashboard의 `selectedProfile`은 서버 사용자와 무관하지만 현재 화면에서는 사용자처럼
