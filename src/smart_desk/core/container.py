@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.desk.controller import DeskController
     from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
     from smart_desk.modules.desk.relay import RelayClient
+    from smart_desk.modules.media import CameraPublisher, RtspFrameSource
     from smart_desk.modules.mqtt.client import MqttClient
     from smart_desk.modules.profiles.repository import ProfileRepository
     from smart_desk.modules.assistant.service import AssistantService
@@ -63,6 +64,10 @@ class AppContainer:
     voice: VoiceService | None = None
     voice_debug: VoiceDebugServer | None = None
     wled: WledClient | None = None
+    user_camera_publisher: CameraPublisher | None = None
+    posture_camera_publisher: CameraPublisher | None = None
+    user_frame_source: RtspFrameSource | None = None
+    posture_frame_source: RtspFrameSource | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
 

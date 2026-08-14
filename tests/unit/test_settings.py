@@ -191,37 +191,43 @@ def test_storage_database_path_is_loaded_from_environment(
     assert settings.storage.database_path == Path("/tmp/test-smart-desk.db")
 
 
-def test_vision_media_settings_are_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SMART_DESK_VISION__ENABLED", "true")
-    monkeypatch.setenv("SMART_DESK_VISION__USER_CAMERA_DEVICE", "  /dev/test-user  ")
-    monkeypatch.setenv("SMART_DESK_VISION__USER_RTSP_URL", "rtsp://media/user")
-    monkeypatch.setenv("SMART_DESK_VISION__USER_WIDTH", "640")
-    monkeypatch.setenv("SMART_DESK_VISION__RTSP_RECONNECT_INTERVAL_SECONDS", "2.5")
+def test_camera_media_settings_are_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SMART_DESK_MEDIA__USER__PUBLISH_ENABLED", "true")
+    monkeypatch.setenv("SMART_DESK_MEDIA__USER__RECEIVE_ENABLED", "true")
+    monkeypatch.setenv("SMART_DESK_MEDIA__USER__DEVICE", "  /dev/test-user  ")
+    monkeypatch.setenv(
+        "SMART_DESK_MEDIA__USER__PUBLISH_URL", "rtsp://media/user"
+    )
+    monkeypatch.setenv("SMART_DESK_MEDIA__USER__WIDTH", "640")
+    monkeypatch.setenv(
+        "SMART_DESK_MEDIA__RTSP_RECONNECT_INTERVAL_SECONDS", "2.5"
+    )
 
     settings = Settings(_env_file=None)
 
-    assert settings.vision.enabled is True
-    assert settings.vision.user_camera_device == "/dev/test-user"
-    assert settings.vision.user_rtsp_url == "rtsp://media/user"
-    assert settings.vision.user_width == 640
-    assert settings.vision.rtsp_reconnect_interval_seconds == 2.5
+    assert settings.media.user.publish_enabled is True
+    assert settings.media.user.receive_enabled is True
+    assert settings.media.user.device == "/dev/test-user"
+    assert settings.media.user.publish_url == "rtsp://media/user"
+    assert settings.media.user.width == 640
+    assert settings.media.rtsp_reconnect_interval_seconds == 2.5
 
 
 @pytest.mark.parametrize(
-    "vision",
+    "media",
     [
         {"ffmpeg_path": " "},
-        {"user_camera_device": " "},
-        {"posture_rtsp_url": "http://media/posture"},
-        {"user_width": 0},
-        {"posture_fps": True},
+        {"user": {"device": " "}},
+        {"posture": {"receive_url": "http://media/posture"}},
+        {"user": {"width": 0}},
+        {"posture": {"fps": True}},
         {"rtsp_reconnect_interval_seconds": 0},
         {"rtsp_reconnect_interval_seconds": 31},
     ],
 )
-def test_invalid_vision_media_settings_are_rejected(vision: dict[str, object]) -> None:
+def test_invalid_camera_media_settings_are_rejected(media: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
-        Settings(vision=vision, _env_file=None)
+        Settings(media=media, _env_file=None)
 
 
 def test_voice_is_disabled_by_default_without_api_key() -> None:

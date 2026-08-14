@@ -41,6 +41,7 @@ MediaMTX는 기존 호스트 프로세스를 사용하고 FFmpeg는 FastAPI가 `
 | --- | --- |
 | `src/smart_desk/__init__.py` | Python 패키지를 선언하고 애플리케이션 버전을 제공한다. |
 | `src/smart_desk/main.py` | Uvicorn이 불러오는 `app` 객체를 노출하는 최소 실행 진입점이다. |
+| `src/smart_desk/media_publish.py` | Desk 서버 없이 설정에서 활성화된 카메라 publisher만 실행하는 원격 개발용 진입점이다. |
 | `src/smart_desk/application.py` | 설정과 container로 FastAPI 앱을 만들고 API·React frontend를 연결한다. |
 | `src/smart_desk/bootstrap.py` | 설정을 바탕으로 공유 객체를 생성하고 `AppContainer`로 조립하는 유일한 위치다. |
 | `src/smart_desk/frontend.py` | Vite production build 경로를 확인하고 FastAPI SPA frontend로 등록한다. |
@@ -161,8 +162,9 @@ bytes line과 연결 snapshot을 제공한다.
 | `src/smart_desk/modules/media/publisher.py` | 카메라 하나의 FFmpeg `Popen` 실행과 종료를 관리한다. |
 | `src/smart_desk/modules/media/frame_source.py` | MediaMTX RTSP 하나를 thread에서 읽어 최신 프레임 하나만 보관한다. |
 
-두 카메라마다 두 클래스를 각각 하나씩 생성한다. publisher manager, source factory,
-snapshot DTO와 별도 supervisor는 만들지 않는다.
+카메라별 publish와 receive 설정에 따라 필요한 클래스만 생성한다. publisher manager,
+source factory, snapshot DTO와 별도 supervisor는 만들지 않는다. 원격 개발 컴퓨터는
+최상위 `media_publish.py` 진입점에서 같은 `CameraPublisher`를 재사용한다.
 
 ### `modules/desk/`
 
@@ -358,7 +360,8 @@ src/smart_desk/modules/
 ```
 
 기존 호스트 MediaMTX는 저장소에서 관리하지 않는다. 카메라별 `CameraPublisher`와
-`RtspFrameSource`는 `modules/media/`에 두고 FastAPI lifespan에서 시작·종료한다.
+`RtspFrameSource`는 `modules/media/`에 두고 활성화된 역할만 FastAPI lifespan에서
+시작·종료한다. 원격 publisher 전용 프로세스도 자신이 시작한 FFmpeg만 종료한다.
 Python에는 MediaMTX 업로더나 관리 client를 만들지 않는다.
 
 기능 클래스의 필드와 메서드는 [컴포넌트 설계](architecture/component-design.md),

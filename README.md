@@ -235,10 +235,10 @@ curl http://127.0.0.1:9090/health/ready
 
 ## 카메라 실행 전제
 
-카메라 기능은 기본적으로 비활성화되어 있어 장치나 FFmpeg 없이 개발·테스트할 수
-있다. 실제 실행 전에는 호스트에서 MediaMTX가 실행 중이고 `user-cam`,
-`posture-cam` RTSP path publish를 허용해야 한다. FastAPI는 MediaMTX를 설치·시작·종료하지
-않는다.
+카메라 publish와 RTSP frame 수신은 카메라별로 독립적으로 활성화한다. 모든 역할은
+기본적으로 비활성화되어 있어 장치나 FFmpeg 없이 개발·테스트할 수 있다. 실제 실행
+전에는 호스트에서 MediaMTX가 실행 중이고 `user-cam`, `posture-cam` RTSP path publish를
+허용해야 한다. FastAPI는 MediaMTX를 설치·시작·종료하지 않는다.
 
 두 카메라의 실제 capture index, input format, 해상도와 FPS를 먼저 확인한 뒤 `.env`에
 안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. `.env.example`의 capture 값은
@@ -252,9 +252,33 @@ ffmpeg -hide_banner -f v4l2 -list_formats all -i /dev/v4l/by-id/<camera-device>
 ss -ltn | rg ':8554\b'
 ```
 
-검증한 값으로 `SMART_DESK_VISION__ENABLED=true`를 설정하면 FastAPI가 카메라마다
-FFmpeg 자식 process 하나와 RTSP reader thread 하나를 시작한다. 종료 시 reader를 먼저
-닫고 자신이 시작한 FFmpeg만 종료한다. MediaMTX는 계속 실행된다.
+로컬 카메라를 송출하고 같은 MediaMTX stream을 수신하려면 역할별 설정을 모두 켠다.
+
+```text
+SMART_DESK_MEDIA__USER__PUBLISH_ENABLED=true
+SMART_DESK_MEDIA__USER__RECEIVE_ENABLED=true
+SMART_DESK_MEDIA__POSTURE__PUBLISH_ENABLED=true
+SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED=true
+```
+
+publish가 활성화된 카메라는 FFmpeg 자식 process를 시작하며 장치 또는 FFmpeg가 없으면
+애플리케이션 시작을 실패 처리한다. receive만 활성화한 카메라는 로컬 장치를 열지 않고
+설정된 `RECEIVE_URL`에 연결하며, stream이 아직 없어도 background에서 재연결한다. 종료
+시 reader를 먼저 닫고 자신이 시작한 FFmpeg만 종료한다. MediaMTX는 계속 실행된다.
+
+### 원격 카메라 송출
+
+원격 개발 컴퓨터에서 전체 Desk 서버를 실행하지 않고 `fin`의 publisher 전용 진입점을
+사용할 수 있다. 원격 컴퓨터의 `.env`에서 해당 카메라의 `PUBLISH_ENABLED=true`,
+`PUBLISH_URL=rtsp://<MediaMTX-host>:8554/<path>`와 로컬 장치 경로를 설정한다.
+
+```bash
+.venv/bin/python -m smart_desk.media_publish --camera user
+```
+
+MediaMTX 호스트에서는 같은 카메라의 publish를 끄고 receive만 켠다. 하나의 path에는
+publisher 하나만 연결하며, 원격 publish를 허용할 때는 MediaMTX 인증 또는 IP 제한을
+함께 적용한다.
 
 ## 테스트
 

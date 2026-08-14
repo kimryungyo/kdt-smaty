@@ -71,9 +71,17 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
     assert handler.__self__ is container.relay
 
 
-def test_build_container_registers_media_only_when_enabled() -> None:
+def test_build_container_registers_media_roles_independently() -> None:
     disabled = build_container(Settings(_env_file=None))
-    enabled = build_container(Settings(vision={"enabled": True}, _env_file=None))
+    split = build_container(
+        Settings(
+            media={
+                "user": {"receive_enabled": True},
+                "posture": {"publish_enabled": True},
+            },
+            _env_file=None,
+        )
+    )
 
     assert [registration.name for registration in disabled.resources] == [
         "sqlite",
@@ -81,27 +89,40 @@ def test_build_container_registers_media_only_when_enabled() -> None:
         "desk-height-monitor",
         "desk-controller",
     ]
-    assert [registration.name for registration in enabled.resources] == [
+    assert disabled.user_camera_publisher is None
+    assert disabled.posture_camera_publisher is None
+    assert disabled.user_frame_source is None
+    assert disabled.posture_frame_source is None
+    assert [registration.name for registration in split.resources] == [
         "sqlite",
         "mqtt",
         "desk-height-monitor",
         "desk-controller",
-        "camera-publisher-user",
         "camera-publisher-posture",
         "rtsp-frame-source-user",
-        "rtsp-frame-source-posture",
     ]
+    assert split.user_camera_publisher is None
+    assert split.posture_camera_publisher is not None
+    assert split.user_frame_source is not None
+    assert split.posture_frame_source is None
+
+
+def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
+    enabled = build_container(
+        Settings(
+            media={
+                "user": {"publish_enabled": True, "receive_enabled": True},
+                "posture": {"publish_enabled": True, "receive_enabled": True},
+            },
+            _env_file=None,
+        )
+    )
+
     assert [registration.startup_order for registration in enabled.resources][-4:] == [
-        40,
-        41,
-        50,
-        51,
+        40, 41, 50, 51
     ]
     assert [registration.shutdown_order for registration in enabled.resources][-4:] == [
-        40,
-        41,
-        50,
-        51,
+        40, 41, 50, 51
     ]
     assert [
         registration.name

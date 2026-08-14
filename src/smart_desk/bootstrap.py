@@ -101,65 +101,76 @@ def build_container(settings: Settings) -> AppContainer:
             shutdown_order=30,
         )
     )
-    if settings.vision.enabled:
+    if settings.media.user.publish_enabled:
+        user_camera_publisher = CameraPublisher(
+            name="user",
+            device=settings.media.user.device,
+            rtsp_url=settings.media.user.publish_url,
+            ffmpeg_path=settings.media.ffmpeg_path,
+            input_format=settings.media.user.input_format,
+            width=settings.media.user.width,
+            height=settings.media.user.height,
+            fps=settings.media.user.fps,
+        )
+        container.user_camera_publisher = user_camera_publisher
         container.register(
             ResourceRegistration(
                 name="camera-publisher-user",
-                resource=CameraPublisher(
-                    name="user",
-                    device=settings.vision.user_camera_device,
-                    rtsp_url=settings.vision.user_rtsp_url,
-                    ffmpeg_path=settings.vision.ffmpeg_path,
-                    input_format=settings.vision.user_input_format,
-                    width=settings.vision.user_width,
-                    height=settings.vision.user_height,
-                    fps=settings.vision.user_fps,
-                ),
+                resource=user_camera_publisher,
                 startup_order=40,
                 shutdown_order=40,
             )
         )
+    if settings.media.posture.publish_enabled:
+        posture_camera_publisher = CameraPublisher(
+            name="posture",
+            device=settings.media.posture.device,
+            rtsp_url=settings.media.posture.publish_url,
+            ffmpeg_path=settings.media.ffmpeg_path,
+            input_format=settings.media.posture.input_format,
+            width=settings.media.posture.width,
+            height=settings.media.posture.height,
+            fps=settings.media.posture.fps,
+        )
+        container.posture_camera_publisher = posture_camera_publisher
         container.register(
             ResourceRegistration(
                 name="camera-publisher-posture",
-                resource=CameraPublisher(
-                    name="posture",
-                    device=settings.vision.posture_camera_device,
-                    rtsp_url=settings.vision.posture_rtsp_url,
-                    ffmpeg_path=settings.vision.ffmpeg_path,
-                    input_format=settings.vision.posture_input_format,
-                    width=settings.vision.posture_width,
-                    height=settings.vision.posture_height,
-                    fps=settings.vision.posture_fps,
-                ),
+                resource=posture_camera_publisher,
                 startup_order=41,
                 shutdown_order=41,
             )
         )
+    if settings.media.user.receive_enabled:
+        user_frame_source = RtspFrameSource(
+            name="user",
+            rtsp_url=settings.media.user.receive_url,
+            reconnect_interval_seconds=(
+                settings.media.rtsp_reconnect_interval_seconds
+            ),
+        )
+        container.user_frame_source = user_frame_source
         container.register(
             ResourceRegistration(
                 name="rtsp-frame-source-user",
-                resource=RtspFrameSource(
-                    name="user",
-                    rtsp_url=settings.vision.user_rtsp_url,
-                    reconnect_interval_seconds=(
-                        settings.vision.rtsp_reconnect_interval_seconds
-                    ),
-                ),
+                resource=user_frame_source,
                 startup_order=50,
                 shutdown_order=50,
             )
         )
+    if settings.media.posture.receive_enabled:
+        posture_frame_source = RtspFrameSource(
+            name="posture",
+            rtsp_url=settings.media.posture.receive_url,
+            reconnect_interval_seconds=(
+                settings.media.rtsp_reconnect_interval_seconds
+            ),
+        )
+        container.posture_frame_source = posture_frame_source
         container.register(
             ResourceRegistration(
                 name="rtsp-frame-source-posture",
-                resource=RtspFrameSource(
-                    name="posture",
-                    rtsp_url=settings.vision.posture_rtsp_url,
-                    reconnect_interval_seconds=(
-                        settings.vision.rtsp_reconnect_interval_seconds
-                    ),
-                ),
+                resource=posture_frame_source,
                 startup_order=51,
                 shutdown_order=51,
             )

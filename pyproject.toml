@@ -19,6 +19,9 @@ dependencies = [
     "uvicorn[standard]>=0.35,<1",
 ]
 
+[project.scripts]
+smart-desk-media-publish = "smart_desk.media_publish:main"
+
 [project.optional-dependencies]
 voice = [
     "openai>=2.53,<3",
