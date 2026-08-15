@@ -12,6 +12,7 @@ import time
 from smart_desk.config.settings import VoiceSettings
 from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.assistant.openai import OpenAiGatewayPort, OpenAiTurnError
+from smart_desk.modules.assistant.models import AssistantNextAction
 from smart_desk.modules.assistant.service import AssistantService, normalize_text
 from smart_desk.modules.voice.audio import AudioInput, RmsRecorder, calculate_rms
 from smart_desk.modules.voice.models import (
@@ -282,7 +283,7 @@ class VoiceService:
         except OpenAiTurnError as error:
             await self._recover_turn_error(error.code)
             return
-        await self._after_successful_playback()
+        await self._after_successful_playback(reply.next_action)
 
     async def _wait_for_followup_candidate(
         self,
@@ -348,16 +349,22 @@ class VoiceService:
         await self._playback.play_effect(EffectName.ERROR)
         self._audio.discard_pending()
 
-    async def _after_successful_playback(self) -> None:
+    async def _after_successful_playback(
+        self,
+        next_action: AssistantNextAction,
+    ) -> None:
         self._audio.set_accepting(False)
         self._audio.discard_pending()
         await asyncio.sleep(self._settings.post_playback_guard_seconds)
         self._audio.discard_pending()
-        self._audio.set_accepting(True)
-        if self._settings.followup_enabled:
+        if (
+            self._settings.followup_enabled
+            and next_action is AssistantNextAction.WAIT_FOR_FOLLOWUP
+        ):
+            self._audio.set_accepting(True)
             self._open_followup_window()
-        else:
-            self._enter_waiting_wake(clear_followup=True, clear_error=True)
+            return
+        self._enter_waiting_wake(clear_followup=True, clear_error=True)
 
     def _open_followup_window(self) -> None:
         timeout = self._settings.followup_timeout_seconds

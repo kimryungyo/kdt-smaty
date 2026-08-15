@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from smart_desk.modules.assistant.models import AssistantReply, OpenAiTurn
+from smart_desk.modules.assistant.models import (
+    AssistantDecisionReason,
+    AssistantNextAction,
+    AssistantReply,
+    OpenAiTurn,
+)
 from smart_desk.modules.voice.models import (
     AudioChunk,
     AudioUtterance,
@@ -61,21 +66,29 @@ def test_voice_snapshot_rejects_exception_text_as_error_code() -> None:
 
 
 def test_assistant_reply_is_frozen_single_paragraph_and_forbids_extra() -> None:
-    reply = AssistantReply(spoken_text="  짧은 답변입니다.  ")
+    reply = AssistantReply(
+        spoken_text="  짧은 답변입니다.  ",
+        next_action=AssistantNextAction.RETURN_TO_WAKE_WORD,
+        decision_reason=AssistantDecisionReason.CONVERSATION_COMPLETE,
+    )
 
     assert reply.spoken_text == "짧은 답변입니다."
     with pytest.raises(ValidationError):
-        AssistantReply(spoken_text="첫 줄\n둘째 줄")
+        AssistantReply(spoken_text="첫 줄\n둘째 줄", next_action="RETURN_TO_WAKE_WORD", decision_reason="CONVERSATION_COMPLETE")
     with pytest.raises(ValidationError):
-        AssistantReply(spoken_text="가" * 241)
+        AssistantReply(spoken_text="가" * 241, next_action="RETURN_TO_WAKE_WORD", decision_reason="CONVERSATION_COMPLETE")
     with pytest.raises(ValidationError):
-        AssistantReply(spoken_text="답변", unexpected=True)  # type: ignore[call-arg]
+        AssistantReply(spoken_text="답변", next_action="RETURN_TO_WAKE_WORD", decision_reason="CONVERSATION_COMPLETE", unexpected=True)  # type: ignore[call-arg]
+    with pytest.raises(ValidationError):
+        AssistantReply(spoken_text="답변", decision_reason="CONVERSATION_COMPLETE")
+    with pytest.raises(ValidationError):
+        AssistantReply(spoken_text="답변", next_action="RETURN_TO_WAKE_WORD")
 
 
 def test_openai_turn_rejects_negative_token_count() -> None:
     with pytest.raises(ValueError, match="음수"):
         OpenAiTurn(
-            reply=AssistantReply(spoken_text="답변"),
+            reply=AssistantReply(spoken_text="답변", next_action="RETURN_TO_WAKE_WORD", decision_reason="CONVERSATION_COMPLETE"),
             output_items=(),
             request_id=None,
             input_tokens=-1,

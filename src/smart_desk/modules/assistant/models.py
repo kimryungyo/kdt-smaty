@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
@@ -14,12 +15,30 @@ from smart_desk.modules.assistant.tooling import AssistantToolCall
 HistoryItem = dict[str, object]
 
 
+class AssistantNextAction(StrEnum):
+    """최종 음성 응답 재생 뒤의 대화 청취 동작이다."""
+
+    WAIT_FOR_FOLLOWUP = "WAIT_FOR_FOLLOWUP"
+    RETURN_TO_WAKE_WORD = "RETURN_TO_WAKE_WORD"
+
+
+class AssistantDecisionReason(StrEnum):
+    """후속 발화 판단의 content-free 관측 분류다."""
+
+    ASSISTANT_REQUESTED_INPUT = "ASSISTANT_REQUESTED_INPUT"
+    MORE_USER_INFORMATION_REQUIRED = "MORE_USER_INFORMATION_REQUIRED"
+    USER_REQUESTED_END = "USER_REQUESTED_END"
+    CONVERSATION_COMPLETE = "CONVERSATION_COMPLETE"
+
+
 class AssistantReply(BaseModel):
     """local speaker가 읽을 짧은 structured 응답이다."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", str_strip_whitespace=True)
 
     spoken_text: Annotated[str, StringConstraints(min_length=1, max_length=240)]
+    next_action: AssistantNextAction
+    decision_reason: AssistantDecisionReason
 
     @field_validator("spoken_text")
     @classmethod
@@ -61,6 +80,8 @@ class AssistantDebugTurn:
     completed_at: datetime
     user_text: str
     spoken_text: str
+    next_action: AssistantNextAction
+    decision_reason: AssistantDecisionReason
     request_id: str | None
     input_tokens: int | None
     output_tokens: int | None

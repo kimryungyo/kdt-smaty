@@ -58,7 +58,7 @@ class FakeResponses:
     async def parse(self, **request: object):
         self.requests.append(request)
         return SimpleNamespace(
-            output_parsed=AssistantReply(spoken_text="응답입니다."),
+            output_parsed=AssistantReply(spoken_text="응답입니다.", next_action="RETURN_TO_WAKE_WORD", decision_reason="CONVERSATION_COMPLETE"),
             output=self.items,
             usage=SimpleNamespace(input_tokens=10, output_tokens=4),
             _request_id="req_test",

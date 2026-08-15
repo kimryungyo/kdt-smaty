@@ -16,7 +16,7 @@
 | STT | 발화 종료 후 메모리 WAV를 Transcriptions API에 한 번 전송 |
 | TTS | Speech API의 PCM streaming을 첫 chunk부터 재생 |
 | 대화 상태 | 프로세스 메모리의 고정 `voice:local` session, 서버 재시작 시 초기화 |
-| 연속 대화 | TTS 종료 후 제한된 후속 발화 창을 열어 Wake Word 없이 다음 질문을 받음 |
+| 연속 대화 | AI가 즉시 답변을 요청한 경우에만 TTS 종료 후 제한된 후속 발화 창을 열어 Wake Word 없이 다음 질문을 받음 |
 | 장기 기억 | 후속 단계에서 Mem0 OSS를 선택적 `MemoryService` adapter로 연결 |
 | 응답 형태 | 1차에는 짧은 음성 응답만 생성. 화면 응답 계약은 Dashboard 설계 때 결정 |
 | 출력 확장 | `PlaybackCoordinator` 뒤로 격리하고 추가 source 설계는 요구가 확정될 때 수행 |
@@ -61,8 +61,9 @@ Dashboard에 AI 결과를 전달하는 API·event·화면 모델은 아직 설�
 - fake audio와 fake OpenAI gateway를 사용한 상태 머신 test
 - WLED 상태·켜기·끄기·밝기·단색·effect를 제어하는 로컬 function tool
 
-1차 응답 모델에는 `spoken_text`만 둔다. Dashboard 결과 모델을 예상해 placeholder
-필드를 미리 추가하지 않고, 사용자가 후속 설계를 확정할 때 별도 계약을 추가한다.
+1차 응답 모델은 `spoken_text`, `next_action`, `decision_reason`을 둔다. `next_action`은
+`WAIT_FOR_FOLLOWUP` 또는 `RETURN_TO_WAKE_WORD`이며, AI가 답변과 함께 다음 청취 동작을
+결정한다. `decision_reason`은 content-free 관측 metadata이고 상태 전이는 action만 사용한다.
 
 ### 1차에서 구현하지 않는 범위
 
@@ -358,8 +359,10 @@ TTS 시작 → microphone frame 무시 → TTS 종료 → input queue drain
 
 ### 연속 대화 정책
 
-TTS가 정상적으로 끝나고 `followup_enabled=true`이면 기본 4초의
-`WAITING_FOLLOWUP` 창을 연다. 그렇지 않으면 바로 `WAITING_WAKE`로 복귀한다. 후속
+TTS가 정상적으로 끝나고 `followup_enabled=true`이며 AI의 `next_action`이
+`WAIT_FOR_FOLLOWUP`이면 기본 4초의 `WAITING_FOLLOWUP` 창을 연다. 그렇지 않으면 바로
+`WAITING_WAKE`로 복귀한다. AI는 추가 정보가 꼭 필요하거나 직접 질문한 경우에만 대기를
+선택하며, 완결된 응답·종료 요청·애매한 경우에는 `RETURN_TO_WAKE_WORD`를 선택한다. 후속
 대기 상태에서는 Wake Word detector 대신 local 발화 시작 감지만 수행한다. 음성이
 시작되면 같은 recorder, STT와 `voice:local` Assistant session을 재사용하므로 사용자는
 `"그럼 내일은?"`처럼 직전 문맥을 생략한 질문을 할 수 있다.
@@ -783,7 +786,7 @@ class VoiceSettings(BaseModel):
 ```
 
 `session_max_turns`는 Responses history 크기를 제한한다. 후속 대화 횟수에는 별도
-제한을 두지 않는다. follow-up timeout은 매 AI 응답이 정상 재생된 시점부터 다시
+제한을 두지 않는다. follow-up timeout은 AI가 대기를 선택한 응답이 정상 재생된 시점부터 다시
 계산하지만 소음·빈 발화만으로 연장하지 않는다. Responses 호출의 `store=False`는
 변경 가능한 설정으로 노출하지 않고 privacy 불변 조건으로 고정한다.
 

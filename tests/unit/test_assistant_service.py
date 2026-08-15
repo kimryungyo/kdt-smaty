@@ -35,7 +35,7 @@ class FakeGateway:
             raise self.fail
         turn_number = len(self.requests)
         return OpenAiTurn(
-            reply=AssistantReply(spoken_text=f"응답 {turn_number}"),
+            reply=AssistantReply(spoken_text=f"응답 {turn_number}", next_action="WAIT_FOR_FOLLOWUP", decision_reason="ASSISTANT_REQUESTED_INPUT"),
             output_items=(
                 {"type": "reasoning", "encrypted_content": f"reason-{turn_number}"},
                 {"type": "message", "id": f"message-{turn_number}"},
@@ -74,6 +74,8 @@ async def test_success_commits_user_and_every_output_item() -> None:
     )
     assert snapshot.turns[0].user_text == "첫 질문"
     assert snapshot.turns[0].spoken_text == "응답 1"
+    assert snapshot.turns[0].next_action == "WAIT_FOR_FOLLOWUP"
+    assert snapshot.turns[0].decision_reason == "ASSISTANT_REQUESTED_INPUT"
     assert snapshot.turns[0].output_item_types == ("reasoning", "message")
 
 
@@ -192,7 +194,7 @@ class ToolLoopGateway:
                 output_tokens=number,
             )
         return OpenAiResponseStep(
-            reply=AssistantReply(spoken_text="조명을 껐어요."),
+            reply=AssistantReply(spoken_text="조명을 껐어요.", next_action="RETURN_TO_WAKE_WORD", decision_reason="CONVERSATION_COMPLETE"),
             output_items=({"type": "message", "id": "final"},),
             tool_calls=(),
             request_id=f"req-{number}",

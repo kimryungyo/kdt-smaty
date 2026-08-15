@@ -92,7 +92,7 @@ class FakeOpenAiGateway:
         self.response_requests.append(request)
         number = len(self.response_requests)
         return OpenAiTurn(
-            reply=AssistantReply(spoken_text=f"통합 응답 {number}"),
+            reply=AssistantReply(spoken_text=f"통합 응답 {number}", next_action="WAIT_FOR_FOLLOWUP", decision_reason="ASSISTANT_REQUESTED_INPUT"),
             output_items=(
                 {"type": "reasoning", "encrypted_content": f"encrypted-{number}"},
                 {"type": "message", "id": f"message-{number}"},

@@ -34,7 +34,14 @@ tool을 나중에 실행하겠다고 약속하지 않는다.
 불을 끄라는 요청에는 turn_off_wled를 사용한다.
 불을 켜라는 요청에는 turn_on_wled를 사용한다.
 여러 변경 중 일부만 성공하면 성공한 항목과 실패한 항목을 짧게 구분한다.
-Desk 물리 제어를 수행할 tool은 현재 제공되지 않는다."""
+Desk 물리 제어를 수행할 tool은 현재 제공되지 않는다.
+최종 응답마다 next_action과 decision_reason을 반드시 선택한다.
+사용자의 즉시 답변이 꼭 필요하거나 spoken_text에서 직접 질문한 경우에만 WAIT_FOR_FOLLOWUP을 선택한다.
+사용자가 답변·청취·대화 중단을 요청하면 짧게 확인하고 RETURN_TO_WAKE_WORD를 선택한다.
+요청과 답변이 완결됐고 즉시 입력이 필요하지 않으면 RETURN_TO_WAKE_WORD를 선택한다.
+사용자가 추가 질문을 할 가능성만으로 WAIT_FOR_FOLLOWUP을 선택하지 않는다.
+애매하면 RETURN_TO_WAKE_WORD를 선택한다.
+next_action이나 decision_reason을 spoken_text로 읽지 않는다."""
 
 
 def normalize_text(value: str) -> str:
@@ -141,6 +148,8 @@ class AssistantService:
                     completed_at=datetime.now(timezone.utc),
                     user_text=normalized,
                     spoken_text=reply.spoken_text,
+                    next_action=reply.next_action,
+                    decision_reason=reply.decision_reason,
                     request_id=request_ids[-1] if request_ids else None,
                     request_ids=tuple(request_ids),
                     input_tokens=total_input_tokens,
@@ -165,6 +174,8 @@ class AssistantService:
                     "input_tokens": total_input_tokens,
                     "output_tokens": total_output_tokens,
                     "tool_call_count": len(tool_names),
+                    "next_action": reply.next_action,
+                    "decision_reason": reply.decision_reason,
                 },
             )
             return reply

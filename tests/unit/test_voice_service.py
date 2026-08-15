@@ -8,7 +8,11 @@ import pytest
 
 from smart_desk.config.settings import VoiceSettings
 from smart_desk.core.task_manager import TaskManager
-from smart_desk.modules.assistant.models import AssistantReply
+from smart_desk.modules.assistant.models import (
+    AssistantDecisionReason,
+    AssistantNextAction,
+    AssistantReply,
+)
 from smart_desk.modules.assistant.openai import OpenAiTurnError
 from smart_desk.modules.voice.audio import build_wav
 from smart_desk.modules.voice.models import (
@@ -139,10 +143,22 @@ class FakeGateway:
 class FakeAssistant:
     def __init__(self) -> None:
         self.texts: list[str] = []
+        self.next_actions: deque[AssistantNextAction] = deque()
 
     async def reply(self, text: str) -> AssistantReply:
         self.texts.append(text)
-        return AssistantReply(spoken_text=f"응답 {len(self.texts)}")
+        next_action = self.next_actions.popleft() if self.next_actions else (
+            AssistantNextAction.WAIT_FOR_FOLLOWUP
+        )
+        return AssistantReply(
+            spoken_text=f"응답 {len(self.texts)}",
+            next_action=next_action,
+            decision_reason=(
+                AssistantDecisionReason.ASSISTANT_REQUESTED_INPUT
+                if next_action is AssistantNextAction.WAIT_FOR_FOLLOWUP
+                else AssistantDecisionReason.CONVERSATION_COMPLETE
+            ),
+        )
 
 
 class FakePlayback:
@@ -265,6 +281,38 @@ async def test_too_short_followup_keeps_original_deadline() -> None:
     await wait_for_state(service, VoiceState.WAITING_FOLLOWUP)
 
     assert service.get_snapshot().followup_expires_at == original_expiry
+    await service.stop()
+
+
+async def test_completed_reply_returns_to_wake_word_without_followup_window() -> None:
+    utterance = build_wav([pcm_frame(700)] * 4)
+    service, audio, _wakeword, _gateway, assistant, _playback = make_service(
+        recorder_results=[(utterance, RecordingEnd.SILENCE)],
+        transcripts=["완결된 질문"],
+    )
+    assistant.next_actions.append(AssistantNextAction.RETURN_TO_WAKE_WORD)
+
+    await service.start()
+    audio.feed(pcm_frame(0), 1.0)
+    await wait_for_state(service, VoiceState.WAITING_WAKE)
+
+    assert service.get_snapshot().followup_expires_at is None
+    await service.stop()
+
+
+async def test_followup_setting_overrides_wait_action() -> None:
+    utterance = build_wav([pcm_frame(700)] * 4)
+    service, audio, _wakeword, _gateway, _assistant, _playback = make_service(
+        recorder_results=[(utterance, RecordingEnd.SILENCE)],
+        transcripts=["질문"],
+    )
+    service._settings.followup_enabled = False  # noqa: SLF001
+
+    await service.start()
+    audio.feed(pcm_frame(0), 1.0)
+    await wait_for_state(service, VoiceState.WAITING_WAKE)
+
+    assert service.get_snapshot().followup_expires_at is None
     await service.stop()
 
 
