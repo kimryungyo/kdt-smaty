@@ -8,6 +8,10 @@ import wave
 import pytest
 
 from smart_desk.config.settings import Settings
+from smart_desk.modules.assistant.models import (
+    AssistantDecisionReason,
+    AssistantNextAction,
+)
 from smart_desk.modules.assistant.openai import OpenAiGateway
 from smart_desk.modules.assistant.service import AssistantService
 from smart_desk.modules.voice.models import AudioUtterance
@@ -34,6 +38,10 @@ async def test_openai_stt_two_responses_turns_and_streaming_tts() -> None:
         second = await assistant.reply("방금 질문의 주제를 짧게 다시 말해 주세요.")
         assert first.spoken_text
         assert second.spoken_text
+        assert isinstance(first.next_action, AssistantNextAction)
+        assert isinstance(first.decision_reason, AssistantDecisionReason)
+        assert isinstance(second.next_action, AssistantNextAction)
+        assert isinstance(second.decision_reason, AssistantDecisionReason)
         assert assistant._session.completed_turns == 2  # noqa: SLF001
 
         stream = gateway.synthesize(second.spoken_text)
