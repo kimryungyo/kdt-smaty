@@ -43,6 +43,7 @@ health API에 더해 MQTT, Arduino 높이 입력, ESP32 relay, 목표·HOLD·STO
 | [책상 제어와 안전](architecture/desk-safety.md) | 높이·릴레이 제어를 구현할 때 | 제어 상태, STOP 우선순위, 하드웨어 경계 |
 | [계획 및 설계 가이드](guides/README.md) | 새 구조나 작업을 제안하기 전에 | 프로젝트 규모, 복잡도, 계획·검증·커밋 판단 기준 |
 | [구현 순서](implementation/roadmap.md) | 개발 계획을 세울 때 | 2~3개월 단계와 완료 조건 |
+| [Docker 배포·분산 Vision 인수인계](implementation/containerization-handoff.md) | Docker 상세 설계와 다중 호스트 배치를 시작할 때 | 역할별 이미지, Compose, Main–Vision 계약과 검증 기준 |
 | [작업 목록](tasks/README.md) | 실제 구현을 시작할 때 | 번호순 작업, 선행 조건, 검증과 완료 기준 |
 
 ## 설계 결정
