@@ -476,6 +476,36 @@ async def test_consecutive_user_stops_serialize_fresh_stop_confirmation() -> Non
     await tasks.shutdown()
 
 
+async def test_cancelled_user_stop_finishes_fresh_stop_confirmation() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = DelayedStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.hold_down()
+    await wait_until(lambda: relay.get_snapshot().state is RelayState.DOWN)
+
+    relay.delay_stops = True
+    relay.stop_sent.clear()
+    stop_task = asyncio.create_task(controller.stop_motion("취소되는 사용자 STOP"))
+    await relay.stop_sent.wait()
+    stop_task.cancel()
+    await asyncio.sleep(0)
+
+    assert controller._stop_in_progress  # noqa: SLF001 - 취소 중 안전 STOP 유지 검증
+    relay.confirm_stop()
+    result = await asyncio.gather(stop_task, return_exceptions=True)
+
+    assert isinstance(result[0], asyncio.CancelledError)
+    assert controller._stop_in_progress is False  # noqa: SLF001
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert controller.get_snapshot().last_error is None
+
+    relay.delay_stops = False
+    await controller.stop()
+    await tasks.shutdown()
+
+
 async def test_shutdown_does_not_wait_for_live_stop_status() -> None:
     height = FakeHeightMonitor(80.0)
     relay = DelayedStopRelayClient()

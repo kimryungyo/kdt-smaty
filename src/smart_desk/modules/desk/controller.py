@@ -717,11 +717,18 @@ class DeskController:
         )
 
     async def _stop_motion(self, detail: str, *, error_detail: str | None) -> None:
-        stop_error = await self._stop_and_confirm(
-            detail,
-            error_detail=error_detail,
-            reject_if_stopping=False,
+        stop_task = asyncio.create_task(
+            self._stop_and_confirm(
+                detail,
+                error_detail=error_detail,
+                reject_if_stopping=False,
+            )
         )
+        try:
+            stop_error = await asyncio.shield(stop_task)
+        except asyncio.CancelledError:
+            await asyncio.gather(stop_task, return_exceptions=True)
+            raise
         if stop_error is not None and error_detail is None:
             raise RuntimeError(stop_error)
 
