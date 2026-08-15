@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import importlib
 import io
 import logging
-from math import ceil
+from math import ceil, log10
 import time
 from typing import Protocol
 import wave
@@ -32,6 +32,24 @@ from smart_desk.modules.voice.models import (
 LOGGER = logging.getLogger(__name__)
 OUTPUT_DEVICE_SAMPLE_RATE = 48_000
 INPUT_CALLBACK_STALE_SECONDS = 1.0
+SIGNAL_DBFS_FLOOR = -120.0
+SIGNAL_CLIPPING_SAMPLE = 32_760
+SIGNAL_NOISE_WINDOW_SECONDS = 30.0
+SIGNAL_RECENT_PEAK_WINDOW_SECONDS = 10.0
+SIGNAL_NOISE_WINDOW_FRAMES = ceil(SIGNAL_NOISE_WINDOW_SECONDS / INPUT_FRAME_SECONDS)
+SIGNAL_RECENT_PEAK_WINDOW_FRAMES = ceil(
+    SIGNAL_RECENT_PEAK_WINDOW_SECONDS / INPUT_FRAME_SECONDS
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AudioSignalFrame:
+    """원본 PCM을 보관하지 않는 단일 입력 frame의 신호 통계다."""
+
+    rms_dbfs: float
+    peak_dbfs: float
+    clipping_ratio: float
+    dc_offset_pcm: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +62,15 @@ class AudioInputDebugSnapshot:
     dropped_frames: int
     overflow_frames: int
     callback_errors: int
+    latest_rms_dbfs: float | None
+    latest_peak_dbfs: float | None
+    recent_peak_dbfs: float | None
+    estimated_noise_floor_dbfs: float | None
+    estimated_snr_db: float | None
+    latest_clipping_ratio: float | None
+    clipped_frames: int
+    signal_frames: int
+    latest_dc_offset_pcm: float | None
 
 
 class AudioInput(Protocol):
@@ -77,6 +104,28 @@ def calculate_rms(pcm: bytes) -> float:
         raise ValueError(f"입력 PCM은 정확히 {INPUT_FRAME_BYTES} bytes여야 합니다.")
     samples = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
     return float(np.sqrt(np.mean(samples * samples)))
+
+
+def analyze_signal_frame(pcm: bytes) -> AudioSignalFrame:
+    """PCM16 frame을 content-free 입력 품질 수치로 변환한다."""
+
+    if len(pcm) != INPUT_FRAME_BYTES:
+        raise ValueError(f"입력 PCM은 정확히 {INPUT_FRAME_BYTES} bytes여야 합니다.")
+    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
+    rms = float(np.sqrt(np.mean(samples * samples)))
+    peak = float(np.max(np.abs(samples)))
+
+    def dbfs(amplitude: float) -> float:
+        if amplitude <= 0:
+            return SIGNAL_DBFS_FLOOR
+        return max(SIGNAL_DBFS_FLOOR, min(0.0, 20.0 * log10(amplitude / 32_768)))
+
+    return AudioSignalFrame(
+        rms_dbfs=dbfs(rms),
+        peak_dbfs=dbfs(peak),
+        clipping_ratio=float(np.mean(np.abs(samples) >= SIGNAL_CLIPPING_SAMPLE)),
+        dc_offset_pcm=float(np.mean(samples)),
+    )
 
 
 def build_wav(pcm_frames: Sequence[bytes]) -> AudioUtterance:
@@ -149,6 +198,7 @@ class LocalAudioInput:
         self._callback_errors = 0
         self._last_drop_log_at = 0.0
         self._last_callback_at: float | None = None
+        self._reset_signal_state()
 
     async def start(self) -> None:
         if self._stream is not None:
@@ -188,12 +238,14 @@ class LocalAudioInput:
         self._stream = stream
         self._last_callback_at = time.monotonic()
         self.discard_pending()
+        self._reset_signal_state()
         self._accepting = True
 
     async def stop(self) -> None:
         self._accepting = False
         self.discard_pending()
         self._last_callback_at = None
+        self._reset_signal_state()
         stream, self._stream = self._stream, None
         if stream is None:
             return
@@ -276,6 +328,7 @@ class LocalAudioInput:
         if len(pcm) != INPUT_FRAME_BYTES:
             self._callback_errors += 1
             return
+        self._record_signal_frame(analyze_signal_frame(pcm), captured_at)
         if input_overflow:
             self._overflow_frames += 1
             self._log_rate_limited("input_overflow")
@@ -286,6 +339,46 @@ class LocalAudioInput:
             self._dropped_frames += 1
             self._log_rate_limited("input_frame_dropped")
         self._queue.put_nowait(AudioChunk(pcm=pcm, captured_at=captured_at))
+
+    def _reset_signal_state(self) -> None:
+        self._noise_rms_history: deque[tuple[float, float]] = deque(
+            maxlen=SIGNAL_NOISE_WINDOW_FRAMES
+        )
+        self._recent_peak_history: deque[tuple[float, float]] = deque(
+            maxlen=SIGNAL_RECENT_PEAK_WINDOW_FRAMES
+        )
+        self._latest_signal: AudioSignalFrame | None = None
+        self._recent_peak_dbfs: float | None = None
+        self._estimated_noise_floor_dbfs: float | None = None
+        self._estimated_snr_db: float | None = None
+        self._clipped_frames = 0
+        self._signal_frames = 0
+
+    def _record_signal_frame(self, signal: AudioSignalFrame, captured_at: float) -> None:
+        """event loop에서만 rolling input signal 통계를 갱신한다."""
+
+        self._latest_signal = signal
+        self._signal_frames += 1
+        if signal.clipping_ratio > 0:
+            self._clipped_frames += 1
+        self._noise_rms_history.append((captured_at, signal.rms_dbfs))
+        self._recent_peak_history.append((captured_at, signal.peak_dbfs))
+        self._discard_expired_signal_history(captured_at)
+        noise_values = [value for _, value in self._noise_rms_history]
+        self._estimated_noise_floor_dbfs = float(np.percentile(noise_values, 20))
+        self._estimated_snr_db = signal.rms_dbfs - self._estimated_noise_floor_dbfs
+        self._recent_peak_dbfs = max(value for _, value in self._recent_peak_history)
+
+    def _discard_expired_signal_history(self, captured_at: float) -> None:
+        noise_before = captured_at - SIGNAL_NOISE_WINDOW_SECONDS
+        while self._noise_rms_history and self._noise_rms_history[0][0] < noise_before:
+            self._noise_rms_history.popleft()
+        recent_peak_before = captured_at - SIGNAL_RECENT_PEAK_WINDOW_SECONDS
+        while (
+            self._recent_peak_history
+            and self._recent_peak_history[0][0] < recent_peak_before
+        ):
+            self._recent_peak_history.popleft()
 
     def _log_rate_limited(self, event: str) -> None:
         now = time.monotonic()
@@ -312,6 +405,25 @@ class LocalAudioInput:
             dropped_frames=self._dropped_frames,
             overflow_frames=self._overflow_frames,
             callback_errors=self._callback_errors,
+            latest_rms_dbfs=(
+                None if self._latest_signal is None else self._latest_signal.rms_dbfs
+            ),
+            latest_peak_dbfs=(
+                None if self._latest_signal is None else self._latest_signal.peak_dbfs
+            ),
+            recent_peak_dbfs=self._recent_peak_dbfs,
+            estimated_noise_floor_dbfs=self._estimated_noise_floor_dbfs,
+            estimated_snr_db=self._estimated_snr_db,
+            latest_clipping_ratio=(
+                None
+                if self._latest_signal is None
+                else self._latest_signal.clipping_ratio
+            ),
+            clipped_frames=self._clipped_frames,
+            signal_frames=self._signal_frames,
+            latest_dc_offset_pcm=(
+                None if self._latest_signal is None else self._latest_signal.dc_offset_pcm
+            ),
         )
 
 

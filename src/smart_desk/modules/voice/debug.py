@@ -203,21 +203,26 @@ DEBUG_PAGE = """<!doctype html>
     <article><span>COMPLETED TURNS</span><strong id="turnCount">0</strong></article>
   </div>
   <section class="two">
-    <article><h2>Microphone queue</h2><dl id="audio"></dl></article>
+    <article><h2>Microphone input</h2><dl id="audio"></dl></article>
     <article><h2>Session history</h2><dl id="session"></dl><div id="history" class="history"></div></article>
   </section>
+  <section><article><h2>Wake Word telemetry</h2><dl id="wakewordTelemetry"></dl></article></section>
   <section><h2>최근 성공 응답</h2><div id="turns" class="turns"><article class="empty">아직 완료된 음성 응답이 없습니다.</article></div></section>
   <p class="privacy">이 페이지에는 transcript와 spoken response가 표시됩니다. 신뢰할 수 있는 디버그 환경에서만 사용하세요. API key와 encrypted reasoning 원문은 표시하지 않습니다.</p>
 </main><script>
   const byId=(id)=>document.getElementById(id);
   const text=(id,value)=>{byId(id).textContent=value ?? "--"};
   const localTime=(value)=>value ? new Date(value).toLocaleTimeString("ko-KR") : "--";
+  const dbfs=(value)=>value==null ? "--" : `${value.toFixed(1)} dBFS`;
+  const number=(value,digits=1)=>value==null ? "--" : value.toFixed(digits);
+  const percent=(value)=>value==null ? "--" : `${(value*100).toFixed(3)}%`;
   const renderDl=(id,rows)=>{const root=byId(id);root.replaceChildren();for(const [key,value] of rows){const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=key;dd.textContent=String(value);root.append(dt,dd)}};
   const render=(data)=>{
     const w=data.wakeword,v=data.voice,a=data.audio_input,s=data.assistant;
     const score=w.score ?? 0;text("score",w.score==null?"warming up":w.score.toFixed(4));text("threshold",w.threshold.toFixed(2));byId("scoreBar").value=score;
     text("state",v.state);text("armed",w.armed?"ARMED":"DISARMED");text("streak",`${w.activation_streak} / ${w.consecutive_frames}`);text("followup",localTime(v.followup_expires_at));text("error",v.last_error);text("turnCount",s.completed_turns);
-    renderDl("audio",[["accepting",a.accepting],["queue",`${a.queue_size} / ${a.queue_capacity}`],["dropped",a.dropped_frames],["overflow",a.overflow_frames],["callback errors",a.callback_errors]]);
+    renderDl("audio",[["accepting",a.accepting],["queue",`${a.queue_size} / ${a.queue_capacity}`],["dropped",a.dropped_frames],["overflow",a.overflow_frames],["callback errors",a.callback_errors],["input RMS",dbfs(a.latest_rms_dbfs)],["input peak",dbfs(a.latest_peak_dbfs)],["recent peak",dbfs(a.recent_peak_dbfs)],["noise floor (est.)",dbfs(a.estimated_noise_floor_dbfs)],["SNR (est.)",a.estimated_snr_db==null ? "--" : `${a.estimated_snr_db.toFixed(1)} dB`],["clipping",`${percent(a.latest_clipping_ratio)} / clipped frames ${a.clipped_frames}`],["signal frames",a.signal_frames],["DC offset",a.latest_dc_offset_pcm==null ? "--" : `${number(a.latest_dc_offset_pcm)} PCM`]]);
+    renderDl("wakewordTelemetry",[["recent max",number(w.recent_max_score,4)],["inference count",w.inference_count],["inference",w.last_inference_ms==null ? "--" : `last ${number(w.last_inference_ms)}ms / p50 ${number(w.inference_p50_ms)}ms / p95 ${number(w.inference_p95_ms)}ms`]]);
     renderDl("session",[["session",s.session_id],["history items",s.history_items],["updated",localTime(data.updated_at)]]);
     const history=byId("history");history.replaceChildren();for(const item of s.history_item_types){const tag=document.createElement("i");tag.textContent=item;history.append(tag)}
     const turns=byId("turns");turns.replaceChildren();if(!s.turns.length){const empty=document.createElement("article");empty.className="empty";empty.textContent="아직 완료된 음성 응답이 없습니다.";turns.append(empty)}

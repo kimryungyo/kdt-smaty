@@ -172,3 +172,62 @@ async def test_detector_confirms_positive_score_on_next_audio_frame(
 
     assert await feed_frames(detector, 1) == [True]
     assert len(model.processed) == 2
+
+
+async def test_detector_reports_recent_score_and_inference_latency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = FakeModel([0.1, 0.7, 0.5])
+    install_fake_module(monkeypatch, model)
+    timings = iter([(0.1, 10.0), (0.7, 20.0), (0.5, 30.0)])
+    monkeypatch.setattr(
+        "smart_desk.modules.voice.wakeword._timed_infer",
+        lambda _model, _samples: next(timings),
+    )
+    detector = LiveKitWakeWordOnnxDetector(
+        model_path=MODEL_PATH,
+        threshold=0.9,
+        consecutive_frames=2,
+        inference_interval_frames=1,
+    )
+
+    await detector.start()
+    await feed_frames(detector, WINDOW_FRAMES + 2)
+    snapshot = detector.get_debug_snapshot()
+
+    assert snapshot.recent_max_score == 0.7
+    assert snapshot.inference_count == 3
+    assert snapshot.last_inference_ms == 30.0
+    assert snapshot.inference_p50_ms == 20.0
+    assert snapshot.inference_p95_ms == pytest.approx(29.0)
+
+    detector.reset()
+    reset_snapshot = detector.get_debug_snapshot()
+    assert reset_snapshot.score == 0.5
+    assert reset_snapshot.recent_max_score is None
+    assert reset_snapshot.inference_count == 3
+    assert reset_snapshot.inference_p50_ms == 20.0
+
+
+async def test_detector_expires_recent_scores_after_thirty_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = FakeModel([0.4])
+    install_fake_module(monkeypatch, model)
+    now = [100.0]
+    monkeypatch.setattr(
+        "smart_desk.modules.voice.wakeword.time.monotonic", lambda: now[0]
+    )
+    detector = LiveKitWakeWordOnnxDetector(
+        model_path=MODEL_PATH,
+        threshold=0.9,
+        consecutive_frames=2,
+        inference_interval_frames=1,
+    )
+
+    await detector.start()
+    await feed_frames(detector, WINDOW_FRAMES)
+    assert detector.get_debug_snapshot().recent_max_score == 0.4
+
+    now[0] += 30.01
+    assert detector.get_debug_snapshot().recent_max_score is None

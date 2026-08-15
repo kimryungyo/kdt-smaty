@@ -12,10 +12,12 @@ import numpy as np
 import pytest
 
 from smart_desk.modules.voice.audio import (
+    AudioSignalFrame,
     LocalAudioInput,
     RmsRecorder,
     _refresh_portaudio_devices,
     _to_device_pcm,
+    analyze_signal_frame,
     build_wav,
     calculate_rms,
 )
@@ -46,6 +48,32 @@ class FakeAudioInput:
 def test_calculate_rms_uses_signed_int16_without_overflow() -> None:
     assert calculate_rms(pcm_frame(1_000)) == pytest.approx(1_000)
     assert calculate_rms(pcm_frame(-32_768)) == pytest.approx(32_768)
+
+
+def test_analyze_signal_frame_reports_finite_silence_and_pcm_levels() -> None:
+    silence = analyze_signal_frame(pcm_frame(0))
+    symmetric = analyze_signal_frame(
+        struct.pack("<1280h", *([1_000, -1_000] * 640))
+    )
+    constant = analyze_signal_frame(pcm_frame(1_000))
+
+    assert silence.rms_dbfs == -120.0
+    assert silence.peak_dbfs == -120.0
+    assert silence.clipping_ratio == 0
+    assert silence.dc_offset_pcm == 0
+    assert symmetric.rms_dbfs == pytest.approx(-30.3089987)
+    assert symmetric.peak_dbfs == pytest.approx(-30.3089987)
+    assert symmetric.dc_offset_pcm == 0
+    assert constant.dc_offset_pcm == 1_000
+
+
+def test_analyze_signal_frame_detects_pcm_rails_without_overflow() -> None:
+    samples = [-32_768] * 5 + [0] * (1_280 - 5)
+    signal = analyze_signal_frame(struct.pack("<1280h", *samples))
+
+    assert signal.peak_dbfs == pytest.approx(0.0)
+    assert signal.clipping_ratio == pytest.approx(5 / 1_280)
+    assert math.isfinite(signal.rms_dbfs)
 
 
 def test_build_wav_has_expected_header_format_and_duration() -> None:
@@ -131,6 +159,57 @@ async def test_input_queue_drops_oldest_and_rejects_stale_generation() -> None:
         False,
     )
     assert audio._queue.empty()  # noqa: SLF001
+
+
+def test_input_signal_history_uses_noise_percentile_and_time_windows() -> None:
+    audio = LocalAudioInput(device_name=None, queue_frames=2)
+
+    audio._record_signal_frame(  # noqa: SLF001
+        AudioSignalFrame(-80, -1, 0, 0), 0.0
+    )
+    audio._record_signal_frame(  # noqa: SLF001
+        AudioSignalFrame(-60, -20, 0, 0), 1.0
+    )
+    audio._record_signal_frame(  # noqa: SLF001
+        AudioSignalFrame(-40, -10, 0, 0), 2.0
+    )
+    snapshot = audio.get_debug_snapshot()
+
+    assert snapshot.estimated_noise_floor_dbfs == pytest.approx(-72.0)
+    assert snapshot.estimated_snr_db == pytest.approx(32.0)
+    assert snapshot.recent_peak_dbfs == -1
+
+    audio._record_signal_frame(  # noqa: SLF001
+        AudioSignalFrame(-50, -25, 0, 0), 10.01
+    )
+    assert audio.get_debug_snapshot().recent_peak_dbfs == -10
+
+    audio._record_signal_frame(  # noqa: SLF001
+        AudioSignalFrame(-70, -30, 0, 0), 30.01
+    )
+    snapshot = audio.get_debug_snapshot()
+    assert snapshot.estimated_noise_floor_dbfs == pytest.approx(-64.0)
+    assert snapshot.recent_peak_dbfs == -30
+
+
+async def test_input_stop_clears_stale_signal_snapshot() -> None:
+    audio = LocalAudioInput(device_name=None, queue_frames=2)
+    audio.set_accepting(True)
+    audio._enqueue_from_loop(  # noqa: SLF001
+        audio._generation,  # noqa: SLF001
+        pcm_frame(1_000),
+        1.0,
+        False,
+        False,
+    )
+    await audio.stop()
+
+    snapshot = audio.get_debug_snapshot()
+    assert snapshot.latest_rms_dbfs is None
+    assert snapshot.estimated_noise_floor_dbfs is None
+    assert snapshot.latest_clipping_ratio is None
+    assert snapshot.clipped_frames == 0
+    assert snapshot.signal_frames == 0
 
 
 async def test_callback_moves_owned_pcm_to_event_loop_queue() -> None:
