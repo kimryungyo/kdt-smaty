@@ -224,12 +224,17 @@ void loop() {
     return;
   }
 
-  control.tick(now);
-  if (mqtt.connected() && elapsed(now, lastHeartbeat, STATUS_HEARTBEAT_MS)) {
-    if (!control.publishHeartbeat(now)) {
+  // mqtt.loop()의 callback은 이 루프에서 캡처한 now보다 늦은 시각으로
+  // lastDistinctHeightAt_을 갱신할 수 있다. callback 뒤 시간을 다시 읽어
+  // unsigned 경과 시간 계산이 역전되어 새 height lease를 즉시 만료시키지 않는다.
+  const uint32_t controlNow = millis();
+  control.tick(controlNow);
+  if (mqtt.connected() &&
+      elapsed(controlNow, lastHeartbeat, STATUS_HEARTBEAT_MS)) {
+    if (!control.publishHeartbeat(controlNow)) {
       control.failClosed();
     }
-    lastHeartbeat = now;
+    lastHeartbeat = controlNow;
   }
   delay(1);
 }
