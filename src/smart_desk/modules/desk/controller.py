@@ -183,14 +183,17 @@ class DeskController:
                 self._stop_in_progress = False
                 raise
 
+        baseline = self._relay.get_snapshot().received_at
         error = await self._send_stop_bounded()
+        if error is None:
+            error = await self._wait_for_fresh_stop(baseline)
         async with self._command_lock:
             self._stop_in_progress = False
             if error is None:
                 self._control = replace(
                     self._control,
                     public_state=DeskState.IDLE,
-                    detail="책상 제어기가 안전 정지 명령을 발행하고 시작되었습니다.",
+                    detail="책상 제어기가 안전 정지 상태로 시작되었습니다.",
                     updated_at=self._require_utc(self._now()),
                 )
             else:

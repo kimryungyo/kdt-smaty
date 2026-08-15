@@ -133,6 +133,11 @@ class StartupHeartbeatRelayClient(FakeRelayClient):
         if self.error is not None:
             raise self.error
         self.calls.append(("stop", None))
+        self._advance_status(
+            event=RelayEvent.STOPPED,
+            state=RelayState.STOP,
+            code="command",
+        )
 
     def publish_live_stop(self, *, code: str = "height_waiting") -> None:
         self._received_at += timedelta(microseconds=1)
