@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from smart_desk.modules.assistant.models import (
+    AssistantDecisionReason,
     AssistantDebugSnapshot,
     AssistantDebugTurn,
+    AssistantNextAction,
 )
 from smart_desk.modules.voice.audio import AudioInputDebugSnapshot
 from smart_desk.modules.voice.debug import VoiceDebugView, create_voice_debug_application
@@ -63,6 +65,8 @@ class FakeAssistant:
                     completed_at=NOW,
                     user_text="오늘 날씨는 어때?",
                     spoken_text="맑은 날씨입니다.",
+                    next_action=AssistantNextAction.RETURN_TO_WAKE_WORD,
+                    decision_reason=AssistantDecisionReason.CONVERSATION_COMPLETE,
                     request_id="req-debug",
                     input_tokens=10,
                     output_tokens=5,
@@ -91,6 +95,11 @@ def test_debug_snapshot_combines_voice_observability_without_provider_secret() -
     assert payload["wakeword"]["score"] == 0.73
     assert payload["audio_input"]["queue_capacity"] == 64
     assert payload["assistant"]["turns"][0]["spoken_text"] == "맑은 날씨입니다."
+    assert payload["assistant"]["turns"][0]["next_action"] == "RETURN_TO_WAKE_WORD"
+    assert (
+        payload["assistant"]["turns"][0]["decision_reason"]
+        == "CONVERSATION_COMPLETE"
+    )
     assert "encrypted_content" not in response.text
     assert "api_key" not in response.text
 
