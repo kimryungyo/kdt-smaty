@@ -359,6 +359,9 @@ def _verify_height_cache_schema(connection: Connection) -> None:
 
     connection.execute("SAVEPOINT validate_height_cache_schema")
     try:
+        # 운영 cache가 이미 존재해도 동일한 검증 행을 안전하게 사용할 수 있게
+        # savepoint 안에서만 비운다. 마지막 ROLLBACK이 기존 행을 복원한다.
+        connection.execute("DELETE FROM desk_height_cache")
         connection.execute(
             "INSERT INTO desk_height_cache VALUES (1, 80.0, '2026-08-15T00:00:00Z')"
         )

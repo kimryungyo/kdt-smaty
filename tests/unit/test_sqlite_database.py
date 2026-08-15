@@ -97,6 +97,31 @@ async def test_start_is_idempotent_and_database_can_restart(tmp_path: Path) -> N
     await database.stop()
 
 
+async def test_restart_preserves_existing_height_cache(tmp_path: Path) -> None:
+    database = SQLiteDatabase(tmp_path / "smart-desk.db")
+    cached = (1, 73.9, "2026-08-15T10:37:18.592926Z")
+
+    await database.start()
+    await database.write(
+        lambda connection: connection.execute(
+            "INSERT INTO desk_height_cache VALUES (?, ?, ?)", cached
+        )
+    )
+    await database.stop()
+
+    await database.start()
+    restored = await database.read(
+        lambda connection: tuple(
+            connection.execute(
+                "SELECT id, height_cm, observed_at FROM desk_height_cache"
+            ).fetchone()
+        )
+    )
+
+    assert restored == cached
+    await database.stop()
+
+
 async def test_operations_are_rejected_before_start_and_after_stop(
     tmp_path: Path,
 ) -> None:
