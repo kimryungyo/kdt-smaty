@@ -114,6 +114,39 @@ class FakeRelayClient:
         )
 
 
+class StartupHeartbeatRelayClient(FakeRelayClient):
+    """시작 직후 relay snapshot이 비었다가 heartbeat가 늦게 오는 fake."""
+
+    def __init__(self) -> None:
+        super().__init__(firmware="")
+        self.snapshot = RelaySnapshot(
+            event=None,
+            state=None,
+            firmware=None,
+            code=None,
+            detail=None,
+            received_at=None,
+            last_error=None,
+        )
+
+    async def send_stop(self) -> None:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(("stop", None))
+
+    def publish_live_stop(self, *, code: str = "height_waiting") -> None:
+        self._received_at += timedelta(microseconds=1)
+        self.snapshot = RelaySnapshot(
+            event=RelayEvent.HEARTBEAT,
+            state=RelayState.STOP,
+            firmware=FIRMWARE,
+            code=code,
+            detail=code,
+            received_at=self._received_at,
+            last_error=None,
+        )
+
+
 class BlockingRelayClient(FakeRelayClient):
     """pulse 도중 STOP 경쟁 순서를 제어하는 relay fake."""
 
@@ -191,11 +224,13 @@ def make_controller(
     height: FakeHeightMonitor,
     relay: FakeRelayClient,
     task_manager: TaskManager,
+    *,
+    settings: DeskSettings | None = None,
 ) -> DeskController:
     return DeskController(
         height,  # type: ignore[arg-type]
         relay,  # type: ignore[arg-type]
-        control_settings(),
+        settings or control_settings(),
         task_manager,
     )
 
@@ -744,6 +779,7 @@ async def test_startup_uses_cached_height_for_one_wake_and_serial_error_skips_it
     controller = make_controller(height, relay, tasks)
 
     await controller.start()
+    await wait_until(lambda: any(call[0] == "wake" for call in relay.calls))
     assert [call for call in relay.calls if call[0] == "wake"] == [
         ("wake", (Direction.UP, 80.0))
     ]
@@ -759,5 +795,73 @@ async def test_startup_uses_cached_height_for_one_wake_and_serial_error_skips_it
     await controller.start()
     assert not any(call[0] == "wake" for call in relay.calls)
     assert controller.get_snapshot().state is DeskState.IDLE
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_startup_wake_waits_for_late_live_heartbeat_without_blocking_start() -> None:
+    height = FakeHeightMonitor(80.0)
+    height.set_height(80.0, status=HeightStatus.SENSOR_SLEEPING)
+    relay = StartupHeartbeatRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+
+    await asyncio.wait_for(controller.start(), timeout=0.1)
+
+    assert controller.get_snapshot().state is DeskState.IDLE
+    assert [call for call in relay.calls if call[0] == "wake"] == []
+
+    relay.publish_live_stop()
+    await wait_until(lambda: len([call for call in relay.calls if call[0] == "wake"]) == 1)
+
+    assert [call for call in relay.calls if call[0] == "wake"] == [
+        ("wake", (Direction.UP, 80.0))
+    ]
+    assert not any(call[0] == "pulse" for call in relay.calls)
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_startup_wake_pending_times_out_without_pulse_and_keeps_controller_idle() -> None:
+    height = FakeHeightMonitor(80.0)
+    height.set_height(80.0, status=HeightStatus.SENSOR_SLEEPING)
+    relay = StartupHeartbeatRelayClient()
+    tasks = TaskManager()
+    settings = control_settings().model_copy(update={"wake_timeout_seconds": 0.06})
+    controller = make_controller(height, relay, tasks, settings=settings)
+
+    await controller.start()
+    await wait_until(
+        lambda: controller.get_snapshot().last_error is not None,
+        timeout=0.2,
+    )
+
+    snapshot = controller.get_snapshot()
+    assert snapshot.state is DeskState.IDLE
+    assert snapshot.detail == "높이 센서 확인이 필요합니다."
+    assert snapshot.last_error is not None
+    assert "릴레이 live 상태" in snapshot.last_error
+    assert not any(call[0] == "wake" for call in relay.calls)
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_user_target_cancels_startup_wake_pending_before_late_heartbeat() -> None:
+    height = FakeHeightMonitor(80.0)
+    height.set_height(80.0, status=HeightStatus.SENSOR_SLEEPING)
+    relay = StartupHeartbeatRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+
+    await controller.start()
+    with pytest.raises(DeskCommandRejectedError):
+        await controller.set_target(90.0)
+
+    relay.publish_live_stop()
+    await asyncio.sleep(control_settings().control_poll_interval_seconds * 3)
+
+    assert not any(call[0] == "wake" for call in relay.calls)
     await controller.stop()
     await tasks.shutdown()

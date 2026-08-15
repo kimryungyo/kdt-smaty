@@ -88,6 +88,13 @@ class _ControlState:
     wake_started_at: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _StartupWakePending:
+    """초기 live relay heartbeat를 기다리는, 아직 wire 명령이 없는 WAKE 의도."""
+
+    deadline: float
+
+
 class DeskController:
     """센서와 릴레이 snapshot을 조합해 안전한 이동 의도를 실행한다."""
 
@@ -129,6 +136,7 @@ class DeskController:
         self._command_lock = asyncio.Lock()
         self._relay_io_lock = asyncio.Lock()
         self._wake_event = asyncio.Event()
+        self._startup_wake_pending: _StartupWakePending | None = None
         self._motion_started_at: float | None = None
         self._last_hold_at: float | None = None
         self._next_refresh_at: float | None = None
@@ -142,7 +150,7 @@ class DeskController:
         self._last_stop_baseline_received_at: datetime | None = None
 
     async def start(self) -> None:
-        """제어 runner를 시작하고 UP/DOWN 없이 안전 STOP을 한 번 보낸다."""
+        """제어 runner를 시작하고 UP/DOWN 없이 안전 STOP 명령을 한 번 발행한다."""
 
         async with self._command_lock:
             if self._running or (
@@ -175,17 +183,14 @@ class DeskController:
                 self._stop_in_progress = False
                 raise
 
-        baseline = self._relay.get_snapshot().received_at
         error = await self._send_stop_bounded()
-        if error is None:
-            error = await self._wait_for_fresh_stop(baseline)
         async with self._command_lock:
             self._stop_in_progress = False
             if error is None:
                 self._control = replace(
                     self._control,
                     public_state=DeskState.IDLE,
-                    detail="책상 제어기가 안전 정지 상태로 시작되었습니다.",
+                    detail="책상 제어기가 안전 정지 명령을 발행하고 시작되었습니다.",
                     updated_at=self._require_utc(self._now()),
                 )
             else:
@@ -197,7 +202,7 @@ class DeskController:
                     updated_at=self._require_utc(self._now()),
                 )
         if error is None:
-            await self._try_startup_wake()
+            await self._register_startup_wake()
         self._wake_event.set()
 
     async def stop(self) -> None:
@@ -268,6 +273,7 @@ class DeskController:
             raise
 
         async with self._command_lock:
+            self._cancel_startup_wake_pending_locked()
             if self._control.awaiting_fresh_height:
                 if (
                     self._control.mode is _MotionMode.TARGET
@@ -395,6 +401,7 @@ class DeskController:
             raise
 
         async with self._command_lock:
+            self._cancel_startup_wake_pending_locked()
             target = self._control.target_height_cm
             if self._control.mode is not _MotionMode.TARGET or target is None:
                 raise DeskCommandRejectedError("활성 목표가 없어 높이를 증감할 수 없습니다.")
@@ -407,6 +414,7 @@ class DeskController:
             raise DeskCommandRejectedError("STOP 명령이 진행 중입니다.")
         snapshot = self._height_monitor.get_snapshot()
         async with self._command_lock:
+            self._cancel_startup_wake_pending_locked()
             if self._control.awaiting_fresh_height:
                 if (
                     self._control.mode is _MotionMode.MANUAL
@@ -486,25 +494,79 @@ class DeskController:
             self._initialize_relay_tracking(relay_snapshot)
         self._wake_event.set()
 
-    async def _try_startup_wake(self) -> None:
-        """안전 STOP 확인 뒤 cache만 있을 때 중앙 방향으로 한 번만 센서를 깨운다."""
+    async def _register_startup_wake(self) -> None:
+        """안전 STOP 명령 뒤 cache 기반 WAKE 후보를 runner에 제한 시간 동안 등록한다."""
+
+        snapshot = self._height_monitor.get_snapshot()
+        if snapshot.status is HeightStatus.ONLINE:
+            return
+        try:
+            basis = self._require_wake_basis(snapshot)
+            assert basis.height_cm is not None
+            midpoint = (
+                self._settings.operation_min_cm + self._settings.operation_max_cm
+            ) / 2
+            direction = Direction.UP if basis.height_cm < midpoint else Direction.DOWN
+            self._require_direction_allowed(basis.height_cm, direction)
+        except DeskCommandRejectedError as error:
+            await self._set_startup_sensor_check_needed(str(error))
+            return
+
+        async with self._command_lock:
+            if not self._running or self._closing or self._stop_in_progress:
+                return
+            self._startup_wake_pending = _StartupWakePending(
+                deadline=self._monotonic() + self._settings.wake_timeout_seconds
+            )
+            self._control = replace(
+                self._control,
+                public_state=DeskState.IDLE,
+                detail="시작 후 릴레이 상태를 기다려 높이 센서를 확인합니다.",
+                last_error=None,
+                updated_at=self._require_utc(self._now()),
+            )
+
+    async def _run_startup_wake_cycle(self) -> bool:
+        """등록된 startup WAKE를 heartbeat 도착까지 poll/event 주기로 재평가한다."""
 
         async with self._intent_lock:
-            if not self._running or self._closing:
-                return
+            pending = self._startup_wake_pending
+            if pending is None:
+                return False
+            if not self._running or self._closing or self._stop_in_progress:
+                self._startup_wake_pending = None
+                return True
+
             snapshot = self._height_monitor.get_snapshot()
             if snapshot.status is HeightStatus.ONLINE:
-                return
+                self._startup_wake_pending = None
+                return True
             try:
                 basis = self._require_wake_basis(snapshot)
-                relay = self._admit_wake()
-                midpoint = (
-                    self._settings.operation_min_cm + self._settings.operation_max_cm
-                ) / 2
-                direction = (
-                    Direction.UP if basis.height_cm < midpoint else Direction.DOWN
+            except DeskCommandRejectedError as error:
+                await self._set_startup_sensor_check_needed(str(error))
+                return True
+
+            if self._monotonic() > pending.deadline:
+                await self._set_startup_sensor_check_needed(
+                    "시작 WAKE 대기 시간 안에 유효한 릴레이 live 상태를 받지 못했습니다."
                 )
+                return True
+
+            try:
+                relay = self._admit_wake()
+            except DeskCommandRejectedError:
+                # 구독 직후의 빈 snapshot 등 일시적인 미준비 상태는 다음 주기에 재시도한다.
+                return True
+
+            assert basis.height_cm is not None
+            midpoint = (
+                self._settings.operation_min_cm + self._settings.operation_max_cm
+            ) / 2
+            direction = Direction.UP if basis.height_cm < midpoint else Direction.DOWN
+            try:
                 self._require_direction_allowed(basis.height_cm, direction)
+                self._startup_wake_pending = None
                 await self._begin_wake(
                     mode=_MotionMode.WAKE,
                     direction=direction,
@@ -514,15 +576,23 @@ class DeskController:
                     detail="시작 후 높이 센서 연결을 확인하고 있습니다.",
                 )
             except DeskCommandRejectedError as error:
-                # cache/serial/relay 불완전은 앱 lifecycle 실패가 아니다.
-                async with self._command_lock:
-                    self._control = replace(
-                        self._control,
-                        public_state=DeskState.IDLE,
-                        detail="높이 센서 확인이 필요합니다.",
-                        last_error=str(error),
-                        updated_at=self._require_utc(self._now()),
-                    )
+                await self._set_startup_sensor_check_needed(str(error))
+            return True
+
+    async def _set_startup_sensor_check_needed(self, error: str) -> None:
+        """startup WAKE 대기를 끝내도 앱 lifecycle은 IDLE/READY로 유지한다."""
+
+        async with self._command_lock:
+            self._startup_wake_pending = None
+            if not self._running or self._closing:
+                return
+            self._control = replace(
+                self._control,
+                public_state=DeskState.IDLE,
+                detail="높이 센서 확인이 필요합니다.",
+                last_error=error,
+                updated_at=self._require_utc(self._now()),
+            )
 
     async def _set_sensor_check_needed(self, target: float) -> None:
         """stale cache가 목표 오차 안일 때 도달을 확정하거나 nudge하지 않는다."""
@@ -748,6 +818,8 @@ class DeskController:
                 return
 
         if control.mode is _MotionMode.NONE:
+            if await self._run_startup_wake_cycle():
+                return
             await self._watch_inactive_relay()
             return
 
@@ -1176,6 +1248,8 @@ class DeskController:
         snapshot = self._relay.get_snapshot()
         if snapshot.last_error is not None:
             raise DeskCommandRejectedError("릴레이 상태 payload가 유효하지 않습니다.")
+        if snapshot.event is None:
+            raise DeskCommandRejectedError("릴레이 live 상태를 아직 받지 못했습니다.")
         if snapshot.event in {RelayEvent.OFFLINE, RelayEvent.REJECTED}:
             raise DeskCommandRejectedError(
                 snapshot.code or "릴레이가 이동 명령을 받을 수 없습니다."
@@ -1209,6 +1283,7 @@ class DeskController:
             raise DeskCommandRejectedError("STOP 명령이 진행 중입니다.")
 
     def _invalidate_motion_locked(self, detail: str) -> None:
+        self._cancel_startup_wake_pending_locked()
         self._control = _ControlState(
             public_state=DeskState.STOPPED,
             mode=_MotionMode.NONE,
@@ -1221,6 +1296,11 @@ class DeskController:
             generation=self._control.generation + 1,
         )
         self._reset_motion_fields()
+
+    def _cancel_startup_wake_pending_locked(self) -> None:
+        """사용자·종료 의도 뒤 startup WAKE가 늦게 발행되지 않게 한다."""
+
+        self._startup_wake_pending = None
 
     def _reset_motion_fields(self) -> None:
         self._motion_started_at = None

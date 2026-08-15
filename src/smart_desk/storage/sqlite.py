@@ -263,7 +263,7 @@ def _migrate_to_version_1(connection: Connection) -> None:
             )
             """
         )
-        connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
+        connection.execute("PRAGMA user_version = 1")
         connection.execute("COMMIT")
     except BaseException:
         try:

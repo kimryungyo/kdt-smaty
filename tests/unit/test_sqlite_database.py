@@ -13,6 +13,7 @@ from smart_desk.storage import (
     StorageNotReadyError,
     StorageVersionError,
 )
+from smart_desk.storage.sqlite import _migrate_to_version_1
 
 
 async def test_new_database_migrates_to_version_two(tmp_path: Path) -> None:
@@ -45,6 +46,35 @@ async def test_new_database_migrates_to_version_two(tmp_path: Path) -> None:
         "led_color",
     ]
     assert foreign_keys == 1
+    await database.stop()
+
+
+async def test_interrupted_new_database_migration_resumes_from_version_one(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "smart-desk.db"
+    with sqlite3.connect(path, isolation_level=None) as connection:
+        _migrate_to_version_1(connection)
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_schema "
+            "WHERE type = 'table' AND name = 'desk_height_cache'"
+        ).fetchone()[0] == 0
+
+    database = SQLiteDatabase(path)
+    await database.start()
+    version, cache_table_count = await database.read(
+        lambda connection: (
+            connection.execute("PRAGMA user_version").fetchone()[0],
+            connection.execute(
+                "SELECT COUNT(*) FROM sqlite_schema "
+                "WHERE type = 'table' AND name = 'desk_height_cache'"
+            ).fetchone()[0],
+        )
+    )
+
+    assert version == 2
+    assert cache_table_count == 1
     await database.stop()
 
 
