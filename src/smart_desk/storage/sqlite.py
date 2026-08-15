@@ -13,7 +13,7 @@ from typing import TypeVar
 
 
 LOGGER = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 SQLITE_TIMEOUT_SECONDS = 5.0
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -136,7 +136,10 @@ class SQLiteDatabase:
                 )
             if version == 0:
                 _migrate_to_version_1(connection)
-            _verify_version_1_schema(connection)
+                version = 1
+            if version == 1:
+                _migrate_to_version_2(connection)
+            _verify_version_2_schema(connection)
         finally:
             connection.close()
 
@@ -273,7 +276,43 @@ def _migrate_to_version_1(connection: Connection) -> None:
         raise
 
 
-def _verify_version_1_schema(connection: Connection) -> None:
+def _migrate_to_version_2(connection: Connection) -> None:
+    """기존 profile DB에 마지막 검증 높이 cache table을 추가한다."""
+
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            """
+            CREATE TABLE desk_height_cache (
+                id          INTEGER PRIMARY KEY CHECK (id = 1),
+                height_cm   REAL NOT NULL
+                            CHECK (
+                                typeof(height_cm) IN ('integer', 'real')
+                                AND height_cm >= 73
+                                AND height_cm <= 118
+                            ),
+                observed_at TEXT NOT NULL
+                            CHECK (
+                                typeof(observed_at) = 'text'
+                                AND length(trim(observed_at)) > 0
+                            )
+            )
+            """
+        )
+        connection.execute("PRAGMA user_version = 2")
+        connection.execute("COMMIT")
+    except BaseException:
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            LOGGER.exception(
+                "SQLite migration rollback에 실패했습니다.",
+                extra={"component": "sqlite", "event": "migration_rollback_failed"},
+            )
+        raise
+
+
+def _verify_version_2_schema(connection: Connection) -> None:
     version = _read_user_version(connection)
     if version != CURRENT_SCHEMA_VERSION:
         raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
@@ -285,8 +324,8 @@ def _verify_version_1_schema(connection: Connection) -> None:
             "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         )
     }
-    if tables != {"profiles"}:
-        raise StorageVersionError("SQLite version 1 table 구성이 올바르지 않습니다.")
+    if tables != {"profiles", "desk_height_cache"}:
+        raise StorageVersionError("SQLite version 2 table 구성이 올바르지 않습니다.")
 
     columns = connection.execute("PRAGMA table_info(profiles)").fetchall()
     actual = [
@@ -301,9 +340,37 @@ def _verify_version_1_schema(connection: Connection) -> None:
         ("led_color", "TEXT", 0, 0),
     ]
     if actual != expected:
-        raise StorageVersionError("SQLite version 1 profiles schema가 올바르지 않습니다.")
+        raise StorageVersionError("SQLite version 2 profiles schema가 올바르지 않습니다.")
 
     _verify_profile_constraints(connection)
+    _verify_height_cache_schema(connection)
+
+
+def _verify_height_cache_schema(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(desk_height_cache)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "INTEGER", 0, 1),
+        ("height_cm", "REAL", 1, 0),
+        ("observed_at", "TEXT", 1, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 2 height cache schema가 올바르지 않습니다.")
+
+    connection.execute("SAVEPOINT validate_height_cache_schema")
+    try:
+        connection.execute(
+            "INSERT INTO desk_height_cache VALUES (1, 80.0, '2026-08-15T00:00:00Z')"
+        )
+        for row in ((2, 80.0, "valid"), (1, 72.9, "valid"), (1, 118.1, "valid")):
+            try:
+                connection.execute("INSERT INTO desk_height_cache VALUES (?, ?, ?)", row)
+            except sqlite3.IntegrityError:
+                continue
+            raise StorageVersionError("SQLite version 2 height cache 제약이 누락되었습니다.")
+    finally:
+        connection.execute("ROLLBACK TO validate_height_cache_schema")
+        connection.execute("RELEASE validate_height_cache_schema")
 
 
 def _verify_profile_constraints(connection: Connection) -> None:

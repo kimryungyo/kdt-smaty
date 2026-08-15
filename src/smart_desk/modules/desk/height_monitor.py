@@ -11,7 +11,12 @@ from typing import TypeAlias
 from smart_desk.config.settings import DeskSettings
 from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.desk.messages import HeightMessage
-from smart_desk.modules.desk.models import HeightSnapshot, HeightStatus
+from smart_desk.modules.desk.height_cache import HeightCacheRepository
+from smart_desk.modules.desk.models import (
+    HeightProvenance,
+    HeightSnapshot,
+    HeightStatus,
+)
 from smart_desk.modules.desk.segment import SegmentDecoder
 from smart_desk.modules.mqtt.client import MqttClient, MqttUnavailableError
 from smart_desk.modules.mqtt.topics import HEIGHT_TOPIC
@@ -41,6 +46,7 @@ class DeskHeightMonitor:
         task_manager: TaskManager,
         *,
         now: Now = utc_now,
+        cache: HeightCacheRepository | None = None,
     ) -> None:
         self._source = source
         self._decoder = decoder
@@ -48,9 +54,11 @@ class DeskHeightMonitor:
         self._settings = settings
         self._task_manager = task_manager
         self._now = now
+        self._cache = cache
         self._runner_task: asyncio.Task[None] | None = None
         self._height_cm: float | None = None
         self._observed_at: datetime | None = None
+        self._provenance: HeightProvenance | None = None
         self._running = False
         self._source_started = False
 
@@ -64,6 +72,20 @@ class DeskHeightMonitor:
 
         self._height_cm = None
         self._observed_at = None
+        self._provenance = None
+        if self._cache is not None:
+            try:
+                cached = await self._cache.load()
+                if cached is not None:
+                    self._height_cm = cached.height_cm
+                    self._observed_at = cached.observed_at
+                    self._provenance = HeightProvenance.CACHED
+            except Exception:
+                # cache는 WAKE 근거일 뿐 serial monitor lifecycle을 막지 않는다.
+                LOGGER.exception(
+                    "높이 cache를 읽지 못해 빈 상태로 시작합니다.",
+                    extra={"component": "desk_height", "event": "height_cache_load_failed"},
+                )
         await self._source.start()
         self._source_started = True
         self._running = True
@@ -111,6 +133,7 @@ class DeskHeightMonitor:
                 height_cm=self._height_cm,
                 observed_at=self._observed_at,
                 status=HeightStatus.STOPPED,
+                provenance=self._provenance,
             )
 
         source_snapshot = self._source.get_snapshot()
@@ -118,6 +141,8 @@ class DeskHeightMonitor:
             status = HeightStatus.ERROR
         elif self._height_cm is None or self._observed_at is None:
             status = HeightStatus.WAITING
+        elif self._provenance is HeightProvenance.CACHED:
+            status = HeightStatus.SENSOR_SLEEPING
         else:
             now = self._require_utc(self._now())
             age = now - self._observed_at
@@ -132,6 +157,7 @@ class DeskHeightMonitor:
             height_cm=self._height_cm,
             observed_at=self._observed_at,
             status=status,
+            provenance=self._provenance,
         )
 
     async def _run(self) -> None:
@@ -145,14 +171,34 @@ class DeskHeightMonitor:
             if height is None:
                 continue
 
+            if self._source.get_snapshot().status is not SerialStatus.CONNECTED:
+                # 끊어진 source가 남긴 line은 ONLINE 관측이나 영속 cache가 될 수 없다.
+                continue
+
             observed_at = self._require_utc(self._now())
             self._height_cm = height
             self._observed_at = observed_at
+            self._provenance = HeightProvenance.LIVE
             LOGGER.debug(
                 "유효한 책상 높이를 관측했습니다.",
                 extra={"component": "desk_height", "event": "height_observed"},
             )
+            await self._persist_height(height, observed_at)
             await self._publish_height(height, observed_at)
+
+    async def _persist_height(self, height: float, observed_at: datetime) -> None:
+        """ONLINE으로 검증된 관측만 best-effort로 영속화한다."""
+
+        if self._cache is None:
+            return
+        try:
+            await self._cache.save(height, observed_at)
+        except Exception:
+            # 관측과 MQTT 발행은 유지한다. cache 장애가 serial runner를 죽이지 않는다.
+            LOGGER.exception(
+                "유효한 책상 높이를 SQLite cache에 저장하지 못했습니다.",
+                extra={"component": "desk_height", "event": "height_cache_save_failed"},
+            )
 
     async def _publish_height(self, height: float, observed_at: datetime) -> None:
         message = HeightMessage(observed_at=observed_at, height_cm=height)

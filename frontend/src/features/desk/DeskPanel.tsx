@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type DeskStatus, type Profile,
   type Direction,
+  ApiError,
   cancelTarget,
   sendHold,
   sendStop,
@@ -17,11 +18,12 @@ type Props = {
   status: DeskStatus | null;
   profile: Profile | null;
   canControl: boolean;
+  controlError: string | null;
   onStatus: (status: DeskStatus) => void;
   onError: (message: string) => void;
 };
 
-export function DeskPanel({ status, profile, canControl, onStatus, onError }: Props) {
+export function DeskPanel({ status, profile, canControl, controlError, onStatus, onError }: Props) {
   const [target, setTargetValue] = useState("");
   const direction = useRef<Direction | null>(null);
   const holdInFlight = useRef(false);
@@ -54,7 +56,16 @@ export function DeskPanel({ status, profile, canControl, onStatus, onError }: Pr
           onStatus(await sendHold(nextDirection));
         } catch (error) {
           onError(error instanceof Error ? error.message : "수동 이동 요청을 보내지 못했습니다.");
-          void stopHolding();
+          if (error instanceof ApiError && error.status === 409) {
+            // 범위·STOP 진행 중 같은 명시적 거부는 relay를 건드리지 않는다.
+            direction.current = null;
+            if (interval.current !== null) {
+              window.clearInterval(interval.current);
+              interval.current = null;
+            }
+          } else {
+            void stopHolding();
+          }
         } finally {
           holdInFlight.current = false;
         }
@@ -130,19 +141,26 @@ export function DeskPanel({ status, profile, canControl, onStatus, onError }: Pr
     }
   };
 
+  const heightStatus = status?.height.status;
+  const statusLabel = status?.state === "WAKING"
+    ? "센서 깨우는 중"
+    : heightStatus === "SENSOR_SLEEPING" || heightStatus === "STALE"
+      ? "센서 절전 상태"
+      : canControl ? "연결됨" : "연결 확인 중";
+
   return (
     <section className="control-grid" aria-label="데스크 직접 제어">
       <article className="card control-card">
-        <div className="card-header"><div><p className="card-label">MANUAL CONTROL</p><h2>모터 수동 제어</h2></div><span className={`live-status ${canControl ? "" : "offline"}`}><span /><b>{canControl ? "연결됨" : "연결 확인 중"}</b></span></div>
+        <div className="card-header"><div><p className="card-label">MANUAL CONTROL</p><h2>모터 수동 제어</h2></div><span className={`live-status ${canControl ? "" : "offline"}`}><span /><b>{statusLabel}</b></span></div>
         <div className="height-readout"><span>현재 높이</span><strong>{status?.height.heightCm?.toFixed(1) ?? "--.-"}<small>cm</small></strong></div>
-        {(status?.lastError || status?.relay.lastError) && <p className="inline-error">{status.lastError ?? status.relay.lastError}</p>}
+        {(controlError || status?.lastError || status?.relay.lastError) && <p className="inline-error">{controlError ?? status?.lastError ?? status?.relay.lastError}</p>}
         <div className="hold-buttons" aria-label="수동 높이 조절">
           {(["UP", "DOWN"] as const).map((value) => <button className="hold-button" type="button" key={value} disabled={!canControl} aria-label={value === "UP" ? "누르는 동안 책상 올리기" : "누르는 동안 책상 내리기"} onPointerDown={(event) => press(value, event)} onPointerUp={() => void stopHolding()} onPointerCancel={() => void stopHolding()} onLostPointerCapture={() => void stopHolding()} onKeyDown={(event) => keyDown(value, event)} onKeyUp={(event) => { if (event.key === " " || event.key === "Enter") void stopHolding(); }}>
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d={value === "UP" ? "M12 19V5m0 0-6 6m6-6 6 6" : "M12 5v14m0 0 6-6m-6 6-6-6"} /></svg>{value === "UP" ? "올리기" : "내리기"}
           </button>)}
         </div>
         <button className="stop-button" type="button" onClick={() => void stopHolding(true)} disabled={status === null}>정지</button>
-        <p className="control-note">버튼을 누르고 있는 동안만 이동하며, 손을 떼거나 화면을 벗어나거나 연결이 끊기면 즉시 정지합니다.</p>
+        <p className="control-note">{status?.state === "WAKING" ? "높이 센서를 한 번 깨운 뒤 새 관측과 릴레이 준비 상태를 확인하고 있습니다." : "버튼을 누르고 있는 동안만 이동하며, 손을 떼거나 화면을 벗어나거나 연결이 끊기면 즉시 정지합니다."}</p>
       </article>
       <article className="card control-card">
         <div className="card-header"><div><p className="card-label">AUTO MOVE</p><h2>목표 높이로 자동 이동</h2></div><span className="card-number">06</span></div>

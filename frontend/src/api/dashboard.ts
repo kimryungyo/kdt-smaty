@@ -1,10 +1,11 @@
 export type Direction = "UP" | "DOWN";
-export type HeightStatus = "STOPPED" | "WAITING" | "ONLINE" | "STALE" | "ERROR";
-export type DeskState = "IDLE" | "MOVING" | "MANUAL" | "STOPPED" | "ERROR";
+export type HeightStatus = "STOPPED" | "WAITING" | "ONLINE" | "STALE" | "ERROR" | "SENSOR_SLEEPING";
+export type HeightProvenance = "LIVE" | "CACHED";
+export type DeskState = "IDLE" | "MOVING" | "MANUAL" | "STOPPED" | "ERROR" | "WAKING";
 
 export type DeskStatus = {
   state: DeskState;
-  height: { heightCm: number | null; observedAt: string | null; status: HeightStatus };
+  height: { heightCm: number | null; observedAt: string | null; status: HeightStatus; provenance: HeightProvenance | null };
   relay: {
     event: string | null;
     state: "UP" | "DOWN" | "STOP" | null;

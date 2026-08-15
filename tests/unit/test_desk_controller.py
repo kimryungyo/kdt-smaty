@@ -77,6 +77,11 @@ class FakeRelayClient:
             code="command_started",
         )
 
+    async def wake(self, direction: Direction, basis_height_cm: float) -> None:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(("wake", (direction, basis_height_cm)))
+
     async def send_stop(self) -> None:
         if self.error is not None:
             raise self.error
@@ -637,5 +642,122 @@ async def test_stop_waits_for_inflight_pulse_and_is_last_relay_call() -> None:
 
     assert relay.calls[-2][0] == "pulse"
     assert relay.calls[-1] == ("stop", None)
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_stale_manual_hold_checks_boundary_then_wakes_once_before_motion() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    height.set_height(74.0, status=HeightStatus.STALE)
+
+    with pytest.raises(DeskCommandRejectedError, match="하한"):
+        await controller.hold_down()
+    assert [call for call in relay.calls if call[0] == "wake"] == []
+
+    height.set_height(80.0, status=HeightStatus.STALE)
+    await asyncio.gather(controller.hold_up(), controller.hold_up())
+    assert controller.get_snapshot().state is DeskState.WAKING
+    assert [call for call in relay.calls if call[0] == "wake"] == [
+        ("wake", (Direction.UP, 80.0))
+    ]
+    assert not any(call[0] == "pulse" for call in relay.calls)
+
+    relay._advance_status(event=RelayEvent.HEARTBEAT, state=RelayState.STOP, code="ready")  # noqa: SLF001
+    height.set_height(80.1)
+    await wait_until(lambda: any(call[0] == "pulse" for call in relay.calls))
+    assert any(call == ("pulse", (Direction.UP, 500)) for call in relay.calls)
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_stale_target_wakes_then_recalculates_with_new_height() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    height.set_height(80.0, status=HeightStatus.STALE)
+
+    await controller.set_target(90.0)
+    assert controller.get_snapshot().state is DeskState.WAKING
+    assert relay.calls[-1] == ("wake", (Direction.UP, 80.0))
+    assert not any(call[0] == "pulse" for call in relay.calls)
+
+    relay._advance_status(event=RelayEvent.HEARTBEAT, state=RelayState.STOP, code="ready")  # noqa: SLF001
+    height.set_height(90.0)
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.STOPPED)
+    assert not any(call[0] == "pulse" for call in relay.calls)
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_wake_waits_for_relay_ready_after_fresh_height() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    height.set_height(80.0, status=HeightStatus.STALE)
+
+    await controller.set_target(90.0)
+    height.set_height(80.1)
+    await asyncio.sleep(control_settings().control_poll_interval_seconds * 2)
+    assert controller.get_snapshot().state is DeskState.WAKING
+    assert not any(call[0] == "pulse" for call in relay.calls)
+
+    relay._advance_status(event=RelayEvent.HEARTBEAT, state=RelayState.STOP, code="ready")  # noqa: SLF001
+    await wait_until(lambda: any(call[0] == "pulse" for call in relay.calls))
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_stale_target_near_cache_requires_sensor_confirmation_without_wake() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    height.set_height(80.0, status=HeightStatus.STALE)
+
+    await controller.set_target(80.1)
+
+    assert controller.get_snapshot().state is DeskState.IDLE
+    assert "센서 높이" in controller.get_snapshot().detail
+    assert not any(call[0] in {"wake", "pulse"} for call in relay.calls)
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_startup_uses_cached_height_for_one_wake_and_serial_error_skips_it() -> None:
+    height = FakeHeightMonitor(80.0)
+    height.set_height(80.0, status=HeightStatus.SENSOR_SLEEPING)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+
+    await controller.start()
+    assert [call for call in relay.calls if call[0] == "wake"] == [
+        ("wake", (Direction.UP, 80.0))
+    ]
+    assert controller.get_snapshot().state is DeskState.WAKING
+    await controller.stop()
+    await tasks.shutdown()
+
+    height = FakeHeightMonitor(80.0)
+    height.set_height(80.0, status=HeightStatus.ERROR)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    assert not any(call[0] == "wake" for call in relay.calls)
+    assert controller.get_snapshot().state is DeskState.IDLE
     await controller.stop()
     await tasks.shutdown()

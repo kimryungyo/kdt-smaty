@@ -15,7 +15,7 @@ from smart_desk.storage import (
 )
 
 
-async def test_new_database_migrates_to_version_one(tmp_path: Path) -> None:
+async def test_new_database_migrates_to_version_two(tmp_path: Path) -> None:
     database = SQLiteDatabase(tmp_path / "nested" / "smart-desk.db")
 
     await database.start()
@@ -35,8 +35,8 @@ async def test_new_database_migrates_to_version_one(tmp_path: Path) -> None:
     )
 
     assert database.path == (tmp_path / "nested" / "smart-desk.db").resolve()
-    assert version == 1
-    assert tables == ["profiles"]
+    assert version == 2
+    assert tables == ["profiles", "desk_height_cache"]
     assert columns == [
         "id",
         "name",
@@ -51,7 +51,7 @@ async def test_new_database_migrates_to_version_one(tmp_path: Path) -> None:
 async def test_relative_path_is_resolved_from_project_root() -> None:
     database = SQLiteDatabase(Path("data/smart_desk.db"))
 
-    assert database.path == Path("/srv/smart-desk-fin/data/smart_desk.db")
+    assert database.path == Path(__file__).resolve().parents[2] / "data/smart_desk.db"
 
 
 async def test_start_is_idempotent_and_database_can_restart(tmp_path: Path) -> None:

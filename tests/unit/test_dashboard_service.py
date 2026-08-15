@@ -63,7 +63,7 @@ async def test_status_mapping_and_desk_commands_are_delegated_once() -> None:
 
     assert status.model_dump(mode="json", by_alias=True) == {
         "state": "IDLE",
-        "height": {"heightCm": 90.0, "observedAt": "2026-08-08T00:00:00Z", "status": "ONLINE"},
+        "height": {"heightCm": 90.0, "observedAt": "2026-08-08T00:00:00Z", "status": "ONLINE", "provenance": None},
         "relay": {"event": "online", "state": "STOP", "firmware": "test", "code": None, "detail": None, "receivedAt": "2026-08-08T00:00:00Z", "lastError": None},
         "targetHeightCm": None,
         "direction": None,

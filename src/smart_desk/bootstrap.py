@@ -9,6 +9,7 @@ from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.dashboard.service import DashboardService
 from smart_desk.modules.desk.controller import DeskController
 from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
+from smart_desk.modules.desk.height_cache import HeightCacheRepository
 from smart_desk.modules.desk.relay import RelayClient
 from smart_desk.modules.desk.segment import SegmentDecoder
 from smart_desk.modules.mqtt.client import MqttClient
@@ -38,12 +39,14 @@ def build_container(settings: Settings) -> AppContainer:
     serial_source = SerialLineSource(settings.serial)
     decoder = SegmentDecoder(settings.desk)
     relay = RelayClient(mqtt)
+    height_cache = HeightCacheRepository(database)
     height_monitor = DeskHeightMonitor(
         serial_source,
         decoder,
         mqtt,
         settings.desk,
         task_manager,
+        cache=height_cache,
     )
     desk = DeskController(
         height_monitor,

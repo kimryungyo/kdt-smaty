@@ -61,6 +61,7 @@ class DeskCommandRejectedError(RuntimeError):
 
 class _MotionMode(StrEnum):
     NONE = "NONE"
+    WAKE = "WAKE"
     TARGET = "TARGET"
     MANUAL = "MANUAL"
 
@@ -82,6 +83,9 @@ class _ControlState:
     last_error: str | None
     updated_at: datetime
     generation: int
+    awaiting_fresh_height: bool = False
+    wake_observed_at: datetime | None = None
+    wake_started_at: float | None = None
 
 
 class DeskController:
@@ -171,7 +175,10 @@ class DeskController:
                 self._stop_in_progress = False
                 raise
 
+        baseline = self._relay.get_snapshot().received_at
         error = await self._send_stop_bounded()
+        if error is None:
+            error = await self._wait_for_fresh_stop(baseline)
         async with self._command_lock:
             self._stop_in_progress = False
             if error is None:
@@ -189,6 +196,8 @@ class DeskController:
                     last_error=error,
                     updated_at=self._require_utc(self._now()),
                 )
+        if error is None:
+            await self._try_startup_wake()
         self._wake_event.set()
 
     async def stop(self) -> None:
@@ -259,6 +268,13 @@ class DeskController:
             raise
 
         async with self._command_lock:
+            if self._control.awaiting_fresh_height:
+                if (
+                    self._control.mode is _MotionMode.TARGET
+                    and self._control.target_height_cm == target
+                ):
+                    return
+                raise DeskCommandRejectedError("높이 센서를 깨우는 중에는 목표를 바꿀 수 없습니다.")
             if (
                 self._control.mode is _MotionMode.TARGET
                 and self._control.target_height_cm == target
@@ -270,6 +286,26 @@ class DeskController:
         relay_snapshot = self._relay.get_snapshot()
         if active or relay_snapshot.state in {RelayState.UP, RelayState.DOWN}:
             await self._stop_for_transition("새 목표를 적용하기 위해 기존 이동을 정지했습니다.")
+
+        height = self._height_monitor.get_snapshot()
+        if height.status is not HeightStatus.ONLINE:
+            basis = self._require_wake_basis(height)
+            relay_snapshot = self._admit_wake()
+            delta = target - basis.height_cm
+            if abs(delta) <= self._settings.target_tolerance_cm:
+                await self._set_sensor_check_needed(target)
+                return
+            direction = Direction.UP if delta > 0 else Direction.DOWN
+            self._require_direction_allowed(basis.height_cm, direction)
+            await self._begin_wake(
+                mode=_MotionMode.TARGET,
+                direction=direction,
+                target=target,
+                basis=basis,
+                relay=relay_snapshot,
+                detail=f"목표 {target:.1f}cm 전 센서 높이를 확인합니다.",
+            )
+            return
 
         height, relay_snapshot = self._admit_motion()
         assert height.height_cm is not None
@@ -369,6 +405,37 @@ class DeskController:
             raise RuntimeError("책상 제어기가 실행 중이 아닙니다.")
         if self._stop_in_progress:
             raise DeskCommandRejectedError("STOP 명령이 진행 중입니다.")
+        snapshot = self._height_monitor.get_snapshot()
+        async with self._command_lock:
+            if self._control.awaiting_fresh_height:
+                if (
+                    self._control.mode is _MotionMode.MANUAL
+                    and self._control.direction is direction
+                ):
+                    self._last_hold_at = self._monotonic()
+                    self._control = replace(
+                        self._control,
+                        detail=f"센서 깨우기 후 수동 {direction.value} 입력을 기다립니다.",
+                        updated_at=self._require_utc(self._now()),
+                    )
+                    self._wake_event.set()
+                    return
+                raise DeskCommandRejectedError("높이 센서를 깨우는 중입니다.")
+
+        if snapshot.status is not HeightStatus.ONLINE:
+            basis = self._require_wake_basis(snapshot)
+            relay_snapshot = self._admit_wake()
+            self._require_direction_allowed(basis.height_cm, direction)
+            await self._begin_wake(
+                mode=_MotionMode.MANUAL,
+                direction=direction,
+                target=None,
+                basis=basis,
+                relay=relay_snapshot,
+                detail=f"수동 {direction.value} 전 센서 높이를 확인합니다.",
+            )
+            return
+
         height = self._require_height()
         relay_snapshot = self._require_relay_ready()
         assert height.height_cm is not None
@@ -419,6 +486,234 @@ class DeskController:
             self._initialize_relay_tracking(relay_snapshot)
         self._wake_event.set()
 
+    async def _try_startup_wake(self) -> None:
+        """안전 STOP 확인 뒤 cache만 있을 때 중앙 방향으로 한 번만 센서를 깨운다."""
+
+        async with self._intent_lock:
+            if not self._running or self._closing:
+                return
+            snapshot = self._height_monitor.get_snapshot()
+            if snapshot.status is HeightStatus.ONLINE:
+                return
+            try:
+                basis = self._require_wake_basis(snapshot)
+                relay = self._admit_wake()
+                midpoint = (
+                    self._settings.operation_min_cm + self._settings.operation_max_cm
+                ) / 2
+                direction = (
+                    Direction.UP if basis.height_cm < midpoint else Direction.DOWN
+                )
+                self._require_direction_allowed(basis.height_cm, direction)
+                await self._begin_wake(
+                    mode=_MotionMode.WAKE,
+                    direction=direction,
+                    target=None,
+                    basis=basis,
+                    relay=relay,
+                    detail="시작 후 높이 센서 연결을 확인하고 있습니다.",
+                )
+            except DeskCommandRejectedError as error:
+                # cache/serial/relay 불완전은 앱 lifecycle 실패가 아니다.
+                async with self._command_lock:
+                    self._control = replace(
+                        self._control,
+                        public_state=DeskState.IDLE,
+                        detail="높이 센서 확인이 필요합니다.",
+                        last_error=str(error),
+                        updated_at=self._require_utc(self._now()),
+                    )
+
+    async def _set_sensor_check_needed(self, target: float) -> None:
+        """stale cache가 목표 오차 안일 때 도달을 확정하거나 nudge하지 않는다."""
+
+        async with self._command_lock:
+            self._require_running_locked()
+            self._control = _ControlState(
+                public_state=DeskState.IDLE,
+                mode=_MotionMode.NONE,
+                target_phase=None,
+                target_height_cm=None,
+                direction=None,
+                detail=(
+                    f"목표 {target:.1f}cm가 마지막 높이와 가깝습니다. "
+                    "도달 여부를 확인하려면 센서 높이가 필요합니다."
+                ),
+                last_error=None,
+                updated_at=self._require_utc(self._now()),
+                generation=self._control.generation + 1,
+            )
+            self._reset_motion_fields()
+
+    async def _begin_wake(
+        self,
+        *,
+        mode: _MotionMode,
+        direction: Direction,
+        target: float | None,
+        basis: HeightSnapshot,
+        relay: RelaySnapshot,
+        detail: str,
+    ) -> None:
+        """동일 generation에서 WAKE 한 번만 발행하고 새 ONLINE 관측을 기다린다."""
+
+        assert basis.height_cm is not None
+        assert basis.observed_at is not None
+        async with self._command_lock:
+            self._require_running_locked()
+            if self._control.awaiting_fresh_height:
+                raise DeskCommandRejectedError("높이 센서를 이미 깨우는 중입니다.")
+            generation = self._control.generation + 1
+            started_at = self._monotonic()
+            self._control = _ControlState(
+                public_state=DeskState.WAKING,
+                mode=mode,
+                target_phase=_TargetPhase.CONTINUOUS if mode is _MotionMode.TARGET else None,
+                target_height_cm=target,
+                direction=direction,
+                detail=detail,
+                last_error=None,
+                updated_at=self._require_utc(self._now()),
+                generation=generation,
+                awaiting_fresh_height=True,
+                wake_observed_at=basis.observed_at,
+                wake_started_at=started_at,
+            )
+            self._motion_started_at = started_at if mode is not _MotionMode.WAKE else None
+            self._last_hold_at = started_at if mode is _MotionMode.MANUAL else None
+            self._next_refresh_at = None
+            self._settle_until = None
+            self._last_fine_observed_at = None
+            self._initialize_relay_tracking(relay)
+
+        wake_error: str | None = None
+        async with self._relay_io_lock:
+            try:
+                async with asyncio.timeout(self._settings.relay_ack_timeout_seconds):
+                    await self._relay.wake(direction, basis.height_cm)
+            except Exception as error:
+                wake_error = str(error)
+        if wake_error is not None:
+            async with self._command_lock:
+                if self._control.generation != generation:
+                    return
+            await self._stop_motion(
+                "높이 센서 깨우기 명령에 실패했습니다.",
+                error_detail=wake_error,
+            )
+            return
+        self._wake_event.set()
+
+    async def _run_wake_cycle(self, control: _ControlState) -> None:
+        """WAKE 이후에는 새 observed_at·relay ready까지 어떤 UP/DOWN도 보내지 않는다."""
+
+        now_mono = self._monotonic()
+        if (
+            control.wake_started_at is None
+            or now_mono - control.wake_started_at
+            > self._settings.wake_timeout_seconds
+        ):
+            raise DeskCommandRejectedError("센서 깨우기 뒤 새 높이 관측 시간이 초과되었습니다.")
+        if (
+            control.mode is _MotionMode.MANUAL
+            and self._last_hold_at is not None
+            and now_mono - self._last_hold_at > self._settings.manual_watchdog_seconds
+        ):
+            await self._stop_motion(
+                "수동 HOLD 입력이 끊겨 센서 깨우기를 취소하고 정지했습니다.",
+                error_detail=None,
+            )
+            return
+
+        snapshot = self._height_monitor.get_snapshot()
+        if snapshot.status is HeightStatus.ERROR:
+            raise DeskCommandRejectedError("높이 센서 transport가 오류 상태입니다.")
+        if (
+            snapshot.status is not HeightStatus.ONLINE
+            or snapshot.observed_at is None
+            or control.wake_observed_at is None
+            or snapshot.observed_at <= control.wake_observed_at
+        ):
+            return
+
+        relay = self._require_relay_available_for_wake()
+        if relay.state is not RelayState.STOP or relay.code != "ready":
+            return
+        assert snapshot.height_cm is not None
+        await self._activate_after_wake(control, snapshot, relay, now_mono)
+
+    async def _activate_after_wake(
+        self,
+        control: _ControlState,
+        height: HeightSnapshot,
+        relay: RelaySnapshot,
+        now_mono: float,
+    ) -> None:
+        assert height.height_cm is not None
+        if control.mode is _MotionMode.WAKE:
+            async with self._command_lock:
+                if self._control.generation != control.generation:
+                    return
+                self._control = _ControlState(
+                    public_state=DeskState.IDLE,
+                    mode=_MotionMode.NONE,
+                    target_phase=None,
+                    target_height_cm=None,
+                    direction=None,
+                    detail="높이 센서 연결을 확인했습니다.",
+                    last_error=None,
+                    updated_at=self._require_utc(self._now()),
+                    generation=control.generation + 1,
+                )
+                self._reset_motion_fields()
+            return
+        if control.mode is _MotionMode.MANUAL:
+            assert control.direction is not None
+            self._require_direction_allowed(height.height_cm, control.direction)
+            async with self._command_lock:
+                if self._control.generation != control.generation:
+                    return
+                self._control = replace(
+                    self._control,
+                    public_state=DeskState.MANUAL,
+                    detail=f"수동 {control.direction.value} 이동을 시작합니다.",
+                    awaiting_fresh_height=False,
+                    wake_observed_at=None,
+                    wake_started_at=None,
+                    updated_at=self._require_utc(self._now()),
+                )
+                self._next_refresh_at = now_mono
+                self._initialize_relay_tracking(relay)
+            return
+
+        assert control.mode is _MotionMode.TARGET
+        assert control.target_height_cm is not None
+        delta = control.target_height_cm - height.height_cm
+        if abs(delta) <= self._settings.target_tolerance_cm:
+            await self._stop_motion(
+                f"목표 {control.target_height_cm:.1f}cm에 도달했습니다.",
+                error_detail=None,
+            )
+            return
+        direction = Direction.UP if delta > 0 else Direction.DOWN
+        self._require_direction_allowed(height.height_cm, direction)
+        async with self._command_lock:
+            if self._control.generation != control.generation:
+                return
+            self._control = replace(
+                self._control,
+                public_state=DeskState.MOVING,
+                target_phase=_TargetPhase.CONTINUOUS,
+                direction=direction,
+                detail=f"목표 {control.target_height_cm:.1f}cm로 이동합니다.",
+                awaiting_fresh_height=False,
+                wake_observed_at=None,
+                wake_started_at=None,
+                updated_at=self._require_utc(self._now()),
+            )
+            self._next_refresh_at = now_mono
+            self._initialize_relay_tracking(relay)
+
     async def _run(self) -> None:
         try:
             while self._running:
@@ -457,6 +752,9 @@ class DeskController:
             return
 
         try:
+            if control.awaiting_fresh_height:
+                await self._run_wake_cycle(control)
+                return
             height = self._require_height()
             relay_snapshot = self._require_relay_ready()
             assert height.height_cm is not None
@@ -827,6 +1125,33 @@ class DeskController:
             raise DeskCommandRejectedError("릴레이가 STOP 상태가 아닙니다.")
         return height, relay
 
+    def _admit_wake(self) -> RelaySnapshot:
+        """정상 이동과 달리 stale/cache 기준 WAKE만 별도로 허용한다."""
+
+        if not self._running or self._closing:
+            raise RuntimeError("책상 제어기가 실행 중이 아닙니다.")
+        if self._stop_in_progress:
+            raise DeskCommandRejectedError("STOP 명령이 진행 중입니다.")
+        relay = self._require_relay_available_for_wake()
+        if relay.state is not RelayState.STOP:
+            raise DeskCommandRejectedError("WAKE는 릴레이 STOP 상태에서만 허용됩니다.")
+        return relay
+
+    def _require_wake_basis(self, snapshot: HeightSnapshot) -> HeightSnapshot:
+        """stale/cache 값은 방향과 경계만 위한 WAKE 근거로 제한한다."""
+
+        if (
+            snapshot.status not in {HeightStatus.STALE, HeightStatus.SENSOR_SLEEPING}
+            or snapshot.height_cm is None
+            or snapshot.observed_at is None
+            or not math.isfinite(snapshot.height_cm)
+            or not self._settings.measurement_min_cm
+            <= snapshot.height_cm
+            <= self._settings.measurement_max_cm
+        ):
+            raise DeskCommandRejectedError("WAKE를 위한 유효한 마지막 높이가 없습니다.")
+        return snapshot
+
     def _require_height(self) -> HeightSnapshot:
         snapshot = self._height_monitor.get_snapshot()
         if (
@@ -842,6 +1167,12 @@ class DeskController:
         return snapshot
 
     def _require_relay_ready(self) -> RelaySnapshot:
+        snapshot = self._require_relay_available_for_wake()
+        if snapshot.code in {"height_waiting", "height_not_ready", "height_stale"}:
+            raise DeskCommandRejectedError("펌웨어의 높이 안전 lease가 준비되지 않았습니다.")
+        return snapshot
+
+    def _require_relay_available_for_wake(self) -> RelaySnapshot:
         snapshot = self._relay.get_snapshot()
         if snapshot.last_error is not None:
             raise DeskCommandRejectedError("릴레이 상태 payload가 유효하지 않습니다.")
@@ -859,8 +1190,6 @@ class DeskController:
             seconds=self._settings.relay_stale_after_seconds
         ):
             raise DeskCommandRejectedError("릴레이 상태가 오래됐습니다.")
-        if snapshot.code in {"height_waiting", "height_not_ready", "height_stale"}:
-            raise DeskCommandRejectedError("펌웨어의 높이 안전 lease가 준비되지 않았습니다.")
         return snapshot
 
     def _require_direction_allowed(self, height_cm: float, direction: Direction) -> None:

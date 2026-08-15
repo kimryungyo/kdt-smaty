@@ -15,6 +15,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("picker");
   const [draftName, setDraftName] = useState("");
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
   const requestInFlight = useRef(false);
   const [wledStatus, setWledStatus] = useState<WledSnapshot | null>(null);
   const [wledCapabilities, setWledCapabilities] = useState<WledCapabilities | null>(null);
@@ -92,17 +93,17 @@ export default function App() {
   const turnOffLed = async () => { if (wledBusy) return; setWledBusy(true); setWledError(null); try { setWledStatus(await controlWled({ action: "OFF" })); } catch (error) { setWledError(error instanceof Error ? error.message : "조명을 끄지 못했습니다."); } finally { setWledBusy(false); } };
   const applyBrightness = async () => { if (wledBusy) return; setWledBusy(true); setWledError(null); try { setWledStatus(await controlWled({ action: "BRIGHTNESS", brightness })); } catch (error) { setWledError(error instanceof Error ? error.message : "밝기를 적용하지 못했습니다."); } finally { setWledBusy(false); } };
 
-  const updateStatus = useCallback((status: DeskStatus) => { setDeskStatus(status); setConnectionError(null); }, []);
-  const reportError = useCallback((message: string) => setConnectionError(message), []);
+  const updateStatus = useCallback((status: DeskStatus) => { setDeskStatus(status); setControlError(null); }, []);
+  const reportControlError = useCallback((message: string) => setControlError(message), []);
   const canControl =
     connectionError === null &&
-    deskStatus?.height.status === "ONLINE" &&
+    deskStatus !== null &&
+    ["ONLINE", "STALE", "SENSOR_SLEEPING"].includes(deskStatus.height.status) &&
     deskStatus.relay.event !== null &&
     deskStatus.relay.event !== "offline" &&
     deskStatus.relay.event !== "rejected" &&
     deskStatus.relay.receivedAt !== null &&
-    deskStatus.relay.lastError === null &&
-    !["height_waiting", "height_not_ready", "height_stale"].includes(deskStatus.relay.code ?? "");
+    deskStatus.relay.lastError === null;
 
   if (page === "picker") {
     return <><header className="site-header"><a className="logo" href="/" aria-label="SMART DESK 홈"><span className="logo-mark" aria-hidden="true" />SMART DESK</a></header><ProfilePicker onSelect={(profile) => { setSelectedProfile(profile); setDraftName(profile.name); setPage("dashboard"); }} onCreate={() => { setSelectedProfile(null); setDraftName(""); setPage("basics"); }} /></>;
@@ -139,7 +140,7 @@ export default function App() {
           <article className="card height-card"><div className="card-header"><div><p className="card-label">HEIGHT PRESET</p><h2>저장된 높이</h2></div><span className="card-number">03</span></div><div className="height-list"><div><span><i className="sitting-dot" /> 앉은 자세</span><strong>{selectedProfile?.sittingHeightCm.toFixed(1) ?? "--.-"}<small>cm</small></strong></div><div><span><i className="standing-dot" /> 서 있는 자세</span><strong>{selectedProfile?.standingHeightCm.toFixed(1) ?? "--.-"}<small>cm</small></strong></div></div></article>
           <article className="card automation-card"><div className="card-header"><div><p className="card-label">AUTOMATION</p><h2>자동 높이 조절</h2></div><span className="card-number">04</span></div><div className="automation-content"><div><span>자동 조절 상태</span><strong>ON</strong></div><label className="switch" aria-label="자동 높이 조절"><input type="checkbox" checked disabled readOnly /><span /></label></div><p>자세 변화 감지 후 <strong>5초</strong> 뒤 높이를 조절합니다.</p></article>
         </section>
-        <DeskPanel status={deskStatus} profile={selectedProfile} canControl={canControl} onStatus={updateStatus} onError={reportError} />
+        <DeskPanel status={deskStatus} profile={selectedProfile} canControl={canControl} controlError={controlError} onStatus={updateStatus} onError={reportControlError} />
         <section className="led-grid" aria-label="LED 조명 제어"><article className="card led-card"><div className="card-header"><div><p className="card-label">LED</p><h2>LED 조명 제어</h2></div><span className="led-mode-badge">{wledStatus?.status ?? "확인 중"}</span></div><div className="led-actions"><button type="button" className="previous-button" onClick={() => setLedTab("solid")}>단색</button><button type="button" className="previous-button" onClick={() => setLedTab("effect")}>이펙트</button></div>{ledTab === "solid" ? <div className="led-content"><label className="led-swatch"><input type="color" value={`#${ledColor}`} onChange={(event) => setLedColor(event.target.value.slice(1).toUpperCase())} /></label><div className="led-actions"><button type="button" className="previous-button" disabled={wledBusy || !selectedProfile} onClick={() => void saveProfileColor()}>색상 저장</button><button type="button" className="complete-button" disabled={wledBusy || wledStatus?.status === "DISABLED" || !selectedProfile} onClick={() => void applySolid()}>이 색상 적용</button></div></div> : <div className="led-actions"><label>이펙트 <select value={effectId} onChange={(event) => setEffectId(Number(event.target.value))}>{wledCapabilities?.effects.filter((item) => item.id > 0).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>팔레트 <select value={paletteId} onChange={(event) => setPaletteId(Number(event.target.value))}>{wledCapabilities?.palettes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>속도 <input type="range" min="0" max="255" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} /></label><label>강도 <input type="range" min="0" max="255" value={intensity} onChange={(event) => setIntensity(Number(event.target.value))} /></label><button type="button" className="complete-button" disabled={wledBusy || wledStatus?.status === "DISABLED" || !wledCapabilities} onClick={() => void applyEffect()}>이 이펙트 적용</button></div>}<div className="led-actions"><label>밝기 {brightness}<input type="range" min="0" max="255" value={brightness} onChange={(event) => setBrightness(Number(event.target.value))} /></label><button type="button" className="complete-button" disabled={wledBusy || wledStatus?.status === "DISABLED"} onClick={() => void applyBrightness()}>밝기 적용</button></div><div className="led-actions"><button type="button" className="previous-button" disabled={wledBusy || wledStatus?.status === "DISABLED"} onClick={() => void turnOffLed()}>조명 끄기</button></div><p className="control-note">프로필 색상 저장과 장치 적용은 별도입니다. WLED가 비활성화되어도 프로필 색상 편집은 계속할 수 있습니다.</p>{wledError && <p className="status-message" role="alert">{wledError}</p>}{wledStatus?.lastError && <p className="status-message" role="status">WLED 오류: {wledStatus.lastError}</p>}</article></section>
         <nav className="dashboard-actions" aria-label="설정 바로가기"><a href="#profiles" onClick={(event) => { event.preventDefault(); setPage("picker"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 12h11M4 17h16" /></svg>프로필 전환</a><a href="#profile-edit" onClick={(event) => { event.preventDefault(); setDraftName(selectedProfile?.name ?? ""); setPage("basics"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3" /><path d="M5.5 20c.5-4 2.8-6 6.5-6s6 2 6.5 6" /></svg>프로필 수정</a><a className="primary-action" href="#height-settings" onClick={(event) => { event.preventDefault(); setPage("height-setup"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M8 4v6m8 4v6" /></svg>높이 설정</a><a href="#vision-debug" onClick={(event) => { event.preventDefault(); setPage("debug"); }}>Vision 디버그</a></nav>
       </main>

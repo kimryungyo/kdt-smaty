@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from smart_desk.modules.desk.models import (
     Direction,
@@ -14,6 +15,7 @@ from smart_desk.modules.desk.models import (
     RelayState,
 )
 from smart_desk.modules.desk.relay import RelayClient
+from smart_desk.modules.desk.messages import RelayWakeMessage
 from smart_desk.modules.mqtt.client import MqttUnavailableError
 from smart_desk.modules.mqtt.models import MqttMessage
 from smart_desk.modules.mqtt.topics import ESP32_COMMAND_TOPIC, ESP32_STATUS_TOPIC
@@ -265,6 +267,48 @@ async def test_send_stop_uses_exact_json_and_does_not_change_snapshot() -> None:
         }
     ]
     assert relay.get_snapshot() is original
+
+
+async def test_wake_publishes_exact_contract() -> None:
+    mqtt = FakeMqttClient()
+    relay = RelayClient(mqtt)  # type: ignore[arg-type]
+
+    await relay.wake(Direction.DOWN, 80.2)
+
+    assert mqtt.publications == [
+        {
+            "topic": ESP32_COMMAND_TOPIC,
+            "payload": (
+                '{"command":"WAKE","source":"desk_service","direction":"DOWN",'
+                '"hold_ms":100,"basis_height_cm":80.2}'
+            ),
+            "qos": 1,
+            "retain": False,
+        }
+    ]
+
+
+@pytest.mark.parametrize("basis", [True, 72.9, 118.1, float("inf")])
+async def test_wake_rejects_invalid_basis_height(basis: object) -> None:
+    mqtt = FakeMqttClient()
+    relay = RelayClient(mqtt)  # type: ignore[arg-type]
+
+    with pytest.raises((TypeError, ValueError)):
+        await relay.wake(Direction.UP, basis)  # type: ignore[arg-type]
+    assert mqtt.publications == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"command": "WAKE", "source": "desk_service", "direction": "UP", "hold_ms": 99, "basis_height_cm": 80.0},
+        {"command": "WAKE", "source": "desk_service", "direction": "SIDEWAYS", "hold_ms": 100, "basis_height_cm": 80.0},
+        {"command": "WAKE", "source": "desk_service", "direction": "UP", "hold_ms": 100, "basis_height_cm": 80.0, "extra": True},
+    ],
+)
+def test_wake_wire_model_rejects_non_exact_contract(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        RelayWakeMessage.model_validate(payload)
 
 
 @pytest.mark.parametrize("method", ["pulse", "stop"])

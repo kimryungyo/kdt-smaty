@@ -11,6 +11,7 @@ from smart_desk.modules.desk.models import (
     DeskSnapshot,
     DeskState,
     Direction,
+    HeightProvenance,
     HeightStatus,
     RelayEvent,
     RelayState,
@@ -38,6 +39,7 @@ class HeightResponse(DashboardModel):
     height_cm: float | None
     observed_at: datetime | None
     status: HeightStatus
+    provenance: HeightProvenance | None
 
 
 class RelayResponse(DashboardModel):
@@ -70,6 +72,7 @@ class DashboardStatusResponse(DashboardModel):
                 height_cm=snapshot.height.height_cm,
                 observed_at=snapshot.height.observed_at,
                 status=snapshot.height.status,
+                provenance=snapshot.height.provenance,
             ),
             relay=RelayResponse(
                 event=snapshot.relay.event,

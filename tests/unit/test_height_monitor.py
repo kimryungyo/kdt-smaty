@@ -12,11 +12,13 @@ import pytest
 from smart_desk.config.settings import DeskSettings
 from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
-from smart_desk.modules.desk.models import HeightStatus
+from smart_desk.modules.desk.height_cache import HeightCacheRepository
+from smart_desk.modules.desk.models import HeightProvenance, HeightStatus
 from smart_desk.modules.desk.segment import MASK_TO_DIGIT, SegmentDecoder
 from smart_desk.modules.mqtt.client import MqttUnavailableError
 from smart_desk.modules.mqtt.topics import HEIGHT_TOPIC
 from smart_desk.modules.serial.source import SerialSnapshot, SerialStatus
+from smart_desk.storage import SQLiteDatabase
 
 
 DIGIT_TO_MASK = {digit: mask for mask, digit in MASK_TO_DIGIT.items()}
@@ -284,6 +286,56 @@ async def test_task_creation_failure_rolls_back_started_source() -> None:
     assert source.start_count == 1
     assert source.stop_count == 1
     assert monitor.get_snapshot().status is HeightStatus.STOPPED
+
+
+async def test_online_observation_persists_as_cached_sensor_sleeping_after_restart(
+    tmp_path,
+) -> None:
+    observed_at = datetime(2026, 8, 6, 5, 0, tzinfo=UTC)
+    now = FakeNow(observed_at)
+    database = SQLiteDatabase(tmp_path / "desk.db")
+    await database.start()
+    cache = HeightCacheRepository(database)
+    source = FakeSerialSource()
+    mqtt = FakeMqttClient()
+    tasks = TaskManager()
+    monitor = DeskHeightMonitor(
+        source,  # type: ignore[arg-type]
+        SegmentDecoder(DeskSettings(height_stale_after_seconds=1.0)),
+        mqtt,  # type: ignore[arg-type]
+        DeskSettings(height_stale_after_seconds=1.0),
+        tasks,
+        now=now,
+        cache=cache,
+    )
+    await monitor.start()
+    source.put(height_line("802", point_after=9))
+    await wait_until(lambda: len(mqtt.publications) == 1)
+    await monitor.stop()
+    await tasks.shutdown()
+
+    restarted_source = FakeSerialSource()
+    restarted_tasks = TaskManager()
+    restarted = DeskHeightMonitor(
+        restarted_source,  # type: ignore[arg-type]
+        SegmentDecoder(DeskSettings(height_stale_after_seconds=1.0)),
+        FakeMqttClient(),  # type: ignore[arg-type]
+        DeskSettings(height_stale_after_seconds=1.0),
+        restarted_tasks,
+        now=now,
+        cache=cache,
+    )
+    await restarted.start()
+
+    snapshot = restarted.get_snapshot()
+    assert snapshot.height_cm == 80.2
+    assert snapshot.observed_at == observed_at
+    assert snapshot.provenance is HeightProvenance.CACHED
+    assert snapshot.status is HeightStatus.SENSOR_SLEEPING
+
+    await restarted.stop()
+    await restarted_tasks.shutdown()
+    await database.stop()
 
 
 async def test_naive_clock_fails_critical_runner() -> None:

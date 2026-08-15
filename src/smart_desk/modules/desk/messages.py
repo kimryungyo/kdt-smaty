@@ -14,6 +14,7 @@ from pydantic import (
     model_validator,
 )
 
+from smart_desk.config.constants import DESK_PHYSICAL_MAX_CM, DESK_PHYSICAL_MIN_CM
 from smart_desk.modules.desk.models import Direction, RelayEvent, RelayState
 
 
@@ -51,6 +52,30 @@ class RelayPulseMessage(BaseModel):
     command: Direction
     source: Literal["desk_service"] = "desk_service"
     hold_ms: int = Field(strict=True, ge=50, le=500)
+
+
+class RelayWakeMessage(BaseModel):
+    """절전 높이 센서를 깨우는 단 한 번의 짧은 firmware 명령."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    command: Literal["WAKE"] = "WAKE"
+    source: Literal["desk_service"] = "desk_service"
+    direction: Direction
+    hold_ms: int = Field(default=100, strict=True)
+    basis_height_cm: float = Field(
+        strict=True,
+        allow_inf_nan=False,
+        ge=DESK_PHYSICAL_MIN_CM,
+        le=DESK_PHYSICAL_MAX_CM,
+    )
+
+    @field_validator("hold_ms")
+    @classmethod
+    def require_exact_wake_hold(cls, value: int) -> int:
+        if value != 100:
+            raise ValueError("WAKE hold_ms는 정확히 100ms여야 합니다.")
+        return value
 
 
 class RelayStopMessage(BaseModel):

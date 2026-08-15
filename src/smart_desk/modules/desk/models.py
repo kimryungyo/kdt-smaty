@@ -20,6 +20,14 @@ class HeightStatus(StrEnum):
     ONLINE = "ONLINE"
     STALE = "STALE"
     ERROR = "ERROR"
+    SENSOR_SLEEPING = "SENSOR_SLEEPING"
+
+
+class HeightProvenance(StrEnum):
+    """높이값이 이번 프로세스의 관측인지 영속 cache인지 나타낸다."""
+
+    LIVE = "LIVE"
+    CACHED = "CACHED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +37,7 @@ class HeightSnapshot:
     height_cm: float | None
     observed_at: datetime | None
     status: HeightStatus
+    provenance: HeightProvenance | None = None
 
 
 class RelayEvent(StrEnum):
@@ -71,6 +80,7 @@ class DeskState(StrEnum):
     MANUAL = "MANUAL"
     STOPPED = "STOPPED"
     ERROR = "ERROR"
+    WAKING = "WAKING"
 
 
 @dataclass(frozen=True, slots=True)

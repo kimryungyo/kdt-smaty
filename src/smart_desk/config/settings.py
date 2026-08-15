@@ -170,6 +170,12 @@ class DeskSettings(BaseModel):
         le=10,
         allow_inf_nan=False,
     )
+    wake_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        le=30,
+        allow_inf_nan=False,
+    )
 
     @field_validator(
         "continuous_hold_ms",
@@ -242,6 +248,8 @@ class DeskSettings(BaseModel):
             raise ValueError("미세 접근 거리는 목표 허용 오차보다 커야 합니다.")
         if self.relay_stale_after_seconds <= self.relay_ack_timeout_seconds:
             raise ValueError("릴레이 stale 기준은 ack timeout보다 길어야 합니다.")
+        if self.wake_timeout_seconds <= self.control_poll_interval_seconds:
+            raise ValueError("sensor wake timeout은 제어 poll 주기보다 길어야 합니다.")
         return self
 
 

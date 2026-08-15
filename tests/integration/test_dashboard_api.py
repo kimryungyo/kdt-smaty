@@ -69,7 +69,7 @@ async def test_dashboard_api_contract_and_profile_crud(tmp_path) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/status")
         assert response.status_code == 200
-        assert response.json()["height"] == {"heightCm": 90.0, "observedAt": "2026-08-08T00:00:00Z", "status": "ONLINE"}
+        assert response.json()["height"] == {"heightCm": 90.0, "observedAt": "2026-08-08T00:00:00Z", "status": "ONLINE", "provenance": None}
         assert response.json()["targetHeightCm"] is None
 
         created = await client.post("/api/profiles", json={"name": " 홍길동 ", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "ff3000"})

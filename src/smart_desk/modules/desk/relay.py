@@ -10,6 +10,7 @@ from smart_desk.modules.desk.messages import (
     RelayPulseMessage,
     RelayStatusMessage,
     RelayStopMessage,
+    RelayWakeMessage,
 )
 from smart_desk.modules.desk.models import Direction, RelaySnapshot
 from smart_desk.modules.mqtt.client import MqttClient
@@ -99,6 +100,22 @@ class RelayClient:
         await self._mqtt.publish(
             ESP32_COMMAND_TOPIC,
             RelayStopMessage().model_dump_json(),
+            qos=1,
+            retain=False,
+        )
+
+    async def wake(self, direction: Direction, basis_height_cm: float) -> None:
+        """cache 높이를 근거로 센서를 깨우는 정확히 한 번의 100ms pulse를 발행한다."""
+
+        if not isinstance(direction, Direction):
+            raise TypeError("WAKE 방향은 Direction.UP 또는 Direction.DOWN이어야 합니다.")
+        message = RelayWakeMessage(
+            direction=direction,
+            basis_height_cm=basis_height_cm,
+        )
+        await self._mqtt.publish(
+            ESP32_COMMAND_TOPIC,
+            message.model_dump_json(),
             qos=1,
             retain=False,
         )
