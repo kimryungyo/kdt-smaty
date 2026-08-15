@@ -140,6 +140,30 @@ class BlockingStopRelayClient(FakeRelayClient):
         await super().send_stop()
 
 
+class DelayedStopRelayClient(FakeRelayClient):
+    """STOP publish와 firmware STOP status 도착을 분리하는 relay fake."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.delay_stops = False
+        self.stop_sent = asyncio.Event()
+
+    async def send_stop(self) -> None:
+        if self.error is not None:
+            raise self.error
+        self.calls.append(("stop", None))
+        self.stop_sent.set()
+        if not self.delay_stops:
+            self.confirm_stop()
+
+    def confirm_stop(self) -> None:
+        self._advance_status(
+            event=RelayEvent.STOPPED,
+            state=RelayState.STOP,
+            code="command",
+        )
+
+
 def control_settings() -> DeskSettings:
     return DeskSettings(
         pulse_refresh_interval_seconds=0.02,
@@ -301,6 +325,202 @@ async def test_manual_watchdog_stops_after_hold_input_expires() -> None:
     await wait_until(lambda: controller.get_snapshot().state is DeskState.STOPPED)
     assert relay.calls[-1] == ("stop", None)
     await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_user_stop_waits_for_fresh_stop_without_treating_old_down_as_external() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = DelayedStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.hold_down()
+    await wait_until(lambda: relay.get_snapshot().state is RelayState.DOWN)
+
+    relay.delay_stops = True
+    relay.stop_sent.clear()
+    stop_task = asyncio.create_task(controller.stop_motion("사용자 STOP"))
+    await relay.stop_sent.wait()
+
+    assert relay.get_snapshot().state is RelayState.DOWN
+    assert not stop_task.done()
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert controller.get_snapshot().last_error is None
+
+    relay.confirm_stop()
+    await stop_task
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert controller.get_snapshot().last_error is None
+
+    relay.delay_stops = False
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_user_stop_without_fresh_stop_enters_error() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = DelayedStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.hold_down()
+    await wait_until(lambda: relay.get_snapshot().state is RelayState.DOWN)
+
+    relay.delay_stops = True
+    with pytest.raises(RuntimeError, match="최신 STOP 응답"):
+        await controller.stop_motion("사용자 STOP")
+
+    snapshot = controller.get_snapshot()
+    assert snapshot.state is DeskState.ERROR
+    assert "최신 STOP 응답" in (snapshot.last_error or "")
+    stop_count = len([call for call in relay.calls if call[0] == "stop"])
+    await controller._run_cycle()  # noqa: SLF001 - STOP baseline 재검사 방지 검증
+    assert len([call for call in relay.calls if call[0] == "stop"]) == stop_count
+
+    relay.delay_stops = False
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_new_movement_after_fresh_stop_is_stopped_as_external() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = DelayedStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.hold_down()
+    await wait_until(lambda: relay.get_snapshot().state is RelayState.DOWN)
+
+    relay.delay_stops = True
+    relay.stop_sent.clear()
+    stop_task = asyncio.create_task(controller.stop_motion("사용자 STOP"))
+    await relay.stop_sent.wait()
+    relay.confirm_stop()
+    await stop_task
+    stop_count = len([call for call in relay.calls if call[0] == "stop"])
+
+    relay.delay_stops = False
+    relay._advance_status(  # noqa: SLF001 - STOP 뒤 외부 이동 재현
+        event=RelayEvent.MOVING,
+        state=RelayState.UP,
+        code="external",
+    )
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.ERROR)
+
+    assert "예기치 않은 릴레이 이동 상태" in (
+        controller.get_snapshot().last_error or ""
+    )
+    assert len([call for call in relay.calls if call[0] == "stop"]) == stop_count + 1
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_manual_watchdog_waits_for_fresh_stop() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = DelayedStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+
+    relay.delay_stops = True
+    relay.stop_sent.clear()
+    await controller.hold_down()
+    await relay.stop_sent.wait()
+
+    assert relay.get_snapshot().state is RelayState.DOWN
+    assert controller.get_snapshot().last_error is None
+    assert controller._stop_in_progress  # noqa: SLF001 - fresh STOP 대기 계약 검증
+
+    relay.confirm_stop()
+    await wait_until(lambda: not controller._stop_in_progress)  # noqa: SLF001
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert controller.get_snapshot().last_error is None
+
+    relay.delay_stops = False
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_consecutive_user_stops_serialize_fresh_stop_confirmation() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = DelayedStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.hold_down()
+    await wait_until(lambda: relay.get_snapshot().state is RelayState.DOWN)
+
+    relay.delay_stops = True
+    relay.stop_sent.clear()
+    initial_stop_count = len([call for call in relay.calls if call[0] == "stop"])
+    release_stop = asyncio.create_task(controller.stop_motion("pointer release"))
+    await relay.stop_sent.wait()
+    blur_stop = asyncio.create_task(controller.stop_motion("pointer blur"))
+    await asyncio.sleep(0)
+    assert len([call for call in relay.calls if call[0] == "stop"]) == initial_stop_count + 1
+
+    relay.stop_sent.clear()
+    relay.confirm_stop()
+    await release_stop
+    await relay.stop_sent.wait()
+    assert len([call for call in relay.calls if call[0] == "stop"]) == initial_stop_count + 2
+
+    relay.confirm_stop()
+    await blur_stop
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert controller.get_snapshot().last_error is None
+
+    relay.delay_stops = False
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_cancelled_user_stop_finishes_fresh_stop_confirmation() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = DelayedStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.hold_down()
+    await wait_until(lambda: relay.get_snapshot().state is RelayState.DOWN)
+
+    relay.delay_stops = True
+    relay.stop_sent.clear()
+    stop_task = asyncio.create_task(controller.stop_motion("취소되는 사용자 STOP"))
+    await relay.stop_sent.wait()
+    stop_task.cancel()
+    await asyncio.sleep(0)
+
+    assert controller._stop_in_progress  # noqa: SLF001 - 취소 중 안전 STOP 유지 검증
+    relay.confirm_stop()
+    result = await asyncio.gather(stop_task, return_exceptions=True)
+
+    assert isinstance(result[0], asyncio.CancelledError)
+    assert controller._stop_in_progress is False  # noqa: SLF001
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert controller.get_snapshot().last_error is None
+
+    relay.delay_stops = False
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_shutdown_does_not_wait_for_live_stop_status() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = DelayedStopRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+    await controller.hold_down()
+    await wait_until(lambda: relay.get_snapshot().state is RelayState.DOWN)
+
+    relay.delay_stops = True
+    async with asyncio.timeout(control_settings().relay_ack_timeout_seconds * 2):
+        await controller.stop()
+
+    assert controller.get_snapshot().state is DeskState.STOPPED
+    assert relay.get_snapshot().state is RelayState.DOWN
     await tasks.shutdown()
 
 

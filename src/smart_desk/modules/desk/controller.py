@@ -135,6 +135,7 @@ class DeskController:
         self._first_pulse_sent_at: float | None = None
         self._relay_direction_confirmed = False
         self._last_unexpected_relay_at: datetime | None = None
+        self._last_stop_baseline_received_at: datetime | None = None
 
     async def start(self) -> None:
         """제어 runner를 시작하고 UP/DOWN 없이 안전 STOP을 한 번 보낸다."""
@@ -691,10 +692,19 @@ class DeskController:
             raise DeskCommandRejectedError("릴레이 이동 응답 시간이 초과되었습니다.")
 
     async def _watch_inactive_relay(self) -> None:
+        if self._stop_in_progress:
+            return
         snapshot = self._relay.get_snapshot()
         if snapshot.state not in {RelayState.UP, RelayState.DOWN}:
             return
-        if snapshot.received_at is None or snapshot.received_at == self._last_unexpected_relay_at:
+        if snapshot.received_at is None:
+            return
+        if (
+            self._last_stop_baseline_received_at is not None
+            and snapshot.received_at <= self._last_stop_baseline_received_at
+        ):
+            return
+        if snapshot.received_at == self._last_unexpected_relay_at:
             return
         try:
             self._require_relay_ready()
@@ -707,21 +717,62 @@ class DeskController:
         )
 
     async def _stop_motion(self, detail: str, *, error_detail: str | None) -> None:
+        stop_task = asyncio.create_task(
+            self._stop_and_confirm(
+                detail,
+                error_detail=error_detail,
+                reject_if_stopping=False,
+            )
+        )
+        try:
+            stop_error = await asyncio.shield(stop_task)
+        except asyncio.CancelledError:
+            await asyncio.gather(stop_task, return_exceptions=True)
+            raise
+        if stop_error is not None and error_detail is None:
+            raise RuntimeError(stop_error)
+
+    async def _stop_for_transition(self, detail: str) -> None:
+        error = await self._stop_and_confirm(
+            detail,
+            error_detail=None,
+            reject_if_stopping=True,
+        )
+        if error is not None:
+            raise DeskCommandRejectedError(error)
+
+    async def _stop_and_confirm(
+        self,
+        detail: str,
+        *,
+        error_detail: str | None,
+        reject_if_stopping: bool,
+    ) -> str | None:
+        """이동 의도를 무효화하고 baseline 이후 live STOP까지 확인한다."""
+
         async with self._command_lock:
-            if not self._running and not self._closing:
+            if reject_if_stopping:
+                self._require_running_locked()
+            elif not self._running and not self._closing:
                 raise RuntimeError("책상 제어기가 실행 중이 아닙니다.")
             if self._stop_in_progress:
+                if reject_if_stopping:
+                    raise DeskCommandRejectedError("다른 STOP 명령이 진행 중입니다.")
                 return
+            baseline = self._relay.get_snapshot().received_at
             self._stop_in_progress = True
             self._invalidate_motion_locked(detail)
+            self._last_stop_baseline_received_at = baseline
         self._wake_event.set()
-        publish_error = await self._send_stop_bounded()
+        stop_error = await self._send_stop_bounded()
+        if stop_error is None:
+            stop_error = await self._wait_for_fresh_stop(baseline)
         final_error = error_detail
-        if publish_error is not None:
+        if stop_error is not None:
             final_error = (
-                f"{error_detail}; STOP 실패: {publish_error}"
+                f"{error_detail}; STOP 실패: {stop_error}"
                 if error_detail
-                else publish_error
+                else stop_error
             )
         async with self._command_lock:
             self._stop_in_progress = False
@@ -734,30 +785,7 @@ class DeskController:
                 last_error=final_error,
                 updated_at=self._require_utc(self._now()),
             )
-        if publish_error is not None and error_detail is None:
-            raise RuntimeError(publish_error)
-
-    async def _stop_for_transition(self, detail: str) -> None:
-        baseline = self._relay.get_snapshot().received_at
-        async with self._command_lock:
-            self._require_running_locked()
-            if self._stop_in_progress:
-                raise DeskCommandRejectedError("다른 STOP 명령이 진행 중입니다.")
-            self._stop_in_progress = True
-            self._invalidate_motion_locked(detail)
-        error = await self._send_stop_bounded()
-        if error is None:
-            error = await self._wait_for_fresh_stop(baseline)
-        async with self._command_lock:
-            self._stop_in_progress = False
-            self._control = replace(
-                self._control,
-                public_state=DeskState.ERROR if error else DeskState.STOPPED,
-                last_error=error,
-                updated_at=self._require_utc(self._now()),
-            )
-        if error is not None:
-            raise DeskCommandRejectedError(error)
+        return stop_error
 
     async def _wait_for_fresh_stop(self, baseline: datetime | None) -> str | None:
         deadline = self._monotonic() + self._settings.relay_ack_timeout_seconds
