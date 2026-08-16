@@ -4,6 +4,12 @@
 스피커 기능**의 구현 구조와 단계별 확장 경계를 정의한다. 1차 source와 장치 없는 자동
 테스트는 구현됐고, 실제 audio 장치와 OpenAI 계정의 opt-in 검증은 아직 남아 있다.
 
+> **Agents SDK 전환:** 이 문서의 `OpenAiGateway`, local RMS recorder, 수동 Responses
+> tool loop와 고정 `voice:local` history는 현재 구현 기준선이다. 교체 목표와 확정된
+> model·VAD·사용자 session·Mem0 배포 정책은
+> [Agents SDK 음성 파이프라인 전환 결정](agents-sdk-voice-pipeline.md)을 따른다. 두 문서가
+> 충돌하면 Agents SDK 교체 범위에서는 전환 결정 문서가 우선한다.
+
 ## 1. 결정 요약
 
 | 항목 | 선택 |

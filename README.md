@@ -47,6 +47,11 @@ AI: "상세한 해설을 화면에 표시했습니다."                     (짧
 구현했다. 장치 없는 자동 테스트는 완료됐으며 실제 microphone·speaker와 OpenAI 계정
 검증은 opt-in으로 수행한다.
 
+현재 수동 STT → Responses → TTS 구현은 별도 feature branch에서 OpenAI Agents SDK
+`VoicePipeline`으로 교체한다. 확정된 model, VAD, 사용자 session과 Mem0/Docker 정책은
+[Agents SDK 음성 파이프라인 전환 결정](docs/architecture/agents-sdk-voice-pipeline.md)을
+따른다.
+
 ```text
 Microphone → VoiceService → STT → AssistantService → TTS
                                                 ↓

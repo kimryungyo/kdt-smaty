@@ -1,5 +1,8 @@
 # 08. AI 사용자 문맥
 
+Agents SDK 교체의 model, VoicePipeline, session adapter와 Mem0 배포 기준은
+[Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)을 따른다.
+
 ## 사용자 결과
 
 Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을 사용한다. 익명 session은
@@ -10,6 +13,8 @@ Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을
 ## 현재 상태
 
 - wake word, 녹음, Assistant 호출, playback과 WLED function tool 기반이 구현돼 있다.
+- 현재 수동 STT·Responses·TTS 경로는 Agents SDK `VoicePipeline`으로 교체하기로 확정됐지만
+  아직 구현되지 않았다.
 - Voice는 아직 서버 current user session을 입력으로 받지 않는다.
 - profile별 장기 기억 service와 저장 정책은 설계 문서 수준이다.
 - Dashboard에 Assistant turn이나 화면용 상세 응답을 전달하는 API가 없다.
@@ -20,6 +25,10 @@ Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을
 - Dashboard에서 편집한 profile은 Voice 사용자 문맥이 아니다.
 - fresh하고 사용 가능한 current user session에서만 `profile:<profile_id>` 기억을 사용한다.
 - 익명 session은 profile memory 없이 `sessionId` 범위의 짧은 history만 유지한다.
+- Agents SDK session 객체는 사용자 session service가 소유하지 않는다. Voice memory adapter가
+  책상 `sessionId`를 key로 생성·재사용·폐기한다.
+- session 없음과 다중·count 불일치 중 일반 질문은 해당 Wake Word/follow-up 묶음에만 유효한
+  임시 비개인화 session으로 처리한다.
 - Assistant turn 시작 시 `sessionId`와 profile ID를 캡처한다.
 - turn 완료 시 session이 바뀌거나 정책상 불확실해졌다면 이전 profile 장기 기억에 저장하지
   않는다.
@@ -66,7 +75,13 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 
 ### 기억 경계
 
+- [ ] 책상 `sessionId`마다 Agents SDK memory session을 만들고 사용자 session 종료·전환과
+  서버 재시작에서 폐기한다.
+- [ ] 긴 책상 사용에서 raw history가 무제한 증가하지 않도록 item/token 제한 또는 compaction을
+  설정화한다.
 - [ ] `profile:<profile_id>` namespace를 사용하는 memory service 경계를 구현한다.
+- [ ] Mem0 OSS를 `fin-main` process에 library로 포함하고 `data/mem0`를 명시적인 영속 경로로
+  사용한다. Docker 전환 후에는 같은 container의 `/app/data/mem0` volume으로 연결한다.
 - [ ] 검색·저장할 정보, 최대 결과 수, timeout과 실패 fallback을 정한다.
 - [ ] turn 완료 시 같은 session인지 다시 확인한 뒤에만 사용자 기억을 저장한다.
 - [ ] profile 삭제 전에 장기 기억 전체 삭제를 완료하고 실패 시 profile DB를 보존한다.

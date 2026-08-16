@@ -111,6 +111,8 @@ MediaMTX와 MQTT broker는 애플리케이션 이미지에 합치지 않는다. 
   경로로 바꿔야 한다.
 - Voice는 optional dependency이며 활성화하면 ALSA/PortAudio 장치, wakeword model,
   효과음과 OpenAI secret이 필요하다.
+- Mem0 OSS는 별도 REST service가 아니라 `fin-main`에 Python library로 포함한다. 현재
+  `data/mem0`, Docker 전환 후 `/app/data/mem0`를 persistent volume에 둔다.
 
 ### 카메라 송출
 
@@ -250,7 +252,7 @@ section만 검증할 수 있게 해야 한다. 특히 Main과 Vision이 MQTT에 
 
 | 실행 역할 | 핵심 설정 후보 |
 | --- | --- |
-| `fin-main` | `MQTT__HOST=mqtt`, SQLite `/app/data/smart_desk.db`, 세 camera publish/receive 모두 false |
+| `fin-main` | `MQTT__HOST=mqtt`, SQLite `/app/data/smart_desk.db`, Mem0 `/app/data/mem0`, 세 camera publish/receive 모두 false |
 | `fin-vision` | `MQTT__HOST=mqtt`, 고유 client ID, RTSP host `mediamtx`, camera별 receive/분석 enable |
 | user publisher | user publish만 true, `DEVICE=/dev/user-cam`, `PUBLISH_URL=rtsp://mediamtx:8554/user-cam` |
 | workspace publisher | workspace publish만 true, `DEVICE=/dev/workspace-cam`, `PUBLISH_URL=rtsp://mediamtx:8554/workspace-cam` |
@@ -305,6 +307,8 @@ SMART_DESK_VISION__POSTURE__RTSP_URL=rtsp://media.smartdesk.lan:8554/posture-cam
 - Uvicorn worker 1개를 명시하고 기존 `/health/live`, `/health/ready`를 healthcheck로
   사용한다.
 - SQLite volume, serial 장치와 optional audio 장치를 선택적으로 연결한다.
+- `mem0ai`는 Main image의 Voice/AI dependency에 포함하고 `/app/data/mem0`를 영속 volume으로
+  연결한다. 단일 Main worker에서는 별도 Mem0 API·Dashboard·Postgres container를 만들지 않는다.
 - Main 컨테이너에서는 카메라 publish와 RTSP receive를 기본적으로 끈다. 카메라는 전용
   publisher, 영상 처리는 `fin-vision`이 담당하는 배치를 기본으로 한다.
 - Voice가 없는 이미지와 Voice dependency를 포함한 이미지/target을 분리할지 검토한다.
@@ -348,7 +352,7 @@ Compose 설계에는 다음이 포함돼야 한다.
 - 서비스별 command, restart policy, healthcheck와 stop grace period
 - Main HTTP, MediaMTX RTSP/WebRTC/HLS, MQTT 중 외부 노출이 필요한 포트
 - 내부 network와 LAN 노출 경계
-- SQLite named volume 또는 bind mount와 backup 경로
+- SQLite와 Mem0 named volume 또는 bind mount 및 각각의 backup 경로
 - model cache/weight의 image 포함 여부 또는 read-only mount
 - hardware 없는 개발 profile
 - user/workspace 로컬 publisher profile
