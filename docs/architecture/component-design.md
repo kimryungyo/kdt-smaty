@@ -252,9 +252,11 @@ FFmpeg는 `CameraPublisher`가 관리하는 FastAPI 자식 process이고, MediaM
 
 ### `VisionStateService`
 
-세 detector 결과를 통합해 자동화에 사용할 `VisionSnapshot`을 만든다. 이곳에서
-`RECOGNIZED`, `UNREGISTERED`, `UNKNOWN`, `SITTING`, `STANDING`, `VACANT` 등의
-안정화 규칙을 적용한다.
+세 detector 결과를 통합해 자동화에 사용할 `VisionSnapshot`을 만든다. 신원
+(`MATCHED`, `UNKNOWN_FACE`, `AMBIGUOUS`, `NO_FACE`, `UNKNOWN`), 재실
+(`PRESENT_SINGLE`, `VACANT`, `MULTIPLE`, `UNKNOWN`)과 자세
+(`SITTING`, `STANDING`, `UNKNOWN`)를 별도 축으로 안정화한다. 등록·익명 사용자 session은
+이 snapshot을 입력으로 받는 `CurrentUserSessionService`가 소유한다.
 
 | 필드 또는 메서드 | 역할 |
 | --- | --- |

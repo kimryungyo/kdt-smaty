@@ -2,10 +2,10 @@
 
 ## 사용자 결과
 
-얼굴로 새 사용자가 확정되면 해당 session은 기본 `AUTO`로 시작한다. 사용자가 앉거나 일어선
-상태를 설정 시간 동안 유지하면 저장한 자세 높이로 한 번 이동한다. preset, 직접 목표 또는
-HOLD를 사용하면 `MANUAL`로 전환되고 명시적으로 AUTO를 다시 선택하기 전까지 자세 변화가
-책상 목표를 덮어쓰지 않는다.
+단일 재실·자세가 안정화되면 등록 또는 익명 session을 기본 `AUTO`로 시작한다. 등록 사용자는
+profile 높이, 익명 사용자는 앉음 75cm·섬 110cm를 사용한다. 최초 목표는 session 시작 뒤
+2초 동안 조건이 유지돼야 한다. preset, 직접 목표 또는 HOLD를 사용하면 `MANUAL`로 전환되고
+명시적으로 AUTO를 다시 선택하기 전까지 자세 변화가 책상 목표를 덮어쓰지 않는다.
 
 ## 현재 상태
 
@@ -32,12 +32,13 @@ HOLD를 사용하면 `MANUAL`로 전환되고 명시적으로 AUTO를 다시 선
 
 task 01 계약을 기준으로 최소한 다음을 제공한다.
 
-- 현재 `sessionId`와 `AUTO`/`MANUAL` mode 또는 mode 없음
-- 자동화 상태(`WAITING_USER`, `OBSERVING`, `MOVING`, `MANUAL`, `BLOCKED` 등)
+- 현재 `sessionId`, 등록·익명 높이 정책과 `AUTO`/`MANUAL` mode 또는 mode 없음
+- 자동화 상태(`WAITING_USER`, `OBSERVING`, `MOVING`, `MANUAL`, `BLOCKED`, `PARK_WAITING`, `PARKING` 등)
 - 자세 후보, 안정화 시작·완료 시각과 목표 높이
 - 마지막 mode 전환 시각·이유·명령 출처
 - 새 자동 목표를 막는 구체적인 차단 코드
 - 실행 generation 또는 command revision
+- 최초 이동 due 시각, park due 시각과 intent source
 
 mode와 자동화 상태는 같은 enum으로 합치지 않는다. `AUTO`이면서 Vision 만료로 `BLOCKED`일
 수 있고, mode를 잃지 않은 채 관측 복구를 기다릴 수 있기 때문이다. session 종료 시에는
@@ -55,21 +56,25 @@ mode 자체를 제거한다.
 
 ### AUTO 정책
 
-- [ ] 새로 확정된 사용자 session에만 기본 AUTO를 생성한다.
+- [ ] 단일 재실·자세 3초 뒤 등록 또는 익명 session에 기본 AUTO를 생성한다.
 - [ ] AUTO 진입 시 이전 자세 후보·완료 목표와 timer를 초기화한다.
-- [ ] 동일 session의 fresh 단일 재실과 자세가 profile 유지 시간 동안 이어져야 목표를 만든다.
+- [ ] 최초 session은 2초 지연, 등록 자세는 profile 유지 시간, 익명 자세는 설정된 3초를 적용한다.
+- [ ] 익명 자세 목표는 앉음 75cm·섬 110cm로 선택한다.
 - [ ] 현재 높이가 목표 허용 오차 안이면 새 이동을 만들지 않는다.
 - [ ] 같은 자세·같은 목표를 frame마다 반복 설정하지 않는다.
-- [ ] 사용자 교대, 이탈, identity 재검증, 다중 사용자와 freshness 만료를 task 01 결정표대로
+- [ ] 사용자 교대, 이탈, 미등록 얼굴 전환, 다중 사용자와 freshness 만료를 task 01 결정표대로
   STOP 또는 BLOCK 처리한다.
+- [ ] 익명 AUTO 중 등록 identity 확정은 현재 목표를 안전하게 profile 목표로 교체한다.
+- [ ] fresh VACANT 30초 뒤 75cm PARK를 만들고 사람 후보·수동 명령에서 취소한다.
 
 ### MANUAL과 명령
 
 - [ ] preset·직접 목표·HOLD의 MANUAL 전환과 기존 자동 generation 무효화를 직렬화한다.
-- [ ] STOP은 session 검증보다 먼저 처리하고 task 01 계약에 따른 mode 결과를 적용한다.
+- [ ] 사용자 STOP과 안전 STOP의 mode 결과를 구분하고 session 검증보다 먼저 처리한다.
 - [ ] 명시적 AUTO 요청은 진행 이동 STOP → 후보 초기화 → AUTO 전환 순서로 처리한다.
-- [ ] `expectedSessionId`가 필요한 명령과 현재 session을 command lock 안에서 비교한다.
-- [ ] 자세 preset은 현재 profile 값, 사용자 preset은 row 소유권을 서버에서 다시 조회한다.
+- [ ] mode·preset·Voice tool의 `expectedSessionId`를 command lock 안에서 비교한다.
+- [ ] 등록 자세 preset은 profile 값, custom은 소유권, 익명 자세는 기본값을 서버에서 조회한다.
+- [ ] session 없는 HOLD·직접 목표·STOP을 session이나 mode 생성 없이 처리한다.
 - [ ] 장치 상태 때문에 수동 명령이 실패한 뒤 mode를 어떻게 유지할지 계약대로 적용한다.
 - [ ] 기존 `/api/control`·`/api/target`을 AutomationService 경계로 이동한다.
 
@@ -96,15 +101,18 @@ AUTO 기본 mode 자체를 끄는 기능을 추가하지 않는다.
 
 ## 핵심 자동 검증
 
-- 새 session은 AUTO이며 과거 session의 자세 snapshot으로 즉시 움직이지 않는다.
+- 새 session은 AUTO이고 2초 최초 지연을 거친다. 익명→등록 identity 확정은 연속된 fresh 자세를
+  이어 받아 profile 목표로 교체할 수 있다.
+- 익명 앉음·섬은 75/110cm 목표를 정확히 한 번 만들고 custom preset을 제공하지 않는다.
 - 앉음→섬과 섬→앉음은 유지 시간 뒤 목표를 한 번만 설정한다.
-- 흔들리는 자세, 얼굴 재검증과 stale frame은 timer를 잘못 이어가지 않는다.
+- 흔들리는 자세, 다중·count 불일치와 stale frame은 timer를 잘못 이어가지 않는다.
 - preset·직접 목표·HOLD는 먼저 MANUAL로 바뀌고 이전 자동 목표를 무효화한다.
 - MANUAL에서는 자세가 바뀌어도 자동 목표가 생성되지 않는다.
 - 이전 session ID, 다른 profile preset과 오래된 generation을 거절한다.
 - AUTO 복귀는 기존 이동과 후보를 버리고 fresh 안정화를 다시 요구한다.
 - Vision·높이·MQTT·relay 오류 및 명령 경합에서 STOP이 우선한다.
-- STOP 요청은 사용자 없음과 session 불일치에서도 차단되지 않는다.
+- session 없는 HOLD·직접 목표와 STOP이 허용되고 사용자 종속 stale 명령만 거절된다.
+- fresh VACANT 30초 전에는 park하지 않고 사람 후보·수동 명령·오류가 PARK를 STOP한다.
 
 ## 실물 검증 전 조건
 
@@ -115,7 +123,7 @@ AUTO 기본 mode 자체를 끄는 기능을 추가하지 않는다.
 
 ## 완료 조건
 
-- 등록 사용자의 AUTO 앉음·섬 전환과 MANUAL preset 흐름이 서버만으로 동작한다.
+- 등록·익명 사용자의 AUTO 앉음·섬 전환과 MANUAL preset 흐름이 서버만으로 동작한다.
 - Dashboard가 닫혀도 mode와 자동화가 유지되며 여러 클라이언트가 같은 snapshot을 본다.
 - 불확실성·사용자 교대·수동 개입·장치 오류에서 진행 중 이동과 새 목표가 차단된다.
 - 모든 실제 이동 요청이 `DeskController`를 거치고 STOP 우선순위를 보존한다.

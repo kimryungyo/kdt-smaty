@@ -1,7 +1,7 @@
 # Dashboard 워크플로우
 
 Dashboard는 profile 설정, 서버 상태 확인, 책상 수동 명령과 AI 상세 응답 표시를 담당한다.
-얼굴 식별, 현재 사용자 결정, 자세 판정과 자동 높이 정책은 담당하지 않는다.
+재실·얼굴 식별, 등록·익명 session 결정, 자세 판정과 자동 높이 정책은 담당하지 않는다.
 
 ## 목표 화면 흐름
 
@@ -25,7 +25,7 @@ PROFILE_SETTINGS
   └─ 저장 또는 취소 → PROFILE_LIST
 ```
 
-서버가 얼굴로 다른 사용자를 식별해도 profile 설정 화면을 자동으로 열거나 현재 편집 대상을
+서버가 다른 등록 사용자를 식별하거나 익명 session을 만들어도 profile 설정 화면을 자동으로 열거나 현재 편집 대상을
 바꾸지 않는다.
 
 ## 현재 구현과 목표
@@ -65,7 +65,7 @@ WLED 색상에 사용된다.
 1. 앉은 높이와 선 높이를 75~115cm에서 입력한다.
 2. 최신 높이가 `ONLINE`일 때만 “현재 높이 사용”으로 draft에 복사한다.
 3. 자세 안정화 유지 시간을 입력한다. 초기값은 5초다.
-4. 제어 모드는 profile에 저장하지 않으며 새 사용자 session은 항상 `AUTO`로 시작한다.
+4. 제어 모드는 profile에 저장하지 않으며 새 등록·익명 session은 항상 `AUTO`로 시작한다.
 5. 완료 시 기본 정보와 책상 설정을 한 profile 생성 요청으로 저장한다.
 6. 생성된 profile ID로 얼굴 등록 단계로 이동한다.
 
@@ -86,17 +86,21 @@ WLED 색상에 사용된다.
 
 | 영역 | 서버에서 읽을 상태 |
 | --- | --- |
-| 사용자 | `CurrentUserSnapshot`과 연결 profile |
+| 사용자 | 등록·익명 `CurrentUserSnapshot`과 연결 profile |
 | 현재 자세 | 재실·자세·관측 시각과 freshness |
 | 제어 모드 | `AUTO`/`MANUAL`, 전환 시각과 이유 |
-| 높이 preset | 현재 사용자의 자세별·사용자 preset 합성 목록 |
+| 높이 preset | 등록 사용자의 자세별·custom 목록 또는 익명 기본 75/110cm |
 | 자동화 | 안정화 진행, 목표와 차단 이유 |
 | 책상 | Desk·height·relay snapshot |
 | 조명 | WLED snapshot |
 | AI | 같은 Assistant turn의 화면용 상세 응답 |
 
-현재 사용자가 없거나 불확실하면 사용자 전용 preset과 profile 설정값을 메인 제어에 사용하지
-않는다. “SYSTEM ONLINE” 한 값으로 모든 기능을 표현하지 않고 기능별 상태를 표시한다.
+익명 session은 “인식 실패” 대신 “게스트”와 기본 75/110cm를 표시하고 custom preset과
+profile 설정은 제공하지 않는다. session이 없으면 사용자 전용 preset과 profile 값을 메인
+제어에 사용하지 않지만 HOLD·직접 높이·STOP은 제공한다. mode·preset 요청에는 화면이 읽은
+`expectedSessionId`를 자동으로 첨부하고 `409`이면 snapshot을 다시 읽는다. 사용자가 session
+ID를 직접 입력하지 않는다. “SYSTEM ONLINE” 한 값으로 모든 기능을 표현하지 않고 기능별
+상태를 표시한다.
 
 ## profile 수정과 삭제
 

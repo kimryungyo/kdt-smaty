@@ -3,7 +3,7 @@
 ## 사용자 결과
 
 Dashboard에서 profile을 생성·수정하고 얼굴과 높이 preset을 관리할 수 있다. 메인 화면은
-서버가 얼굴로 확정한 현재 사용자, 재실·자세, AUTO/MANUAL, 자동화 차단 이유와 책상 상태를
+서버가 재실·얼굴로 확정한 등록·익명 session, 재실·자세, AUTO/MANUAL, 자동화 차단 이유와 책상 상태를
 표시한다. profile 카드를 누르는 행위는 설정 화면만 열며 현재 사용자나 책상을 바꾸지 않는다.
 
 ## 현재 상태
@@ -22,7 +22,7 @@ React 상태를 최소한 다음 의미로 구분한다.
 | --- | --- |
 | `editingProfile` | 사용자가 설정 화면에서 열어 둔 profile |
 | profile draft | 아직 서버에 저장하지 않은 생성 입력 |
-| current user snapshot | 서버가 얼굴로 결정한 read-only 사용자 session |
+| current user snapshot | 서버가 재실·얼굴로 결정한 등록·익명 read-only session |
 | automation snapshot | 서버가 소유한 mode·상태·차단 이유 |
 | desk/WLED/Voice snapshot | 기능별 장치 상태와 freshness |
 
@@ -77,10 +77,12 @@ profile 설정
 ### 메인 Dashboard
 
 - [ ] 서버 current user와 연결 profile을 사용자 카드에 표시한다.
-- [ ] 재실·자세·관측 age와 재검증·불확실 상태를 구분해 표시한다.
+- [ ] 익명 session을 오류가 아닌 “게스트”로 표시하고 기본 75/110cm 자세 preset을 제공한다.
+- [ ] 재실·자세·관측 age와 얼굴 재확인 필요·불확실 상태를 구분해 표시한다.
 - [ ] AUTO/MANUAL, 자세 안정화 진행과 차단 이유를 실제 snapshot으로 표시한다.
 - [ ] 현재 사용자 합성 preset과 mode 변경·직접 제어를 명령 API에 연결한다.
-- [ ] 현재 사용자가 없으면 개인 preset과 profile 값을 실행 근거로 사용하지 않는다.
+- [ ] session이 없으면 개인 preset과 profile 값을 사용하지 않되 HOLD·직접 높이·STOP은 제공한다.
+- [ ] mode·preset 요청에는 화면이 읽은 `expectedSessionId`를 자동 첨부한다.
 - [ ] WLED, Voice/AI, Vision, Desk의 기능별 연결 상태를 하나의 `SYSTEM ONLINE`과 분리한다.
 
 ### Vision debug
@@ -111,7 +113,8 @@ profile 설정
 - profile 카드를 열고 수정해도 서버 current user, mode와 Desk 목표가 바뀌지 않는다.
 - 서버 current user가 A→B로 바뀌어도 열려 있는 A 설정 form과 draft가 자동 변경되지 않는다.
 - 오래된 A session 명령이 B에게 적용되지 않고 `409` 후 화면이 새 상태를 표시한다.
-- 현재 사용자 없음·재검증·다중 사용자 상태에서 개인 preset 실행이 비활성 또는 거절된다.
+- session 없음·다중·count 불일치에서 개인 preset 실행이 비활성 또는 거절된다.
+- stale session preset은 `409` 후 current user·automation·preset snapshot을 다시 읽는다.
 - 얼굴 등록 성공 후에도 화면이 profile을 현재 사용자로 강제 지정하지 않는다.
 - HOLD release, blur, page hide와 unmount에서 STOP 요청이 유지된다.
 - API 오류, polling 단절과 out-of-order 응답에서 stale 값이 현재 값처럼 표시되지 않는다.

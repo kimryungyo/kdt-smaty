@@ -89,6 +89,9 @@ MANUAL preset과 Voice 응답을 시연할 수 있다. 장치나 네트워크가
 ### 자동·수동 제어
 
 - [ ] 얼굴로 사용자가 확정되면 새 `sessionId`와 AUTO가 표시된다.
+- [ ] 얼굴 없이 상단 몸체/얼굴과 하단 하체·자세가 3초 안정화되면 익명 session이 표시된다.
+- [ ] 익명 최초 AUTO가 2초 더 기다린 뒤 앉음 75cm·섬 110cm 목표를 선택한다.
+- [ ] 익명 AUTO 이동 중 얼굴이 식별되면 새 등록 session과 profile 목표로 안전하게 교체된다.
 - [ ] 앉음·섬을 유지하면 각 profile 높이로 한 번 이동한다.
 - [ ] preset 클릭 후 MANUAL로 유지되고 자세 변화가 목표를 덮어쓰지 않는다.
 - [ ] 명시적 AUTO 복귀가 STOP과 fresh 자세 안정화 뒤 동작한다.
@@ -96,16 +99,19 @@ MANUAL preset과 Voice 응답을 시연할 수 있다. 장치나 네트워크가
 
 ### 사용자·Vision 경계
 
-- [ ] 얼굴 일시 누락과 재검증이 확정한 session 정책대로 동작한다.
+- [ ] 얼굴 일시 누락은 단일 재실에서 session을 유지하고, 고품질 미등록 얼굴 3초는 익명으로 전환한다.
+- [ ] 다중·count 불일치는 AUTO만 STOP하고 Dashboard 수동 제어는 계속 동작한다.
+- [ ] fresh VACANT 30초 뒤 75cm park하며 사람 후보·수동 명령에서 즉시 취소한다.
 - [ ] A→B 교대와 A Dashboard의 오래된 명령이 B에게 적용되지 않는다.
 - [ ] 다중 사용자, 카메라 count 불일치와 주변 통행에서 새 자동 목표가 차단된다.
 - [ ] 이탈, frame stale, sensor·MQTT·relay 오류에서 진행 이동이 정지한다.
-- [ ] 서버 재시작 후 fresh 얼굴 인식 전에는 사용자가 없고 자동 이동하지 않는다.
+- [ ] 서버 재시작 후 fresh 재실 session 또는 fresh VACANT 30초 전에는 자동 이동하지 않는다.
 
 ### Voice와 AI
 
 - [ ] WLED와 Voice가 설정 분기 없이 lifecycle에서 시작된다.
 - [ ] Voice가 current user의 기억만 사용하고 사용자 없음에서는 개인 기억을 사용하지 않는다.
+- [ ] 익명 Voice history는 session 안에서만 유지되고 등록 전환·종료에서 폐기된다.
 - [ ] 사용자 교대 중 Assistant turn이 잘못된 profile 기억에 저장되지 않는다.
 - [ ] 같은 turn의 음성 응답과 Dashboard 상세 응답이 일치한다.
 - [ ] WLED·Desk tool 실패가 기능별 오류로 표시되고 안전 경계를 우회하지 않는다.

@@ -21,10 +21,10 @@
 
 | 순서 | 작업 | 핵심 결과 | 상태 |
 | ---: | --- | --- | --- |
-| 01 | [상태·워크플로우 계약 확정](01-workflow-contracts.md) | 구현 가능한 상태·전이·API 기준 | 설계 필요 |
+| 01 | [상태·워크플로우 계약 확정](01-workflow-contracts.md) | 구현 가능한 상태·전이·API 기준 | 완료 |
 | 02 | [필수 서비스 수명주기](02-required-services.md) | WLED·Voice 필수 시작 | 착수 가능 |
-| 03 | [프로필과 높이 프리셋](03-profile-and-presets.md) | profile 확장과 사용자 preset 저장 | 01 대기 |
-| 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 01·장치 확인 대기 |
+| 03 | [프로필과 높이 프리셋](03-profile-and-presets.md) | profile 확장과 사용자 preset 저장 | 착수 가능 |
+| 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 장치 확인 대기 |
 | 05 | [얼굴 식별과 사용자 세션](05-face-identity-session.md) | 얼굴 등록·식별과 서버 현재 사용자 | 03·04 대기 |
 | 06 | [책상 자동화](06-desk-automation.md) | `AUTO`/`MANUAL`과 자세 기반 이동 | 05 대기 |
 | 07 | [Dashboard 워크플로우](07-dashboard-workflow.md) | 설정 대상과 현재 사용자 분리 | 03·05·06 대기 |
@@ -73,6 +73,8 @@ task 상태는 다음 값 중 하나를 사용한다.
 - Dashboard는 profile 설정 입력, 명령 전달과 서버 snapshot 표시를 담당한다.
 - Dashboard에서 연 profile은 현재 사용자가 아니며 얼굴 인식으로 편집 화면을 바꾸지 않는다.
 - Vision, 높이 센서, MQTT 또는 relay 상태가 불확실하면 자동 이동을 허용하지 않는다.
+- 등록 사용자가 확정되지 않아도 단일 재실이면 익명 session과 기본 75/110cm AUTO를 사용한다.
+- 안정 VACANT 뒤 fresh 30초가 이어진 경우에만 75cm park를 허용한다.
 - 모든 책상 이동은 `DeskController`를 통한다. STOP은 사용자 식별이나 session 일치 여부로
   거절하지 않는다.
 - 얼굴 원본과 crop은 기본 저장하지 않으며 얼굴 식별을 보안 인증으로 취급하지 않는다.
