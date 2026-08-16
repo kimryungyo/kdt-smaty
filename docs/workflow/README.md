@@ -35,10 +35,12 @@
 6. 책상 `AUTO`/`MANUAL` 모드는 서버가 소유한다. 새 등록·익명 session은 `AUTO`로 시작한다.
 7. session 안의 preset, 직접 목표, HOLD와 사용자 STOP은 먼저 `MANUAL`로 전환한다.
    session이 없어도 HOLD, 직접 목표와 STOP은 허용한다.
-8. Vision 불확실성은 AUTO만, 센서·MQTT·릴레이 안전 오류는 자동·수동 이동을 모두 차단한다.
-9. 실제 이동은 자동화와 Dashboard 모두 `DeskController`를 통해 요청한다.
-10. 얼굴 원본과 crop은 기본 저장하지 않고 등록 임베딩과 최소 메타데이터만 저장한다.
-11. WLED와 Voice는 필수 lifecycle 서비스로 시작한다.
+8. 최초 이동 이후 자세 전환과 사용자의 AUTO 재활성화는 등록·익명 모두 fresh 자세 5초를
+   확인하며 profile별 시간 설정은 두지 않는다.
+9. Vision 불확실성은 AUTO만, 센서·MQTT·릴레이 안전 오류는 자동·수동 이동을 모두 차단한다.
+10. 실제 이동은 자동화와 Dashboard 모두 `DeskController`를 통해 요청한다.
+11. 얼굴 원본과 crop은 기본 저장하지 않고 등록 임베딩과 최소 메타데이터만 저장한다.
+12. WLED와 Voice는 필수 lifecycle 서비스로 시작한다.
 
 ## 전체 흐름
 
@@ -88,6 +90,7 @@ Dashboard polling이 중단돼도 사용자 이탈로 간주하지 않는다. �
   시작한다.
 - 등록 얼굴이면 profile session, 아니면 익명 session이며 익명 높이는 앉음 75cm·섬 110cm다.
 - 최초 AUTO 목표는 session 시작 뒤 2초 동안 조건이 유지돼야 한다.
+- 이후 자세 전환과 같은 session의 명시적 AUTO 재활성화는 자세를 5초 확인한다.
 - 얼굴이 안 보여도 fresh 단일 재실이 이어지면 session과 AUTO를 유지한다.
 - 다중·count 불일치는 session을 유지하고 AUTO만 STOP하며 수동 제어는 허용한다.
 - 안정 VACANT로 session이 끝난 뒤 fresh VACANT 30초가 이어지면 75cm park를 시도한다.

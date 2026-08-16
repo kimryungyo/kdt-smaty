@@ -129,7 +129,6 @@ mode가 없으면 `null`이다. state는 `WAITING_USER`, `OBSERVING`, `READY`, `
 | Method | 경로 | 목적 |
 | --- | --- | --- |
 | `PUT` | `/api/desk/mode` | 현재 session의 `AUTO`/`MANUAL` 변경 |
-| `PUT` | `/api/profiles/{id}/automation` | profile 자세 유지 시간 변경 |
 
 요청 예시:
 
@@ -140,8 +139,9 @@ mode가 없으면 `null`이다. state는 `WAITING_USER`, `OBSERVING`, `READY`, `
 }
 ```
 
-현재 session 없음, 불일치 또는 AUTO 재개 조건 불충족은 `409`다. AUTO 요청은 기존 이동
-STOP, 자동 generation과 자세 후보 초기화 후 성공하며 fresh 자세를 다시 안정화한다.
+현재 session 없음, 불일치 또는 AUTO 재활성화 조건 불충족은 `409`다. AUTO 요청은 기존 이동
+STOP, 자동 generation과 자세 후보 초기화 후 성공하며 fresh 자세를 고정 5초 다시 확인한다.
+자세 확인 시간은 profile API로 변경할 수 없는 전체 자동화 설정이다.
 
 ## 사용자 preset 설정
 

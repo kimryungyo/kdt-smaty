@@ -6,23 +6,25 @@ Dashboard는 profile 설정, 서버 상태 확인, 책상 수동 명령과 AI �
 ## 목표 화면 흐름
 
 ```text
-DASHBOARD
-  ├─ profile 관리 → PROFILE_LIST
+DASHBOARD `/`
   ├─ 서버 현재 사용자·자세·제어 상태 표시
   ├─ 높이 preset·직접 제어
   ├─ AI 상세 응답 표시
-  └─ Vision debug → VISION_DEBUG
+  └─ 우측 상단 설정 → PROFILE_LIST `/settings/profiles`
 
-PROFILE_LIST
-  ├─ profile 선택 → PROFILE_SETTINGS
-  └─ 새 profile → PROFILE_BASICS → DESK_SETTINGS
-                                    → FACE_ENROLLMENT → PROFILE_LIST
+PROFILE_LIST `/settings/profiles`
+  ├─ profile 선택 → PROFILE_SETTINGS `/settings/profiles/:profileId`
+  └─ 새 profile → `/settings/profiles/new`
+                    → PROFILE_BASICS → DESK_SETTINGS
+                    → FACE_ENROLLMENT → PROFILE_LIST
 
 PROFILE_SETTINGS
-  ├─ 이름·키·자세별 높이·유지 시간·조명 수정
+  ├─ 이름·자세별 높이·조명 수정
   ├─ 사용자 높이 preset CRUD
   ├─ 얼굴 재등록·삭제
   └─ 저장 또는 취소 → PROFILE_LIST
+
+VISION_DEBUG `/debug/vision`
 ```
 
 서버가 다른 등록 사용자를 식별하거나 익명 session을 만들어도 profile 설정 화면을 자동으로 열거나 현재 편집 대상을
@@ -40,6 +42,10 @@ WLED 색상에 사용된다.
 현재 얼굴 감지에 따라 특정 profile 화면을 자동으로 여는 기능은 없다. 목표 설계에서도
 그 기능은 추가하지 않는다.
 
+현재 첫 profile 선택 화면과 page enum을 유지하지 않고 `/`을 항상 메인 Dashboard로 만드는
+전면 개편을 전제로 한다. 기존 API client와 HOLD/STOP 안전 동작은 재사용할 수 있지만,
+`selectedProfile`로 메인 사용자와 제어 목표를 정하는 흐름은 제거한다.
+
 ## profile 목록
 
 1. `GET /api/profiles`로 설정 가능한 profile을 조회한다.
@@ -56,7 +62,6 @@ WLED 색상에 사용된다.
 | 입력 | 저장 |
 | --- | --- |
 | 이름 | `profiles.name` |
-| 키 | `profiles.stature_cm` 신규 필드 |
 
 이 단계의 값은 draft다. 기본 정보만 입력한 불완전 profile은 아직 만들지 않는다.
 
@@ -64,7 +69,8 @@ WLED 색상에 사용된다.
 
 1. 앉은 높이와 선 높이를 75~115cm에서 입력한다.
 2. 최신 높이가 `ONLINE`일 때만 “현재 높이 사용”으로 draft에 복사한다.
-3. 자세 안정화 유지 시간을 입력한다. 초기값은 5초다.
+3. 자세 전환 확인 시간은 모든 사용자가 5초로 고정이며 입력값으로 받거나 profile에 저장하지
+   않는다. 필요하면 읽기 전용 안내만 표시한다.
 4. 제어 모드는 profile에 저장하지 않으며 새 등록·익명 session은 항상 `AUTO`로 시작한다.
 5. 완료 시 기본 정보와 책상 설정을 한 profile 생성 요청으로 저장한다.
 6. 생성된 profile ID로 얼굴 등록 단계로 이동한다.
@@ -102,14 +108,18 @@ profile 설정은 제공하지 않는다. session이 없으면 사용자 전용 
 ID를 직접 입력하지 않는다. “SYSTEM ONLINE” 한 값으로 모든 기능을 표현하지 않고 기능별
 상태를 표시한다.
 
+current `sessionId`가 바뀌거나 없어지면 이전 session의 AI 상세 응답을 즉시 숨긴다. 늦게
+완료된 이전 turn도 화면에 다시 나타나지 않게 turn의 session ID를 현재 snapshot과 비교한다.
+
 ## profile 수정과 삭제
 
 - profile 설정을 열어도 현재 사용자는 바뀌지 않는다.
 - 얼굴 등록은 일반 profile PATCH와 분리해 재등록·삭제한다.
 - 사용자 preset은 profile 설정 화면에서 별도 CRUD로 관리한다.
 - 현재 사용자 profile을 삭제하면 서버가 먼저 자동화를 중지하고 책상을 STOP한 뒤 현재
-  사용자를 `UNKNOWN`으로 전환한다.
-- profile 삭제는 profile, 얼굴 임베딩과 사용자 preset의 삭제 범위를 확인받는다.
+  session을 제거한다. 신원 관측의 `UNKNOWN`과 session 없음은 서로 다른 상태다.
+- profile 삭제는 profile, 얼굴 임베딩, 사용자 preset과 장기 기억 전체 삭제를 확인받는다.
+  장기 기억 삭제에 실패하면 profile DB를 보존하고 재시도를 안내한다.
 
 ## Vision debug
 

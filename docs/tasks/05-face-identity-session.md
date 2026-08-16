@@ -34,6 +34,9 @@ user-camera latest frame
 - 현재 사용자 session은 embedding 저장소나 Dashboard route가 아니라 별도 서버 상태가
   소유한다.
 - profile repository는 얼굴을 보고 현재 사용자를 선택하지 않는다.
+- `CurrentUserSessionService`는 session ID·종류·profile과 전환 이유만 소유한다. mode,
+  generation, 목표 교체와 STOP은 task 06의 `AutomationService`가 session 전이를 입력으로
+  받아 처리한다.
 
 ## 저장 설계
 
@@ -78,8 +81,9 @@ user-camera latest frame
 
 - [ ] task 01의 등록·익명 시작, 얼굴 누락·이탈·다중 사용자 전이를 구현한다.
 - [ ] 새 확정 사용자마다 예측 불가능한 `sessionId`와 시작 시각을 발급한다.
-- [ ] 익명→등록은 새 session ID를 발급하고 AUTO 목표 교체 또는 MANUAL 보존을 적용한다.
-- [ ] A→B와 A→익명에서 기존 AUTO STOP·초기화·새 session 순서를 지킨다.
+- [ ] 익명→등록, A→B와 A→익명마다 새 session ID, 전환 이유와 변경 시각을 발행한다.
+- [ ] session service는 `DeskController`를 직접 호출하거나 mode를 소유하지 않고, task 06이
+  목표 교체·MANUAL 보존·STOP 순서를 적용할 수 있는 불변 snapshot을 제공한다.
 - [ ] 서버 시작·재시작에서 session 없음으로 시작하고 fresh 관측을 요구한다.
 - [ ] profile 또는 얼굴 삭제 시 활성 session과 후보를 원자적으로 무효화한다.
 - [ ] `/api/current-user`와 등록 상태를 read-only snapshot으로 제공한다.
@@ -88,8 +92,8 @@ user-camera latest frame
 
 fresh 단일 재실이 이어지면 얼굴이 보이지 않아도 등록 session과 AUTO를 유지한다. 반면
 `MULTIPLE`, count 불일치나 관측 연속성 단절은 session을 유지하면서 AUTO와 개인화 Voice를
-차단한다. 등록 session은 같은 얼굴 재확인, 익명 session은 단일 재실 3초 재안정화 뒤 AUTO를
-재개한다. 별도 얼굴 재확인 timeout은 v1에 추가하지 않는다.
+차단한다. 등록 session은 같은 얼굴 재확인, 익명 session은 단일 재실 3초 재안정화 뒤 AUTO
+차단을 해제한다. 별도 얼굴 재확인 timeout은 v1에 추가하지 않는다.
 
 ## 제외 범위
 
@@ -103,7 +107,8 @@ fresh 단일 재실이 이어지면 얼굴이 보이지 않아도 등록 session
 - 얼굴 없이도 단일 재실 안정화로 익명 session이 생성되며, 한 frame 얼굴 결과로 등록
   session이나 사용자 전환이 생기지 않는다.
 - 같은 사용자의 연속 관측만 확정되고 다른 profile과 중복 등록이 거절된다.
-- 얼굴 일시 누락, 고품질 미등록 얼굴 3초, 이탈, 다중 사용자와 A→B 교대가 결정표와 일치한다.
+- 얼굴 일시 누락, 고품질 미등록 얼굴 3초, 이탈, 다중 사용자와 A→B 교대의 session snapshot이
+  결정표와 일치한다.
 - 등록·재등록·삭제 도중 이전 identity와 session으로 자동 이동할 수 없다.
 - server restart 후 profile 데이터는 남지만 현재 사용자와 후보는 비어 있다.
 - model version·dimension 불일치 embedding을 비교에 사용하지 않는다.

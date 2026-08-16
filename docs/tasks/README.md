@@ -19,22 +19,29 @@
 
 ## 진행 순서
 
-| 순서 | 작업 | 핵심 결과 | 상태 |
-| ---: | --- | --- | --- |
-| 01 | [상태·워크플로우 계약 확정](01-workflow-contracts.md) | 구현 가능한 상태·전이·API 기준 | 완료 |
-| 02 | [필수 서비스 수명주기](02-required-services.md) | WLED·Voice 필수 시작 | 착수 가능 |
-| 03 | [프로필과 높이 프리셋](03-profile-and-presets.md) | profile 확장과 사용자 preset 저장 | 착수 가능 |
-| 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 장치 확인 대기 |
-| 05 | [얼굴 식별과 사용자 세션](05-face-identity-session.md) | 얼굴 등록·식별과 서버 현재 사용자 | 03·04 대기 |
-| 06 | [책상 자동화](06-desk-automation.md) | `AUTO`/`MANUAL`과 자세 기반 이동 | 05 대기 |
-| 07 | [Dashboard 워크플로우](07-dashboard-workflow.md) | 설정 대상과 현재 사용자 분리 | 03·05·06 대기 |
-| 08 | [AI 사용자 문맥](08-ai-user-context.md) | 얼굴 사용자 기반 기억과 화면 응답 | 02·05·07 대기 |
-| 09 | [통합·실물 검증](09-system-validation.md) | 장애·복구·실제 동작 증거 | 기능 구현 대기 |
+| 순서 | 작업 | 핵심 결과 | 상태 | 선행·비고 |
+| ---: | --- | --- | --- | --- |
+| 01 | [상태·워크플로우 계약 확정](01-workflow-contracts.md) | 구현 가능한 상태·전이·API 기준 | 완료 | - |
+| 02 | [필수 서비스 수명주기](02-required-services.md) | WLED·Voice 필수 시작 | 착수 가능 | 01 계약 준수 |
+| 03 | [프로필과 높이 프리셋](03-profile-and-presets.md) | profile 설정과 사용자 preset 저장 | 착수 가능 | 데이터 정책 확정 |
+| 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 착수 가능 | 실물 ROI·모델 보정만 장치 대기 |
+| 05 | [얼굴 식별과 사용자 세션](05-face-identity-session.md) | 얼굴 등록·식별과 서버 현재 사용자 | 대기 | 03·04 공개 계약 |
+| 06 | [책상 자동화](06-desk-automation.md) | `AUTO`/`MANUAL`과 자세 기반 이동 | 대기 | 03·05 |
+| 07 | [Dashboard 워크플로우](07-dashboard-workflow.md) | 설정 대상과 현재 사용자 분리 | 대기 | 설정 화면은 03 뒤, 완료는 05·06 뒤 |
+| 08 | [AI 사용자 문맥](08-ai-user-context.md) | 얼굴 사용자 기반 기억과 화면 응답 | 대기 | 02·05·07 |
+| 09 | [통합·실물 검증](09-system-validation.md) | 장애·복구·실제 동작 증거 | 대기 | 02~08 기능 구현 |
 
-02는 다른 기능과 독립적으로 진행할 수 있다. 01 완료 뒤 03과 04도 병행할 수 있다. 05는
+02는 다른 기능과 독립적으로 진행할 수 있다. 04는 실제 하단 카메라가 없어도 fake frame과
+detector adapter로 snapshot·freshness·안정화·API를 먼저 구현할 수 있고, ROI와 threshold
+보정만 장치 연결 뒤 완료한다. 03도 04와 병행할 수 있다. 05는
 profile 저장과 Vision 관측을 결합하며, 06은 이 사용자 세션을 기준으로 서버 제어 정책을
 완성한다. 07의 profile 설정 화면은 03 뒤 먼저 착수할 수 있지만, current user·자동화 화면과
 명령까지 완료하려면 05·06이 필요하다. 08은 같은 사용자 문맥을 Voice와 AI 응답에 적용한다.
+
+키 필드는 제거하고 자세 전환 확인 시간은 전체 고정 5초로 사용한다. profile 삭제 시 장기
+기억까지 삭제하며, session 교대·종료 시 이전 AI 상세 응답은 즉시 숨긴다. preset 이름
+정규화, SQLite cascade 구현 방식, 얼굴 embedding 형식, detector threshold와
+Dashboard 전송 방식은 공개 동작을 바꾸지 않는 한 해당 task에서 기술 검증으로 결정한다.
 
 09는 마지막에 한 번만 수행하는 작업이 아니다. 각 단계에서 자동 검증을 누적하고, 실제
 장치가 필요한 항목만 최종 단계에서 제한적으로 실행한다.

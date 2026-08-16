@@ -25,14 +25,15 @@ AUTO
   └─ 안정 VACANT → AUTO STOP + session·mode 종료
 
 MANUAL
-  ├─ 명시적 AUTO → STOP → 자세 후보 초기화 → AUTO
+  ├─ 사용자가 AUTO 재활성화 → STOP → 자세 후보 초기화 → AUTO
   └─ 안정 VACANT → session·mode 종료
 ```
 
 - 시간 경과만으로 `MANUAL → AUTO` 전환하지 않는다.
 - 수동 명령이 장치 상태 때문에 실패해도 활성 session의 `MANUAL`을 유지한다.
 - 사용자 STOP은 활성 session을 MANUAL로 만들고, Vision·장치 안전 STOP은 mode를 보존한다.
-- AUTO 전환 직후 이전 자세 snapshot으로 움직이지 않고 자세를 다시 안정화한다.
+- 같은 session에서 사용자가 AUTO를 다시 선택하면 이전 자세 snapshot으로 움직이지 않고
+  fresh 자세를 5초 다시 확인한다. 이는 사용자 이탈이나 빈자리 park와 다른 흐름이다.
 - 여러 Dashboard가 열려도 서버 mode와 session snapshot이 기준이다.
 
 ## session별 높이 정책
@@ -69,7 +70,7 @@ VisionSnapshot
   + DeskSnapshot
   → AutomationService
       → freshness·단일 사용자·귀속 검사
-      → 자세 유지 시간 검사
+      → 고정 5초 자세 전환 확인
       → 같은 목표 반복 억제
       → DeskController.set_target()
 ```
@@ -83,12 +84,13 @@ VisionSnapshot
 | `MULTIPLE` 또는 count 불일치 | AUTO STOP·BLOCKED, session 유지 |
 | 안정 `VACANT` | AUTO STOP, session 종료와 park 대기 |
 
-동일 session과 자세가 유지 시간 동안 이어진 뒤 목표를 한 번 설정한다. 자세, mode, session,
+최초 목표 이후 동일 session과 자세가 5초 동안 이어진 뒤 목표를 한 번 설정한다. 자세, mode, session,
 재실 결합과 frame freshness 변경은 후보와 timer를 초기화한다.
 
 등록 session에서 얼굴만 보이지 않지만 fresh 단일 재실이 계속되면 AUTO를 유지한다.
-`MULTIPLE`이나 count 불일치 후에는 같은 등록 얼굴을 재확인해야 AUTO를 재개한다. 익명
-session은 fresh 단일 재실을 3초 재안정화하면 재개한다.
+`MULTIPLE`이나 count 불일치 후에는 같은 등록 얼굴을 재확인해야 AUTO 차단을 해제한다. 익명
+session은 fresh 단일 재실을 3초 재안정화하면 차단을 해제한다. 복구 뒤 새 자세 목표가
+필요하면 공통 5초 자세 전환 확인을 적용한다.
 
 자동화 상태는 mode와 별도로 `WAITING_USER`, `OBSERVING`, `READY`, `MOVING`, `MANUAL`,
 `BLOCKED`, `PARK_WAITING`, `PARKING`을 제공한다. `BLOCKED`의 Vision 원인은 AUTO intent만,

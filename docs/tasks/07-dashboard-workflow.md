@@ -2,16 +2,18 @@
 
 ## 사용자 결과
 
-Dashboard에서 profile을 생성·수정하고 얼굴과 높이 preset을 관리할 수 있다. 메인 화면은
-서버가 재실·얼굴로 확정한 등록·익명 session, 재실·자세, AUTO/MANUAL, 자동화 차단 이유와 책상 상태를
-표시한다. profile 카드를 누르는 행위는 설정 화면만 열며 현재 사용자나 책상을 바꾸지 않는다.
+메인 화면 `/`은 서버가 재실·얼굴로 확정한 등록·익명 session, 재실·자세, AUTO/MANUAL,
+자동화 차단 이유, 높이 제어·preset과 AI 응답을 표시한다. profile 생성·수정, 얼굴과 사용자
+preset 관리는 별도 설정 페이지에서 수행하며 설정 화면을 여는 행위는 현재 사용자나 책상을
+바꾸지 않는다.
 
 ## 현재 상태
 
 - 첫 화면의 profile 카드를 누르면 React `selectedProfile`을 설정하고 메인 Dashboard로 간다.
 - `selectedProfile`은 사용자 정보, 앉은·선 목표와 WLED profile 색상에 사용된다.
 - 서버의 현재 사용자·Vision·자동화 API가 없어 자세와 AUTO 표시는 placeholder다.
-- profile 생성은 기본 정보와 높이 2단계이며 키·유지 시간·얼굴·사용자 preset 화면이 없다.
+- profile 생성은 기본 정보와 높이 2단계이며 사용처 없는 키 입력, profile과 무관한 5초
+  placeholder, 얼굴·사용자 preset 화면이 섞여 있다.
 - 얼굴 인식에 따라 특정 profile 화면을 자동으로 여는 코드는 현재도 없다.
 
 ## 화면 상태 원칙
@@ -29,26 +31,35 @@ React 상태를 최소한 다음 의미로 구분한다.
 서버 현재 사용자가 바뀌어도 `editingProfile`이나 입력 draft를 자동으로 바꾸지 않는다. 반대로
 profile 설정 화면을 열거나 닫아도 서버 session과 mode가 바뀌지 않는다.
 
-## 목표 화면 흐름
+## 화면 구조와 전면 개편 원칙
+
+현재 `App.tsx`의 page enum, 첫 profile 선택 화면과 legacy CSS를 유지하는 점진적 수정은 목표가
+아니다. 기존 API client와 안전한 HOLD/STOP 동작은 재사용할 수 있지만 화면 구조는 다음
+역할에 맞게 교체한다. 구체적인 router library는 구현 시 가장 작은 방식을 선택한다.
 
 ```text
-메인 Dashboard
+메인 Dashboard `/`
   ├─ 서버 현재 사용자·자세·mode·책상·조명·AI 상태
-  ├─ 현재 사용자 높이 preset과 수동 제어
-  ├─ profile 관리 → 목록 → 생성 또는 설정
-  └─ Vision debug
+  ├─ 현재 사용자 높이 preset, 직접 높이·HOLD·STOP
+  └─ 우측 상단 설정 버튼 → `/settings/profiles`
 
-profile 생성
-  → 이름·키
-  → 앉은·선 높이·유지 시간·조명
+profile 관리 `/settings/profiles`
+  ├─ profile 목록과 생성
+  └─ profile 선택 → `/settings/profiles/:profileId`
+
+profile 생성 `/settings/profiles/new`
+  → 이름
+  → 앉은·선 높이·조명
   → 서버 profile 생성
   → 얼굴 등록 또는 건너뛰기
-  → profile 목록
+  → `/settings/profiles`
 
-profile 설정
+profile 설정 `/settings/profiles/:profileId`
   → 기본 정보·책상 설정
   → 사용자 preset CRUD
   → 얼굴 재등록·삭제
+
+Vision debug `/debug/vision`
 ```
 
 생성 도중 profile row를 언제 만들지 명확히 한다. 권장 흐름은 기본 정보와 책상 설정을 draft로
@@ -60,19 +71,23 @@ profile 설정
 ### API client와 상태 분리
 
 - [ ] profile·preset·얼굴 등록·현재 사용자·Vision·자동화 TypeScript 계약을 추가한다.
-- [ ] `selectedProfile`을 설정 전용 `editingProfile`과 서버 current user로 분리한다.
+- [ ] 첫 profile 선택을 제거하고 `/`을 항상 메인 Dashboard로 표시한다.
+- [ ] 설정 route의 `editingProfile`과 서버 current user를 분리하고 `selectedProfile` 기반 제어를
+  제거한다.
 - [ ] 기능별 polling 중복과 stale 응답 덮어쓰기를 방지한다.
 - [ ] 사용자 의존 명령에 화면이 읽은 `expectedSessionId`를 전달한다.
 - [ ] `409` session 충돌 시 명령 성공처럼 보이지 않게 새 snapshot을 다시 읽는다.
 
 ### profile 설정 흐름
 
-- [ ] profile 목록 문구와 카드 동작을 “설정 열기” 의미로 변경한다.
-- [ ] 이름·키, 앉은·선 높이, 자세 유지 시간과 조명 입력을 profile API에 연결한다.
+- [ ] 메인 우측 상단 설정 버튼과 profile 목록·생성·상세 설정 route를 연결한다.
+- [ ] 이름, 앉은·선 높이와 조명 입력을 profile API에 연결한다.
+- [ ] 사용자 키 입력·state와 자세 유지 시간 입력을 제거하고, 필요하면 “모든 사용자는 자세를
+  5초 확인합니다”라는 읽기 전용 안내만 표시한다.
 - [ ] 최신 height가 ONLINE일 때만 “현재 높이 사용”을 draft에 복사한다.
 - [ ] 사용자 preset 생성·수정·삭제 UI와 자세 preset의 비편집 표시를 구현한다.
 - [ ] 얼굴 등록 진행, 취소·재시도·건너뛰기와 재등록·삭제를 연결한다.
-- [ ] profile 삭제 시 삭제 범위와 활성 session 정지 가능성을 확인받는다.
+- [ ] profile 삭제 확인에는 연관 preset·얼굴·장기 기억 삭제와 활성 session 종료를 명시한다.
 
 ### 메인 Dashboard
 
@@ -84,6 +99,7 @@ profile 설정
 - [ ] session이 없으면 개인 preset과 profile 값을 사용하지 않되 HOLD·직접 높이·STOP은 제공한다.
 - [ ] mode·preset 요청에는 화면이 읽은 `expectedSessionId`를 자동 첨부한다.
 - [ ] WLED, Voice/AI, Vision, Desk의 기능별 연결 상태를 하나의 `SYSTEM ONLINE`과 분리한다.
+- [ ] current `sessionId`가 바뀌거나 없어지면 이전 AI 상세 응답을 즉시 화면에서 제거한다.
 
 ### Vision debug
 
@@ -111,6 +127,8 @@ profile 설정
 ## 검증
 
 - profile 카드를 열고 수정해도 서버 current user, mode와 Desk 목표가 바뀌지 않는다.
+- `/` 새로고침은 profile 선택 화면이 아니라 메인 Dashboard를 표시한다.
+- 설정 버튼으로 profile 설정을 열고 메인으로 돌아와도 session과 mode가 유지된다.
 - 서버 current user가 A→B로 바뀌어도 열려 있는 A 설정 form과 draft가 자동 변경되지 않는다.
 - 오래된 A session 명령이 B에게 적용되지 않고 `409` 후 화면이 새 상태를 표시한다.
 - session 없음·다중·count 불일치에서 개인 preset 실행이 비활성 또는 거절된다.
@@ -118,11 +136,13 @@ profile 설정
 - 얼굴 등록 성공 후에도 화면이 profile을 현재 사용자로 강제 지정하지 않는다.
 - HOLD release, blur, page hide와 unmount에서 STOP 요청이 유지된다.
 - API 오류, polling 단절과 out-of-order 응답에서 stale 값이 현재 값처럼 표시되지 않는다.
+- A→B 또는 session 종료 즉시 A의 AI 상세 응답이 화면에서 사라진다.
 - TypeScript 검사와 production build가 통과하고 주요 화면 흐름을 브라우저에서 확인한다.
 
 ## 완료 조건
 
 - profile 설정 대상과 서버 현재 사용자 상태가 코드·화면·문구에서 명확히 분리된다.
+- 메인 `/`과 별도 profile 설정 route가 분리되고 현재의 profile 선택 기반 화면 흐름이 제거된다.
 - profile 생성부터 얼굴 등록·preset 설정까지 Dashboard에서 끝까지 수행할 수 있다.
 - 현재 사용자 preset, AUTO/MANUAL과 자동화 상태가 실제 서버 계약으로 동작한다.
 - Dashboard를 닫거나 여러 개 열어도 서버의 얼굴 식별과 mode 소유권이 유지된다.

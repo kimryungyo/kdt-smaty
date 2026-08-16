@@ -11,7 +11,8 @@ profile 높이, 익명 사용자는 앉음 75cm·섬 110cm를 사용한다. 최�
 
 - `DeskController`는 목표 이동, HOLD, STOP, sensor freshness와 relay 안전을 구현한다.
 - `/api/control`과 `/api/target`은 현재 Dashboard에서 `DeskController`로 직접 위임한다.
-- profile에는 앉은·선 높이가 있지만 사용자 session과 자세 유지 시간은 아직 없다.
+- profile에는 앉은·선 높이가 있지만 사용자 session은 아직 없다. 자세 전환 시간은 profile
+  필드로 추가하지 않고 전체 고정 5초를 사용한다.
 - `AutomationService`, server mode, generation과 차단 이유 API가 없다.
 - 화면의 자동화 ON과 5초 표시는 실제 서버 상태가 아닌 placeholder다.
 
@@ -19,7 +20,7 @@ profile 높이, 익명 사용자는 앉음 75cm·섬 110cm를 사용한다. 최�
 
 | 구성요소 | 책임 |
 | --- | --- |
-| Vision | 신원·재실·자세와 freshness 관측 |
+| Identity/Vision | 신원·재실·자세와 freshness 관측 |
 | CurrentUser session | 현재 profile과 session 연속성 |
 | AutomationService | mode, 자세 안정화, 사용자 의도와 목표 선택 |
 | DeskController | 높이·relay 안전, 실제 목표/HOLD/STOP 실행 |
@@ -56,9 +57,11 @@ mode 자체를 제거한다.
 
 ### AUTO 정책
 
-- [ ] 단일 재실·자세 3초 뒤 등록 또는 익명 session에 기본 AUTO를 생성한다.
+- [ ] task 05가 새 등록 또는 익명 session을 발행하면 그 session의 기본 mode를 AUTO로 만든다.
 - [ ] AUTO 진입 시 이전 자세 후보·완료 목표와 timer를 초기화한다.
-- [ ] 최초 session은 2초 지연, 등록 자세는 profile 유지 시간, 익명 자세는 설정된 3초를 적용한다.
+- [ ] 새 session의 최초 목표는 이미 완료된 3초 session 후보를 이어 받아 2초만 추가 지연한다.
+- [ ] 최초 목표 이후 자세 전환과 명시적 AUTO 재활성화에는 등록·익명 구분 없이 설정의 고정
+  5초를 적용한다.
 - [ ] 익명 자세 목표는 앉음 75cm·섬 110cm로 선택한다.
 - [ ] 현재 높이가 목표 허용 오차 안이면 새 이동을 만들지 않는다.
 - [ ] 같은 자세·같은 목표를 frame마다 반복 설정하지 않는다.
@@ -71,7 +74,8 @@ mode 자체를 제거한다.
 
 - [ ] preset·직접 목표·HOLD의 MANUAL 전환과 기존 자동 generation 무효화를 직렬화한다.
 - [ ] 사용자 STOP과 안전 STOP의 mode 결과를 구분하고 session 검증보다 먼저 처리한다.
-- [ ] 명시적 AUTO 요청은 진행 이동 STOP → 후보 초기화 → AUTO 전환 순서로 처리한다.
+- [ ] 같은 session의 명시적 AUTO 재활성화는 진행 이동 STOP → 후보 초기화 → AUTO 전환 →
+  fresh 자세 5초 확인 순서로 처리한다.
 - [ ] mode·preset·Voice tool의 `expectedSessionId`를 command lock 안에서 비교한다.
 - [ ] 등록 자세 preset은 profile 값, custom은 소유권, 익명 자세는 기본값을 서버에서 조회한다.
 - [ ] session 없는 HOLD·직접 목표·STOP을 session이나 mode 생성 없이 처리한다.
@@ -97,19 +101,19 @@ AUTO 기본 mode 자체를 끄는 기능을 추가하지 않는다.
 - `DeskController`의 MQTT wire 계약과 ESP32 firmware 재설계
 - Dashboard 화면 레이아웃과 profile 설정 CRUD
 - Voice 명령과 Assistant tool 연결
-- 시간 경과에 따른 자동 `MANUAL → AUTO` 복귀
+- 시간 경과에 따른 자동 `MANUAL → AUTO` 전환
 
 ## 핵심 자동 검증
 
 - 새 session은 AUTO이고 2초 최초 지연을 거친다. 익명→등록 identity 확정은 연속된 fresh 자세를
   이어 받아 profile 목표로 교체할 수 있다.
 - 익명 앉음·섬은 75/110cm 목표를 정확히 한 번 만들고 custom preset을 제공하지 않는다.
-- 앉음→섬과 섬→앉음은 유지 시간 뒤 목표를 한 번만 설정한다.
+- 앉음→섬과 섬→앉음은 고정 5초 뒤 목표를 한 번만 설정한다.
 - 흔들리는 자세, 다중·count 불일치와 stale frame은 timer를 잘못 이어가지 않는다.
 - preset·직접 목표·HOLD는 먼저 MANUAL로 바뀌고 이전 자동 목표를 무효화한다.
 - MANUAL에서는 자세가 바뀌어도 자동 목표가 생성되지 않는다.
 - 이전 session ID, 다른 profile preset과 오래된 generation을 거절한다.
-- AUTO 복귀는 기존 이동과 후보를 버리고 fresh 안정화를 다시 요구한다.
+- 사용자가 AUTO를 다시 선택하면 기존 이동과 후보를 버리고 fresh 자세 5초를 다시 요구한다.
 - Vision·높이·MQTT·relay 오류 및 명령 경합에서 STOP이 우선한다.
 - session 없는 HOLD·직접 목표와 STOP이 허용되고 사용자 종속 stale 명령만 거절된다.
 - fresh VACANT 30초 전에는 park하지 않고 사람 후보·수동 명령·오류가 PARK를 STOP한다.

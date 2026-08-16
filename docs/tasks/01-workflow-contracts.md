@@ -51,7 +51,7 @@ namespace는 만들지 않는다.
 | 설정 | 초기값 | 의미 |
 | --- | ---: | --- |
 | `presenceConfirmationSeconds` | 3초 | session 시작 전 단일 재실 안정화 |
-| `anonymousPostureHoldSeconds` | 3초 | 익명 자세 전환 안정화 |
+| `postureTransitionHoldSeconds` | 5초 | 최초 이동 이후 모든 사용자의 자세 전환·AUTO 재활성화 안정화 |
 | `initialAutoMoveDelaySeconds` | 2초 | 첫 session 생성 후 최초 자동 목표 지연 |
 | `unknownFaceTransitionSeconds` | 3초 | 등록 사용자에서 익명 사용자로 바꿀 고품질 미등록 얼굴 안정화 |
 | `vacantParkDelaySeconds` | 30초 | session 종료 후 75cm park 대기 |
@@ -62,6 +62,11 @@ namespace는 만들지 않는다.
 높이 기본값은 profile DB가 아니라 자동화 설정에 둔다. 제어 하한 75cm와 익명 앉은 높이가
 현재 같더라도 서로 다른 의미의 설정으로 유지하며 모든 목표는 기존 75~115cm 안전 검증을
 통과한다.
+
+session 시작은 `PRESENT_SINGLE`과 자세를 3초 확인하고 session 생성 뒤 2초를 더 기다리므로,
+최초 자동 목표까지 정상 조건에서 총 5초가 걸린다. 이 최초 흐름에
+`postureTransitionHoldSeconds`를 다시 더하지 않는다. 5초 자세 전환 확인은 최초 목표 이후
+앉음↔섬 전환과 같은 session에서 사용자가 `MANUAL`에서 `AUTO`를 다시 선택한 경우에 적용한다.
 
 ## 두 카메라 관측 결합
 
@@ -163,8 +168,8 @@ A 얼굴이 안 보이거나 품질이 낮다는 이유로 전환하지 않는�
 유지하되 AUTO generation과 진행 AUTO 이동을 즉시 STOP하고 자세 후보를 초기화한다.
 Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
 
-- 등록 session은 같은 얼굴을 다시 안정적으로 확인한 뒤 AUTO를 재개한다.
-- 익명 session은 fresh한 `PRESENT_SINGLE`을 다시 3초 안정화한 뒤 AUTO를 재개한다.
+- 등록 session은 같은 얼굴을 다시 안정적으로 확인한 뒤 AUTO 차단을 해제한다.
+- 익명 session은 fresh한 `PRESENT_SINGLE`을 다시 3초 안정화한 뒤 AUTO 차단을 해제한다.
 - 다른 등록 얼굴이 확인되면 해당 사용자 새 session으로 전환한다.
 
 ## mode와 명시적 수동 제어
@@ -176,7 +181,8 @@ Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
 - 사용자 STOP은 활성 session을 `MANUAL`로 만들지만 Vision·장치 안전 STOP은 기존 mode를
   보존한다. session 종료 STOP은 mode를 제거한다.
 - 시간 경과로 `MANUAL → AUTO` 전환하지 않는다.
-- 명시적 AUTO 요청은 진행 이동 STOP, 자세 후보 초기화 후 fresh 자세를 다시 안정화한다.
+- 명시적 AUTO 재활성화는 같은 session에서 사용자가 `MANUAL`에서 `AUTO`를 다시 선택하는
+  명령이다. 진행 이동 STOP, 자세 후보 초기화 후 fresh 자세를 5초 다시 안정화한다.
 - session이 없어도 Dashboard HOLD, 직접 높이와 STOP을 허용한다. 이 명령은 session이나
   mode를 새로 만들지 않는다.
 - 익명 session은 기본 75/110cm 자세 preset을 사용하지만 custom preset은 갖지 않는다.
@@ -218,9 +224,14 @@ fresh한 `VACANT` 30초를 새로 관측해야 한다.
 - 얼굴 등록 성공 자체는 profile을 현재 사용자로 만들지 않는다.
 - 일반 profile·preset 설정 CRUD는 현재 session, mode와 책상을 움직이지 않는다.
 - 활성 profile 삭제는 새 명령 차단, AUTO generation 무효화, STOP 시도, session 종료 후
-  연관 데이터를 삭제한다.
+  `profile:<profile_id>` 장기 기억 전체 삭제를 먼저 완료하고 얼굴·preset과 profile row를
+  삭제한다. 기억 삭제가 실패하면 profile DB를 유지하고 `503`으로 재시도를 안내한다.
 - 서버 시작 시 저장 profile은 복원하지만 현재 session, 후보, mode와 자동 intent는
   복원하지 않는다.
+
+current `sessionId`가 바뀌거나 없어지면 Dashboard는 이전 session의 AI 상세 응답을 즉시
+숨긴다. 이전 turn이 늦게 완료돼도 새 session 화면에 다시 전달하지 않고, 이전 profile 장기
+기억에도 저장하지 않는다.
 
 ## 명령과 동시성 계약
 
@@ -246,7 +257,7 @@ background 자세 전이, 사용자 전환과 park는 같은 command lock과 gen
 | `404` | profile, preset 또는 enrollment 없음 |
 | `409` | session 불일치, 현재 session 없음, 자동화 전제 불충족 또는 동시 등록 충돌 |
 | `422` | schema, 범위 또는 입력값 오류 |
-| `503` | camera, Vision, height, MQTT 또는 relay 미준비 |
+| `503` | camera, Vision, height, MQTT, relay 또는 profile 삭제에 필요한 memory 미준비 |
 
 `409 SESSION_MISMATCH` 응답은 비밀 정보 없이 현재 snapshot을 다시 읽으라는 코드와 현재
 session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지 않고 snapshot을
@@ -285,6 +296,8 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 - 익명 AUTO 이동 중 A가 확인되면 기존 generation을 무효화하고 등록 목표로 안전하게
   교체한다. 익명 MANUAL은 등록 후에도 MANUAL이다.
 - A→B는 새 session ID, AUTO와 새 자세 안정화를 사용한다.
+- 최초 목표 이후 등록·익명 자세 전환과 명시적 AUTO 재활성화는 모두 fresh 자세 5초를
+  요구한다.
 - `MULTIPLE`, count 불일치와 stale frame은 AUTO만 STOP하고 수동 명령은 허용한다.
 - height·relay 오류는 AUTO와 수동을 차단하며 STOP은 항상 접수한다.
 - 안정 VACANT 전에 session을 끝내지 않고 fresh VACANT 30초 전에는 park하지 않는다.
@@ -294,6 +307,8 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
   session 없이 처리한다.
 - 얼굴 등록·재등록·삭제 중 이전 session과 identity 결과로 AUTO 이동하지 않는다.
 - 익명 session은 custom preset과 profile 장기 기억을 읽거나 저장하지 않는다.
+- session 교대·종료 시 이전 AI 상세 응답을 즉시 숨기고 늦은 turn이 다시 나타나지 않는다.
+- profile 삭제는 장기 기억까지 제거하며 memory 삭제 실패에서는 profile DB를 보존한다.
 
 ## 제외 범위와 알려진 제한
 

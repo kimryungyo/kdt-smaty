@@ -81,7 +81,7 @@ MANUAL preset과 Voice 응답을 시연할 수 있다. 장치나 네트워크가
 
 ### 설정과 등록
 
-- [ ] profile 이름·키·앉은·선 높이·유지 시간과 조명을 저장한다.
+- [ ] profile 이름·앉은·선 높이와 조명을 저장하고 키·자세 유지 시간 필드가 없는지 확인한다.
 - [ ] 사용자 높이 preset을 생성·수정·삭제한다.
 - [ ] 얼굴 등록을 취소·재시도하고 성공 뒤 background 재인식으로 session을 만든다.
 - [ ] profile 설정 화면을 열어도 current user와 Desk가 바뀌지 않는다.
@@ -89,12 +89,12 @@ MANUAL preset과 Voice 응답을 시연할 수 있다. 장치나 네트워크가
 ### 자동·수동 제어
 
 - [ ] 얼굴로 사용자가 확정되면 새 `sessionId`와 AUTO가 표시된다.
-- [ ] 얼굴 없이 상단 몸체/얼굴과 하단 하체·자세가 3초 안정화되면 익명 session이 표시된다.
+- [ ] 등록 얼굴 확정 없이 상단 몸체 또는 얼굴과 하단 하체·자세가 3초 안정화되면 익명 session이 표시된다.
 - [ ] 익명 최초 AUTO가 2초 더 기다린 뒤 앉음 75cm·섬 110cm 목표를 선택한다.
 - [ ] 익명 AUTO 이동 중 얼굴이 식별되면 새 등록 session과 profile 목표로 안전하게 교체된다.
 - [ ] 앉음·섬을 유지하면 각 profile 높이로 한 번 이동한다.
 - [ ] preset 클릭 후 MANUAL로 유지되고 자세 변화가 목표를 덮어쓰지 않는다.
-- [ ] 명시적 AUTO 복귀가 STOP과 fresh 자세 안정화 뒤 동작한다.
+- [ ] 같은 session에서 사용자가 AUTO를 다시 선택하면 STOP과 fresh 자세 5초 확인 뒤 동작한다.
 - [ ] HOLD release·page hide·network 단절에서 제한 시간 안에 정지한다.
 
 ### 사용자·Vision 경계
@@ -113,6 +113,8 @@ MANUAL preset과 Voice 응답을 시연할 수 있다. 장치나 네트워크가
 - [ ] Voice가 current user의 기억만 사용하고 사용자 없음에서는 개인 기억을 사용하지 않는다.
 - [ ] 익명 Voice history는 session 안에서만 유지되고 등록 전환·종료에서 폐기된다.
 - [ ] 사용자 교대 중 Assistant turn이 잘못된 profile 기억에 저장되지 않는다.
+- [ ] 사용자 교대·session 종료 즉시 이전 AI 상세 응답이 메인 화면에서 사라진다.
+- [ ] profile 삭제가 장기 기억·얼굴·preset을 함께 삭제하고 기억 삭제 실패에서는 DB를 보존한다.
 - [ ] 같은 turn의 음성 응답과 Dashboard 상세 응답이 일치한다.
 - [ ] WLED·Desk tool 실패가 기능별 오류로 표시되고 안전 경계를 우회하지 않는다.
 

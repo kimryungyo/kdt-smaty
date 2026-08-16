@@ -96,8 +96,8 @@ false negative는 사용자 변경 근거가 아니다.
 - A 중 고품질 `UNKNOWN_FACE`가 3초 안정화되면 A AUTO와 session을 종료하고 새 익명 AUTO
   session을 시작한다. A와 미등록 얼굴이 동시에 보이면 `MULTIPLE`로 처리한다.
 - `MULTIPLE`, count 불일치와 관측 연속성 단절은 session을 유지하지만 AUTO를 STOP·차단한다.
-  등록 session은 같은 얼굴 재확인, 익명 session은 단일 재실 3초 재안정화 뒤 AUTO를
-  재개한다.
+  등록 session은 같은 얼굴 재확인, 익명 session은 단일 재실 3초 재안정화 뒤 AUTO 차단을
+  해제한다.
 
 ### session 종료
 
