@@ -27,16 +27,20 @@
 
 1. Dashboard의 page 상태와 서버의 사용자·Vision·제어 상태를 합치지 않는다.
 2. Dashboard에서 연 profile은 설정 대상일 뿐 현재 사용자가 아니다.
-3. 현재 사용자는 서버가 안정화한 얼굴 식별 결과로만 결정한다.
+3. 현재 session은 서버가 안정화한 재실과 얼굴 식별로만 결정한다. 등록 사용자가 확정되지
+   않아도 단일 재실이면 익명 session을 만들며 Dashboard가 사용자를 선택하지 않는다.
 4. 얼굴 식별, 재실·자세 판정과 자동화는 Dashboard가 닫혀도 계속 동작한다.
 5. Dashboard는 명령 API를 호출하고 서버 snapshot을 표시한다. 장기 작업과 정책 판단은
    서버가 담당한다.
-6. 책상 `AUTO`/`MANUAL` 모드는 서버가 소유한다. 새 사용자 session은 `AUTO`로 시작한다.
-7. preset, 직접 목표, HOLD와 STOP 같은 수동 명령은 먼저 `MANUAL`로 전환한다.
-8. 얼굴·자세·센서·릴레이 중 하나라도 불확실하거나 오래됐으면 자동 이동하지 않는다.
-9. 실제 이동은 자동화와 Dashboard 모두 `DeskController`를 통해 요청한다.
-10. 얼굴 원본과 crop은 기본 저장하지 않고 등록 임베딩과 최소 메타데이터만 저장한다.
-11. WLED와 Voice는 필수 lifecycle 서비스로 시작한다.
+6. 책상 `AUTO`/`MANUAL` 모드는 서버가 소유한다. 새 등록·익명 session은 `AUTO`로 시작한다.
+7. session 안의 preset, 직접 목표, HOLD와 사용자 STOP은 먼저 `MANUAL`로 전환한다.
+   session이 없어도 HOLD, 직접 목표와 STOP은 허용한다.
+8. 최초 이동 이후 자세 전환과 사용자의 AUTO 재활성화는 등록·익명 모두 fresh 자세 5초를
+   확인하며 profile별 시간 설정은 두지 않는다.
+9. Vision 불확실성은 AUTO만, 센서·MQTT·릴레이 안전 오류는 자동·수동 이동을 모두 차단한다.
+10. 실제 이동은 자동화와 Dashboard 모두 `DeskController`를 통해 요청한다.
+11. 얼굴 원본과 crop은 기본 저장하지 않고 등록 임베딩과 최소 메타데이터만 저장한다.
+12. WLED와 Voice는 필수 lifecycle 서비스로 시작한다.
 
 ## 전체 흐름
 
@@ -55,8 +59,9 @@ Dashboard
   └─ AI 화면 응답 표시
 
 서버 background Vision
-  → 얼굴로 현재 사용자 확정
-  → 사용자 profile 조회
+  → 상단 몸체/얼굴 + 하단 하체로 단일 재실 확정
+  → 등록 또는 익명 사용자 session 생성
+  → profile 높이 또는 익명 기본 75/110cm 선택
   → AUTO 자세 정책 또는 MANUAL 명령
   → DeskController
 ```
@@ -69,7 +74,7 @@ Dashboard
 | profile 설정 대상 | 브라우저 UI 상태 | 현재 사용자에 반영하지 않음 |
 | 얼굴 등록 | 시작·취소와 진행 표시 | frame 수집·임베딩 추출·저장 |
 | 얼굴 식별 | read-only 표시 | background 추론·안정화 |
-| 현재 사용자 | read-only 표시 | 얼굴 식별로 단독 결정 |
+| 현재 사용자 | read-only 표시 | 재실·얼굴로 등록/익명 session 결정 |
 | 자세·재실 | read-only 표시 | background 판정·freshness |
 | 제어 모드 | 변경 명령·표시 | session 상태 소유 |
 | 자동 높이 | 상태·차단 이유 표시 | Vision·profile·Desk 조합 |
@@ -78,3 +83,16 @@ Dashboard
 
 Dashboard polling이 중단돼도 사용자 이탈로 간주하지 않는다. 현재 사용자 해제와 안전 STOP은
 서버의 재실·freshness 정책이 결정한다.
+
+## 확정된 session 요약
+
+- 상단 책상 ROI의 몸체 또는 얼굴 한 명과 하단 하체 한 명, 자세가 3초 안정화되면 session을
+  시작한다.
+- 등록 얼굴이면 profile session, 아니면 익명 session이며 익명 높이는 앉음 75cm·섬 110cm다.
+- 최초 AUTO 목표는 session 시작 뒤 2초 동안 조건이 유지돼야 한다.
+- 이후 자세 전환과 같은 session의 명시적 AUTO 재활성화는 자세를 5초 확인한다.
+- 얼굴이 안 보여도 fresh 단일 재실이 이어지면 session과 AUTO를 유지한다.
+- 다중·count 불일치는 session을 유지하고 AUTO만 STOP하며 수동 제어는 허용한다.
+- 안정 VACANT로 session이 끝난 뒤 fresh VACANT 30초가 이어지면 75cm park를 시도한다.
+- 사용자 종속 mode·preset·Voice Desk 명령은 `expectedSessionId`를 검증하고 STOP은 항상
+  우선한다.

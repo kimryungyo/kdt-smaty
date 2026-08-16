@@ -20,8 +20,10 @@
 
 ## 첫 구현의 관측 범위
 
-첫 버전은 범용 다중 사람 추적이나 카메라 간 Re-ID를 목표로 하지 않는다. 하나의 책상 ROI에
-한 명만 있는 경우를 정상 자동화 후보로 보고 다음 상황은 fail-closed한다.
+첫 버전은 범용 다중 사람 추적이나 카메라 간 Re-ID를 목표로 하지 않는다. 상단 책상 ROI의
+몸체 또는 얼굴 한 명과 하단 책상 ROI의 하체 한 명이 fresh하게 결합된 경우를 정상 자동화
+후보로 보고 다음 상황은 fail-closed한다. 상단 얼굴과 몸체는 같은 사람의 존재 근거로
+결합하며 count를 더하지 않는다.
 
 - 어느 카메라든 책상 ROI에서 여러 사람이 검출됨
 - 두 카메라의 인원수 또는 관측 시각이 허용 범위를 벗어남
@@ -33,13 +35,13 @@
 
 ## 공개 관측 모델
 
-구체적 이름은 task 01에서 확정하되 Vision API는 최소한 다음을 분리해 제공한다.
+task 01에서 확정한 이름으로 Vision API는 최소한 다음을 분리해 제공한다.
 
 | 정보 | 예시 내용 |
 | --- | --- |
 | 카메라 | 연결 상태, 마지막 frame 시각, frame age와 오류 |
 | 인원수 | 카메라별 raw count, 안정화 count와 ROI |
-| 재실 | `PRESENT`, `VACANT`, `UNKNOWN`, 관측·만료 시각 |
+| 재실 | `PRESENT_SINGLE`, `VACANT`, `MULTIPLE`, `UNKNOWN`, 관측·만료 시각 |
 | 자세 | `SITTING`, `STANDING`, `UNKNOWN`, 후보와 유지 시간 |
 | 결합 상태 | 두 카메라 시각 일치, 인원수 일치와 자동화 사용 가능 여부 |
 
@@ -49,11 +51,16 @@ API로 노출하지 않는다.
 
 ## 구현 단계
 
+실물 하단 카메라가 없어도 snapshot 모델, detector adapter, fake frame 기반 안정화·freshness,
+lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최종 확인과 threshold 보정은
+카메라 연결 뒤 완료하며, 이 실물 항목 때문에 task 전체 착수를 막지 않는다.
+
 ### 입력과 전처리
 
 - [ ] 두 `RtspFrameSource`를 container에서 Vision service에 주입할 수 있게 보관한다.
-- [ ] 실제 카메라 경로, 설치 방향, 해상도·FPS와 책상 ROI를 확인한다.
+- [ ] 설정 기반 카메라 경로·방향·해상도·FPS와 책상 ROI 구조를 만들고 실물 연결 뒤 값을 확인한다.
 - [ ] 카메라별 처리 주기, frame 만료와 detector 결과 만료 설정을 정의한다.
+- [ ] 상단 몸체/얼굴과 하단 하체의 책상 ROI 및 singleton 결합을 구현한다.
 - [ ] 같은 frame을 중복 추론하지 않도록 frame sequence 또는 captured time을 추적한다.
 - [ ] resize, crop과 색공간 변환을 담당하는 최소 전처리 경계를 구현한다.
 
@@ -65,6 +72,7 @@ API로 노출하지 않는다.
 - [ ] raw 결과와 안정화 결과를 구분하고 앉음·섬 후보 유지 timer를 구현한다.
 - [ ] frame·결과 만료, model 오류와 task 종료에서 `UNKNOWN`으로 전환한다.
 - [ ] 두 카메라 결과의 시각·인원수 일치 여부를 계산한다.
+- [ ] 단일 재실과 자세의 3초 안정화에 distinct frame과 monotonic clock을 사용한다.
 
 ### lifecycle과 API
 

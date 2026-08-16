@@ -2,9 +2,10 @@
 
 ## 사용자 결과
 
-Voice는 얼굴로 확정한 현재 사용자의 기억과 profile 설정만 사용한다. 미등록·불확실·다중
-사용자 상태에서는 이전 사람의 기억을 가져오거나 저장하지 않는다. 음성 답변과 함께 필요한
-상세 정보는 같은 Assistant turn으로 Dashboard에 표시된다.
+Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을 사용한다. 익명 session은
+일반 대화와 session 범위의 짧은 history만 사용하고 장기 기억을 읽거나 저장하지 않는다.
+다중·count 불일치에서는 이전 사람의 개인화를 일시 차단한다. 음성 답변과 함께 필요한 상세
+정보는 같은 Assistant turn으로 Dashboard에 표시된다.
 
 ## 현재 상태
 
@@ -18,12 +19,22 @@ Voice는 얼굴로 확정한 현재 사용자의 기억과 profile 설정만 사
 
 - Dashboard에서 편집한 profile은 Voice 사용자 문맥이 아니다.
 - fresh하고 사용 가능한 current user session에서만 `profile:<profile_id>` 기억을 사용한다.
+- 익명 session은 profile memory 없이 `sessionId` 범위의 짧은 history만 유지한다.
 - Assistant turn 시작 시 `sessionId`와 profile ID를 캡처한다.
 - turn 완료 시 session이 바뀌거나 정책상 불확실해졌다면 이전 profile 장기 기억에 저장하지
   않는다.
 - 화면 응답 delivery ID와 기억 user ID를 혼동하지 않는다.
-- 얼굴 식별이 없더라도 일반 비개인화 질문을 허용할지는 task 01과 Voice 정책에서 별도로
-  정하고, 허용하더라도 사용자별 기억은 사용하지 않는다.
+- 익명 또는 session 없음에서도 일반 비개인화 질문을 허용하되 사용자별 기억은 사용하지 않는다.
+
+## 삭제와 화면 노출 정책
+
+- 장기 기억은 기존 설계대로 등록 사용자, `explicit_only`, raw transcript 비저장을 유지한다.
+- profile 삭제는 `profile:<profile_id>` 장기 기억 전체 삭제를 먼저 완료한 뒤 얼굴·preset과
+  profile row를 삭제한다. 기억 삭제 실패 시 profile DB는 유지하고 `503`으로 재시도를
+  안내한다.
+- current `sessionId`가 다른 값으로 바뀌거나 `null`이 되면 Dashboard에서 직전 session의 AI
+  상세 응답을 즉시 숨긴다. 익명→등록처럼 같은 사람일 가능성이 있어도 새 session이면 같은
+  규칙을 적용한다.
 
 ## Assistant turn 모델
 
@@ -49,7 +60,8 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 
 - [ ] VoiceService 또는 AssistantService가 current user snapshot을 안전하게 읽도록 주입한다.
 - [ ] turn 시작 시 사용자 session을 캡처하고 transcript·tool·memory 동작에 전달한다.
-- [ ] session 없음·재검증·교대 상태의 비개인화 동작과 memory 차단을 구현한다.
+- [ ] 익명·session 없음·다중·교대 상태의 비개인화 동작과 memory 차단을 구현한다.
+- [ ] 익명 session 종료와 등록 전환에서 익명 짧은 history를 폐기한다.
 - [ ] 서버 재시작 또는 session 종료 후 이전 profile 문맥이 process state에 남지 않게 한다.
 
 ### 기억 경계
@@ -57,7 +69,7 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 - [ ] `profile:<profile_id>` namespace를 사용하는 memory service 경계를 구현한다.
 - [ ] 검색·저장할 정보, 최대 결과 수, timeout과 실패 fallback을 정한다.
 - [ ] turn 완료 시 같은 session인지 다시 확인한 뒤에만 사용자 기억을 저장한다.
-- [ ] profile 삭제 시 장기 기억 삭제·보존 정책과 운영 절차를 확정한다.
+- [ ] profile 삭제 전에 장기 기억 전체 삭제를 완료하고 실패 시 profile DB를 보존한다.
 - [ ] transcript, 사용자 ID와 기억 내용의 로그·보존·민감정보 범위를 문서화한다.
 
 ### Dashboard 응답
@@ -65,7 +77,7 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 - [ ] 음성 문장과 화면용 상세 응답을 하나의 Assistant 결과로 생성한다.
 - [ ] 최신 turn snapshot 또는 event API와 Dashboard 표시를 구현한다.
 - [ ] 늦게 완료된 과거 turn이 새 turn 화면을 덮어쓰지 않도록 `turnId`·sequence를 사용한다.
-- [ ] 사용자 교대 시 이전 turn을 계속 표시할지 접을지와 개인 정보 노출 규칙을 적용한다.
+- [ ] session 교대·종료 시 이전 turn의 Dashboard 상세 응답을 즉시 숨긴다.
 - [ ] tool 실행 중·성공·부분 실패를 음성과 화면에서 모순 없이 표현한다.
 
 ### tool 정책
@@ -85,10 +97,12 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 ## 검증
 
 - A와 B profile의 기억이 서로 검색·저장되지 않는다.
-- current user가 없는 turn은 이전 사용자의 memory와 profile 설정을 사용하지 않는다.
+- 익명 또는 current user가 없는 turn은 이전 사용자의 memory와 profile 설정을 사용하지 않는다.
 - A session에서 시작해 B session에서 끝난 turn이 A나 B 기억에 잘못 저장되지 않는다.
 - Dashboard의 editing profile 변경이 Voice 사용자와 memory namespace를 바꾸지 않는다.
 - 늦은 과거 turn 응답이 최신 Dashboard 응답을 덮어쓰지 않는다.
+- session 교대·종료 뒤 이전 turn이 완료돼도 이전 사용자의 상세 응답이 다시 나타나지 않는다.
+- 장기 기억 삭제 실패 시 profile·얼굴·preset DB가 삭제되지 않고 재시도할 수 있다.
 - 같은 turn의 음성·화면 응답과 tool 결과가 일관된 성공·오류를 나타낸다.
 - memory 또는 Dashboard delivery 장애가 Voice 기본 응답과 안전 STOP 처리를 막지 않는다.
 
