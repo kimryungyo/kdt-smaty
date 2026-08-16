@@ -20,8 +20,9 @@
 | [구현 계획](implementation-plan.md) | 현재 차이, 구현 순서와 검증 시나리오 |
 
 책상 relay 자체의 물리 안전과 pulse 정책은
-[책상 제어와 안전](../architecture/desk-safety.md)을 기준으로 한다. Voice 내부 상태 머신은
-[AI 음성 스피커](../architecture/ai-voice-assistant.md)를 기준으로 한다.
+[책상 제어와 안전](../architecture/desk-safety.md)을 기준으로 한다. Voice의 현재 legacy
+기준선은 [AI 음성 스피커](../architecture/ai-voice-assistant.md), 전환 목표와 구현 우선순위는
+[Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)을 기준으로 한다.
 
 ## 공통 원칙
 
@@ -41,6 +42,9 @@
 10. 실제 이동은 자동화와 Dashboard 모두 `DeskController`를 통해 요청한다.
 11. 얼굴 원본과 crop은 기본 저장하지 않고 등록 임베딩과 최소 메타데이터만 저장한다.
 12. WLED와 Voice는 필수 lifecycle 서비스로 시작한다.
+13. Agent function tool은 기존 public domain service만 호출하고 물리 부작용 직전에
+    `sessionId`와 안전 정책을 재검증한다.
+14. 사용자 session 교대·종료는 이전 Agent run·TTS·follow-up과 SDK 대화 session을 취소·폐기한다.
 
 ## 전체 흐름
 
@@ -50,7 +54,7 @@ FastAPI lifespan
   ├─ CameraPublisher / RtspFrameSource
   ├─ 얼굴 식별 / 재실 / 자세 / CurrentUser
   ├─ AutomationService
-  └─ WLED / Voice
+  └─ WLED / Agents Voice runtime / Voice
 
 Dashboard
   ├─ profile과 얼굴 등록 설정
@@ -96,3 +100,6 @@ Dashboard polling이 중단돼도 사용자 이탈로 간주하지 않는다. �
 - 안정 VACANT로 session이 끝난 뒤 fresh VACANT 30초가 이어지면 75cm park를 시도한다.
 - 사용자 종속 mode·preset·Voice Desk 명령은 `expectedSessionId`를 검증하고 STOP은 항상
   우선한다.
+- 책상 session, Agents SDK 대화 session과 짧은 VoicePipeline 실행은 서로 다른 수명이다.
+- session 없음·다중 상태의 일반 질문은 임시 비개인화 session만 사용하고 기존 사용자
+  대화·Mem0에 접근하지 않는다.

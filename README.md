@@ -50,7 +50,7 @@ AI: "상세한 해설을 화면에 표시했습니다."                     (짧
 현재 수동 STT → Responses → TTS 구현은 별도 feature branch에서 OpenAI Agents SDK
 `VoicePipeline`으로 교체한다. 확정된 model, VAD, 사용자 session과 Mem0/Docker 정책은
 [Agents SDK 음성 파이프라인 전환 결정](docs/architecture/agents-sdk-voice-pipeline.md)을
-따른다.
+따른다. 아래 구조는 아직 `main`에서 실행 중인 legacy 기준선이다.
 
 ```text
 Microphone → VoiceService → STT → AssistantService → TTS

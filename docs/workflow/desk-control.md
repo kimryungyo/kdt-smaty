@@ -139,6 +139,11 @@ STOP한다. 요청 유실 시 `DeskController` watchdog과 ESP32 pulse timeout�
 session이 없어도 HOLD와 직접 목표를 허용하지만 profile·익명 자세 preset은 현재 session과
 `expectedSessionId`가 있어야 한다. STOP과 목표 CANCEL은 session 검증보다 먼저 처리한다.
 
+Agents SDK Desk function tool은 Dashboard와 같은 `AutomationService` public command를
+호출한다. model이 tool call을 생성한 시점의 검증만 신뢰하지 않고 실제 부작용 실행 직전에
+turn 시작 `sessionId`를 command lock 안에서 다시 비교한다. session이 바뀌면 목표를 만들지
+않고 거절하며 STOP은 이 검증과 무관하게 우선한다.
+
 ## 높이 preset 모델
 
 등록 사용자 Dashboard에는 자세별 높이와 custom preset을 하나의 목록으로 표시하지만 저장은

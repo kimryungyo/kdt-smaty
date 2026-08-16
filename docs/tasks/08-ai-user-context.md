@@ -1,4 +1,7 @@
-# 08. AI 사용자 문맥
+# 08. Agents SDK 음성과 AI 사용자 문맥
+
+Agents SDK 교체의 model, VoicePipeline, session adapter와 Mem0 배포 기준은
+[Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)을 따른다.
 
 Agents SDK 교체의 model, VoicePipeline, session adapter와 Mem0 배포 기준은
 [Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)을 따른다.
@@ -73,9 +76,28 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 
 ## 구현 단계
 
+### Agents SDK 음성 전환
+
+- [ ] `openai-agents[voice]`, `openai`, NumPy와 native audio dependency가 함께 해석되는 version
+  조합을 고정하고 x86·Raspberry Pi에서 import를 검증한다.
+- [ ] `AgentsVoiceRuntime`과 프로젝트용 Agent workflow를 만들고 model·STT·TTS·VAD 설정을
+  한 조립 경계에서 명시한다.
+- [ ] microphone은 24kHz mono PCM16으로 한 번 capture하고, Wake Word 입력만 stateful
+  resampler로 16kHz로 변환해 원본 24kHz chunk를 VoicePipeline에 전달한다.
+- [ ] final transcript 전에 Desk·WLED 같은 부작용 tool을 실행하지 않고, SDK hosted/function
+  tool이 기존 public domain service만 호출하게 한다.
+- [ ] 긴 tool 전 진행 안내와 최종 응답을 같은 Agent run·`turnId`에서 streaming TTS로
+  재생하고 TTS 자체를 function tool로 만들지 않는다.
+- [ ] 일반 응답은 Wake Word 대기로 돌아가며 Agent가 `request_followup`을 호출한 경우에만
+  TTS drain과 정책 재검증 뒤 제한된 follow-up 창을 연다.
+- [ ] 전환 완료 후 `OpenAiGateway`, 수동 Responses/tool loop, local RMS 발화 종료와 WAV STT
+  경로를 제거하고 legacy/SDK 이중 실행 flag를 두지 않는다.
+- [ ] SDK lifecycle·usage·tool·오류 event를 provider 중립 Voice/Assistant snapshot으로
+  변환하고 OpenAI SDK 타입을 Dashboard·AutomationService에 노출하지 않는다.
+
 ### 현재 사용자 연결
 
-- [ ] VoiceService 또는 AssistantService가 current user snapshot을 안전하게 읽도록 주입한다.
+- [ ] `AgentsVoiceRuntime`이 current user snapshot을 안전하게 읽도록 adapter를 주입한다.
 - [ ] turn 시작 시 사용자 session을 캡처하고 transcript·tool·memory 동작에 전달한다.
 - [ ] session 변경 event를 구독해 이전 Agent run·대기 tool·TTS·follow-up을 취소하고 SDK
   session을 폐기한다.
@@ -124,6 +146,11 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 
 ## 검증
 
+- Wake Word는 16kHz 입력을 받고 VoicePipeline은 24kHz 원본을 받으며 장시간 resampling에서
+  underrun이나 비정상 CPU 누적이 없다.
+- partial transcript로 부작용 tool이 실행되지 않고, 설정한 VAD가 SDK 기본값과 무관하게
+  적용된다.
+- 일반 답변은 Wake Word로 복귀하고 `request_followup` turn만 후속 입력을 연다.
 - A와 B profile의 기억이 서로 검색·저장되지 않는다.
 - 익명 또는 current user가 없는 turn은 이전 사용자의 memory와 profile 설정을 사용하지 않는다.
 - A session에서 시작해 B session에서 끝난 turn이 A나 B 기억에 잘못 저장되지 않는다.
@@ -141,6 +168,8 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 
 ## 완료 조건
 
+- 운영 Voice 경로가 Agents SDK VoicePipeline 하나로 동작하고 legacy gateway·수동 tool loop가
+  남아 있지 않다.
 - Voice와 Dashboard AI 응답이 같은 서버 current user 근거와 `turnId`를 사용한다.
 - 사용자 session 전환 시 이전 Agent 실행·출력·단기 대화 session이 새 사용자에게 넘어가지
   않는다.

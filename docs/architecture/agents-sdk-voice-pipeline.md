@@ -1,7 +1,8 @@
 # OpenAI Agents SDK 음성 파이프라인 전환 결정
 
 **결정 기준일:** 2026-08-16
-**적용 브랜치:** `feat/agents-sdk-voice-pipeline`
+**문서 상태:** 확정된 전환 목표 — `main`의 현재 구현은 아직 legacy 경로
+**구현 브랜치:** `feat/agents-sdk-voice-pipeline`
 
 이 문서는 현재 구현된 수동 STT → Responses → TTS 파이프라인을 OpenAI Agents SDK의
 `VoicePipeline` 중심 구조로 교체할 때 따라야 할 확정안을 기록한다. 현재 코드의 기준선과
@@ -381,8 +382,5 @@ dependency 해석 결과와 native audio import는 x86 개발 환경과 Raspberr
 - [OpenAI Realtime VAD](https://developers.openai.com/api/docs/guides/realtime-vad)
 - [OpenAI Voice Agents](https://developers.openai.com/api/docs/guides/voice-agents)
 - [OpenAI Agents SDK 실행](https://developers.openai.com/api/docs/guides/agents/running-agents)
-- [OpenAI Agents SDK VoicePipeline](https://openai.github.io/openai-agents-python/voice/pipeline/)
-- [OpenAI Agents SDK function tools](https://openai.github.io/openai-agents-python/tools/)
-- [OpenAI Agents SDK sessions](https://openai.github.io/openai-agents-python/sessions/)
 - [Mem0 OSS Python quickstart](https://docs.mem0.ai/open-source/python-quickstart)
 - [Mem0 self-hosted setup](https://docs.mem0.ai/open-source/setup)
