@@ -266,7 +266,12 @@ FFmpeg는 `CameraPublisher`가 관리하는 FastAPI 자식 process이고, MediaM
 
 ## 애플리케이션 컴포넌트
 
-### `AssistantService`와 `OpenAiGateway`
+### `AssistantService`와 `OpenAiGateway` (현재 구현)
+
+아래 경계는 현재 실행 코드의 기준선이다. Agents SDK 교체 후에는 `OpenAiGateway`와 수동
+tool/history loop를 제거하고 `AgentsVoiceRuntime`, `SmartDeskVoiceWorkflow`와 SDK session으로
+대체한다. 목표 책임과 이전 범위는
+[Agents SDK 음성 파이프라인 전환 결정](agents-sdk-voice-pipeline.md)을 따른다.
 
 `OpenAiGateway`는 `AsyncOpenAI(max_retries=0)` 하나로 memory WAV file transcription,
 Responses structured output와 24kHz PCM TTS stream을 제공한다. `store=False` request 뒤

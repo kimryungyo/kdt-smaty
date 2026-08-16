@@ -111,6 +111,11 @@ MediaMTX와 MQTT broker는 애플리케이션 이미지에 합치지 않는다. 
   경로로 바꿔야 한다.
 - Voice는 optional dependency이며 활성화하면 ALSA/PortAudio 장치, wakeword model,
   효과음과 OpenAI secret이 필요하다.
+- 위 optional 동작은 현재 코드 기준선이다. task 02 완료 후 운영 `fin-main`은 Voice/Agents SDK
+  dependency를 포함하고 Voice lifecycle을 항상 조립하며, 오디오 장치 단절만 기능별
+  degraded 상태로 처리한다.
+- Mem0 OSS는 별도 REST service가 아니라 `fin-main`에 Python library로 포함한다. 현재
+  `data/mem0`, Docker 전환 후 `/app/data/mem0`를 persistent volume에 둔다.
 
 ### 카메라 송출
 
@@ -250,7 +255,7 @@ section만 검증할 수 있게 해야 한다. 특히 Main과 Vision이 MQTT에 
 
 | 실행 역할 | 핵심 설정 후보 |
 | --- | --- |
-| `fin-main` | `MQTT__HOST=mqtt`, SQLite `/app/data/smart_desk.db`, 세 camera publish/receive 모두 false |
+| `fin-main` | `MQTT__HOST=mqtt`, SQLite `/app/data/smart_desk.db`, Mem0 `/app/data/mem0`, 세 camera publish/receive 모두 false |
 | `fin-vision` | `MQTT__HOST=mqtt`, 고유 client ID, RTSP host `mediamtx`, camera별 receive/분석 enable |
 | user publisher | user publish만 true, `DEVICE=/dev/user-cam`, `PUBLISH_URL=rtsp://mediamtx:8554/user-cam` |
 | workspace publisher | workspace publish만 true, `DEVICE=/dev/workspace-cam`, `PUBLISH_URL=rtsp://mediamtx:8554/workspace-cam` |
@@ -304,10 +309,14 @@ SMART_DESK_VISION__POSTURE__RTSP_URL=rtsp://media.smartdesk.lan:8554/posture-cam
 - frontend Node build stage와 Python runtime stage를 분리한다.
 - Uvicorn worker 1개를 명시하고 기존 `/health/live`, `/health/ready`를 healthcheck로
   사용한다.
-- SQLite volume, serial 장치와 optional audio 장치를 선택적으로 연결한다.
+- SQLite volume과 serial 장치를 연결한다. production은 audio 장치도 연결하고, 장치 없는
+  개발·CI profile은 Voice 객체를 생략하지 않고 fake 또는 degraded 상태를 사용한다.
+- `mem0ai`는 Main image의 Voice/AI dependency에 포함하고 `/app/data/mem0`를 영속 volume으로
+  연결한다. 단일 Main worker에서는 별도 Mem0 API·Dashboard·Postgres container를 만들지 않는다.
 - Main 컨테이너에서는 카메라 publish와 RTSP receive를 기본적으로 끈다. 카메라는 전용
   publisher, 영상 처리는 `fin-vision`이 담당하는 배치를 기본으로 한다.
-- Voice가 없는 이미지와 Voice dependency를 포함한 이미지/target을 분리할지 검토한다.
+- Voice가 없는 경량 image/target은 개발·CI 전용으로만 검토한다. production `fin-main`에서
+  Voice lifecycle 등록을 생략하는 선택지로 사용하지 않는다.
 
 ### `fin-camera-publisher`
 
@@ -348,7 +357,7 @@ Compose 설계에는 다음이 포함돼야 한다.
 - 서비스별 command, restart policy, healthcheck와 stop grace period
 - Main HTTP, MediaMTX RTSP/WebRTC/HLS, MQTT 중 외부 노출이 필요한 포트
 - 내부 network와 LAN 노출 경계
-- SQLite named volume 또는 bind mount와 backup 경로
+- SQLite와 Mem0 named volume 또는 bind mount 및 각각의 backup 경로
 - model cache/weight의 image 포함 여부 또는 read-only mount
 - hardware 없는 개발 profile
 - user/workspace 로컬 publisher profile
@@ -378,8 +387,9 @@ Compose `devices`로 실제 장치 node를 고정 컨테이너 경로에 mapping
 `c 81:*` 허용이나 privileged mode는 편의성보다 접근 범위를 먼저 평가한다.
 
 오디오 컨테이너화는 카메라보다 복잡하다. ALSA 직접 mapping, host PulseAudio/PipeWire
-socket 사용 여부와 실행 UID의 audio group을 실제 장치에서 검증한다. Voice를 먼저
-비활성화한 기본 Main image/Compose를 성공시킨 뒤 optional profile로 추가한다.
+socket 사용 여부와 실행 UID의 audio group을 실제 장치에서 검증한다. 첫 Compose 검증은
+장치 없는 degraded/fake Voice로 진행할 수 있지만 production profile은 audio mapping과
+Voice lifecycle을 필수로 검증한다.
 
 ## 네트워크와 보안
 
@@ -517,7 +527,7 @@ Vision 상태가 없더라도 수동 STOP은 항상 가능해야 한다. Vision 
 | MQTT/MediaMTX를 Compose가 소유할지 | 신규 배포부터 Compose 소유, 기존 설정 migration |
 | LAN DNS/고정 주소 방식 | `media.smartdesk.lan`, `mqtt.smartdesk.lan` 같은 고정 이름 |
 | MQTT/MediaMTX 인증 | 최소 계정 분리와 LAN firewall 적용 |
-| Main 호스트에 남을 serial/audio 장치 | serial 필수, Voice는 optional profile부터 시작 |
+| Main 호스트에 남을 serial/audio 장치 | serial과 audio 모두 Main에 연결, audio mapping은 별도 실측 |
 | Vision 모델과 가속 backend | 모델 선정 후 CPU 기준선 측정, 필요 시 하드웨어 가속 추가 |
 | browser preview protocol | MediaMTX WebRTC/HLS 실측 뒤 하나를 기본으로 확정 |
 

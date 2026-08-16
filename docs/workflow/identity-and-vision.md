@@ -161,3 +161,9 @@ AUTO에는 현재 session, fresh `PRESENT_SINGLE`, 귀속 가능한 fresh 자세
 session 범위의 짧은 history만 사용하고 profile 장기 기억을 읽거나 저장하지 않는다.
 `MULTIPLE`과 count 불일치에서는 등록 사용자 개인화를 일시 차단한다. Dashboard에서 편집한
 profile을 Voice 사용자로 사용하지 않는다.
+
+`CurrentUserSessionService`는 Voice가 turn 시작 상태를 원자적으로 capture하고 실행 직전에
+`sessionId`를 검증할 수 있는 snapshot·검증 API와 순서가 보장된 변경 event를 제공한다.
+교대·종료 event는 이전 Agent run·TTS·follow-up 취소와 SDK 대화 session 폐기의 근거다.
+session 없음·다중 상태의 일반 질문은 별도 임시 비개인화 session을 사용하며 기존 사용자
+대화나 Mem0를 읽고 쓰지 않는다.

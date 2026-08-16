@@ -25,9 +25,13 @@ profile 높이, 익명 사용자는 앉음 75cm·섬 110cm를 사용한다. 최�
 | AutomationService | mode, 자세 안정화, 사용자 의도와 목표 선택 |
 | DeskController | 높이·relay 안전, 실제 목표/HOLD/STOP 실행 |
 | Dashboard | 명령 전송과 snapshot 표시 |
+| Agents SDK Desk function tool | turn의 `sessionId`를 전달하고 공개 command만 호출 |
 
 `AutomationService`는 relay pulse를 직접 보내지 않는다. `DeskController`는 얼굴이나 profile을
 해석하지 않으며 전달받은 목표와 기존 물리 안전만 검증한다.
+Agents SDK function tool도 `DeskController`나 relay를 직접 호출하지 않고 Dashboard와 같은
+`AutomationService` command 경계를 사용한다. AutomationService에는 Agents SDK 타입을
+유입하지 않는다.
 
 ## 상태와 공개 snapshot
 
@@ -76,7 +80,10 @@ mode 자체를 제거한다.
 - [ ] 사용자 STOP과 안전 STOP의 mode 결과를 구분하고 session 검증보다 먼저 처리한다.
 - [ ] 같은 session의 명시적 AUTO 재활성화는 진행 이동 STOP → 후보 초기화 → AUTO 전환 →
   fresh 자세 5초 확인 순서로 처리한다.
-- [ ] mode·preset·Voice tool의 `expectedSessionId`를 command lock 안에서 비교한다.
+- [ ] mode·preset·Agents SDK Desk function tool의 `expectedSessionId`를 command lock 안에서
+  비교한다.
+- [ ] function tool은 model이 tool call을 만든 시점이 아니라 AutomationService command가
+  실제 부작용을 실행하기 직전에 turn 시작 `sessionId`를 재검증한다.
 - [ ] 등록 자세 preset은 profile 값, custom은 소유권, 익명 자세는 기본값을 서버에서 조회한다.
 - [ ] session 없는 HOLD·직접 목표·STOP을 session이나 mode 생성 없이 처리한다.
 - [ ] 장치 상태 때문에 수동 명령이 실패한 뒤 mode를 어떻게 유지할지 계약대로 적용한다.
@@ -100,7 +107,8 @@ AUTO 기본 mode 자체를 끄는 기능을 추가하지 않는다.
 
 - `DeskController`의 MQTT wire 계약과 ESP32 firmware 재설계
 - Dashboard 화면 레이아웃과 profile 설정 CRUD
-- Voice 명령과 Assistant tool 연결
+- Agents SDK function tool adapter와 Agent prompt 구현(task 08 범위). 이 task는 호출할 공개
+  AutomationService 계약과 안전 검증까지만 소유한다.
 - 시간 경과에 따른 자동 `MANUAL → AUTO` 전환
 
 ## 핵심 자동 검증
@@ -113,6 +121,8 @@ AUTO 기본 mode 자체를 끄는 기능을 추가하지 않는다.
 - preset·직접 목표·HOLD는 먼저 MANUAL로 바뀌고 이전 자동 목표를 무효화한다.
 - MANUAL에서는 자세가 바뀌어도 자동 목표가 생성되지 않는다.
 - 이전 session ID, 다른 profile preset과 오래된 generation을 거절한다.
+- 사용자 교대와 경합한 Desk function tool은 실제 목표를 만들기 전에 session 불일치로
+  거절하고, STOP은 session 불일치와 무관하게 처리한다.
 - 사용자가 AUTO를 다시 선택하면 기존 이동과 후보를 버리고 fresh 자세 5초를 다시 요구한다.
 - Vision·높이·MQTT·relay 오류 및 명령 경합에서 STOP이 우선한다.
 - session 없는 HOLD·직접 목표와 STOP이 허용되고 사용자 종속 stale 명령만 거절된다.

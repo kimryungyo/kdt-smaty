@@ -113,6 +113,11 @@ MANUAL preset과 Voice 응답을 시연할 수 있다. 장치나 네트워크가
 - [ ] Voice가 current user의 기억만 사용하고 사용자 없음에서는 개인 기억을 사용하지 않는다.
 - [ ] 익명 Voice history는 session 안에서만 유지되고 등록 전환·종료에서 폐기된다.
 - [ ] 사용자 교대 중 Assistant turn이 잘못된 profile 기억에 저장되지 않는다.
+- [ ] 사용자 교대·session 종료가 이전 Agent run·미실행 부작용 tool·TTS·follow-up을 취소하고
+  늦은 audio·화면 event를 폐기한다.
+- [ ] 진행 안내, tool 실행과 최종 응답이 같은 `turnId` 순서로 재생·표시된다.
+- [ ] 다중·session 없음의 일반 질문은 임시 비개인화 session만 사용하고 기존 대화·Mem0에
+  접근하지 않는다.
 - [ ] 사용자 교대·session 종료 즉시 이전 AI 상세 응답이 메인 화면에서 사라진다.
 - [ ] profile 삭제가 장기 기억·얼굴·preset을 함께 삭제하고 기억 삭제 실패에서는 DB를 보존한다.
 - [ ] 같은 turn의 음성 응답과 Dashboard 상세 응답이 일치한다.

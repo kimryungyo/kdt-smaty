@@ -15,25 +15,26 @@
 | 자세별 버튼 | 브라우저 선택 profile 사용 | 현재 session 합성 preset |
 | 사용자 preset | 없음 | CRUD, 합성 조회와 MANUAL 실행 |
 | Vision debug | placeholder | 실제 상태·preview 연결 |
-| AI Dashboard 응답 | 없음 | 별도 화면 응답 연결 |
-| WLED·Voice 시작 | 설정에 따른 조건부 생성 | 필수 lifecycle 서비스 |
+| AI·Voice | 수동 STT→Responses/tool loop→TTS, 화면 응답 없음 | Agents SDK VoicePipeline과 동일 turn의 화면 응답 |
+| WLED·Voice 시작 | 설정에 따른 조건부 생성 | WLED·Agents Voice runtime 필수 lifecycle 서비스 |
 
 현재 얼굴 감지로 특정 profile 화면을 자동으로 여는 코드는 없다. 목표에도 추가하지 않는다.
 
 ## 구현 순서
 
-1. WLED와 Voice의 조건부 생성을 제거하고 필수 시작·오류 정책을 검증한다.
-2. 사용자 키·profile별 자세 시간 입력을 제거하고 전체 자세 전환 확인 시간을 5초로 고정한다.
-3. `desk_presets` schema와 profile 설정 CRUD를 추가한다.
-4. 분리된 Vision snapshot과 등록·익명 `CurrentUserSnapshot` read-only API를 추가한다.
-5. 상단 몸체/얼굴과 하단 하체를 결합하는 재실·자세 loop와 freshness를 구현한다.
-6. 얼굴 임베딩 저장소, background 식별과 등록·익명 session 전이를 구현한다.
-7. Dashboard를 `/` 메인과 `/settings/profiles...` 설정 route로 전면 개편하고 얼굴 등록을 연결한다.
-8. Vision과 현재 사용자를 메인 Dashboard·debug 화면에 표시한다.
-9. `AutomationService`에 `AUTO`/`MANUAL`, 최초 2초 지연, 빈자리 park와 명령 직렬화를 구현한다.
-10. profile·익명 자세 높이와 사용자 preset 합성 조회·실행을 연결한다.
-11. 관측·차단과 mode 전이를 검증한 뒤 자세 기반 실제 자동 목표를 허용한다.
-12. Voice 사용자 문맥과 AI Dashboard 응답을 연결한다.
+1. Voice를 Agents SDK VoicePipeline으로 교체하고 legacy gateway·수동 tool loop를 제거한다.
+2. WLED와 Agents Voice runtime의 조건부 생성을 제거하고 필수 시작·오류 정책을 검증한다.
+3. 사용자 키·profile별 자세 시간 입력을 제거하고 전체 자세 전환 확인 시간을 5초로 고정한다.
+4. `desk_presets` schema와 profile 설정 CRUD를 추가한다.
+5. 분리된 Vision snapshot과 등록·익명 `CurrentUserSnapshot` read-only API를 추가한다.
+6. 상단 몸체/얼굴과 하단 하체를 결합하는 재실·자세 loop와 freshness를 구현한다.
+7. 얼굴 임베딩 저장소, background 식별과 등록·익명 session 전이를 구현한다.
+8. Dashboard를 `/` 메인과 `/settings/profiles...` 설정 route로 전면 개편하고 얼굴 등록을 연결한다.
+9. Vision과 현재 사용자를 메인 Dashboard·debug 화면에 표시한다.
+10. `AutomationService`에 `AUTO`/`MANUAL`, 최초 2초 지연, 빈자리 park와 명령 직렬화를 구현한다.
+11. profile·익명 자세 높이와 사용자 preset 합성 조회·실행을 연결한다.
+12. 관측·차단과 mode 전이를 검증한 뒤 자세 기반 실제 자동 목표를 허용한다.
+13. SDK 대화 session·Mem0·Desk function tool과 AI Dashboard 응답을 사용자 session에 연결한다.
 
 ## 필수 자동 검증
 
@@ -52,6 +53,8 @@
 - fresh VACANT 30초 뒤에만 75cm park하고 사람 후보·수동 명령에서 즉시 취소한다.
 - stale session mode·preset 요청은 `409`, HOLD·직접 높이·STOP은 session 없이 처리한다.
 - 추론 중에도 health와 STOP 응답이 지연되지 않는다.
+- Wake Word 16kHz와 VoicePipeline 24kHz 경로, 명시적 VAD, 조건부 follow-up을 검증한다.
+- 사용자 교대가 이전 Agent run·미실행 tool·TTS·follow-up을 취소하고 SDK session을 폐기한다.
 - session 교대·종료 시 이전 AI 상세 응답을 즉시 숨기고 늦은 turn도 다시 표시하지 않는다.
 - profile 삭제 전에 장기 기억을 삭제하며 실패 시 profile DB를 보존한다.
 

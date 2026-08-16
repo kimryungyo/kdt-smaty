@@ -8,6 +8,14 @@
 상태·전이·명령 계약을 확정한다. 구체적인 모델과 실측 threshold 보정은 후속 task에서 하되,
 안전 정책을 다시 해석하거나 새로 만들지 않는다.
 
+Voice 구현의 문서 우선순위는 범위로 나눈다.
+
+- 이 문서는 사용자·재실 session, `expectedSessionId`, 물리 제어와 STOP 안전 계약의 기준이다.
+- [Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)은
+  `VoicePipeline`, model·STT·TTS·VAD, function tool, SDK session과 Mem0 adapter 구현의 기준이다.
+- 기존 AI 스피커 설계와 Agents SDK 문서가 충돌하면 교체 범위에서는 Agents SDK 문서를
+  따른다. Agents SDK 구현도 이 문서의 사용자 session과 물리 안전 계약을 우회할 수 없다.
+
 ## 사용자 결과
 
 등록 여부와 관계없이 책상 앞에 한 사람이 안정적으로 머물면 사용자 session이 시작된다.
@@ -35,6 +43,17 @@ frame을 `UNKNOWN_FACE`로 승격하지 않는다.
 `ANONYMOUS`는 오류나 공용 profile이 아니다. `profileId=null`과 기본 높이 정책을 가진
 정상적인 process-memory session이다. 익명 profile row, 공용 preset row와 장기 기억
 namespace는 만들지 않는다.
+
+Voice에서 사용하는 session이라는 말은 다음 세 수명을 구분한다.
+
+| 구분 | key와 수명 | 소유자 |
+| --- | --- | --- |
+| 책상 사용자 session | 현재 사용자에게 발급한 `sessionId`, 재실·신원 전환까지 | `CurrentUserSessionService` |
+| Agent 대화 session | 책상 `sessionId`에 연결된 대화 history, 사용자 session 종료까지 | Voice memory adapter |
+| Voice audio 실행 | Wake Word와 조건부 follow-up 묶음, 한 번의 짧은 `VoicePipeline` 실행 | Voice runtime |
+
+한 책상 사용자 session에는 여러 Voice audio 실행과 Assistant turn이 들어갈 수 있다. Agent
+대화 session은 그 실행들 사이의 단기 문맥만 유지하며 profile 장기 기억과 동일하지 않다.
 
 ## 시간과 freshness
 
@@ -127,7 +146,8 @@ session 없음
 
 fresh한 `PRESENT_SINGLE`이 끊기지 않는 동안 얼굴이 계속 보이지 않아도 현재 session,
 profile 귀속과 mode를 유지한다. v1에는 주기적 얼굴 재확인 timeout을 두지 않으며 등록
-session의 AUTO 자세 제어와 Voice 문맥도 계속 사용할 수 있다.
+session의 AUTO 자세 제어와 Agent 대화 session도 계속 사용할 수 있다. 단, 아래의
+`MULTIPLE`·count 불일치 정책에서는 보존만 하고 개인화에 접근하지 않는다.
 
 이 정책은 A와 B가 `VACANT`나 `MULTIPLE` 없이 교대하고 B 얼굴도 보이지 않으면 A session이
 남을 수 있다는 알려진 제한이 있다. 단기 단일 책상 프로젝트에서는 수용하며 실측에서 반복
@@ -146,7 +166,8 @@ session의 AUTO 자세 제어와 Voice 문맥도 계속 사용할 수 있다.
   STOP 확인 후 현재 높이에서 새 목표와 방향을 계산한다.
 - 익명 mode가 `MANUAL`이면 새 등록 session도 `MANUAL`로 시작하고 진행 중인 명시적 수동
   의도를 AUTO가 덮어쓰지 않는다.
-- 익명 session ID, custom preset 권한과 Voice history는 새 등록 session에 상속하지 않는다.
+- 익명 session ID, custom preset 권한과 Agents SDK 대화 history는 새 등록 session에
+  상속하지 않는다.
 
 ### 등록 사용자 A에서 B로
 
@@ -171,6 +192,9 @@ Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
 - 등록 session은 같은 얼굴을 다시 안정적으로 확인한 뒤 AUTO 차단을 해제한다.
 - 익명 session은 fresh한 `PRESENT_SINGLE`을 다시 3초 안정화한 뒤 AUTO 차단을 해제한다.
 - 다른 등록 얼굴이 확인되면 해당 사용자 새 session으로 전환한다.
+- 기존 Agent 대화 session은 보존하지만 차단 중에는 읽거나 쓰지 않고 Mem0에도 접근하지
+  않는다. 일반 비개인화 질문은 해당 Wake Word·follow-up 묶음에만 유효한 임시 session으로
+  처리한다.
 
 ## mode와 명시적 수동 제어
 
@@ -233,16 +257,37 @@ current `sessionId`가 바뀌거나 없어지면 Dashboard는 이전 session의 
 숨긴다. 이전 turn이 늦게 완료돼도 새 session 화면에 다시 전달하지 않고, 이전 profile 장기
 기억에도 저장하지 않는다.
 
+## Voice Agent와 Assistant turn
+
+하나의 Assistant `turnId`는 진행 안내 TTS, tool 호출과 최종 TTS를 하나의 논리적 turn으로
+묶는다. 이 turn은 시작 시 원자적으로 캡처한 `sessionId`, `profileId`와 정책 상태에 귀속된다.
+
+사용자 session 변경·종료는 이전 session을 먼저 무효화한 뒤 비동기 정리를 시작한다. Voice는
+변경 event를 받으면 이전 session의 진행 중 Agent run, 실행되지 않은 부작용 tool, 재생 중·대기
+중 TTS와 조건부 follow-up을 취소하고 해당 SDK 대화 session을 폐기한다. 취소와 경합해 늦게
+도착한 transcript, tool 결과, audio와 Dashboard event는 같은 `turnId`라도 모두 버린다.
+
+session 없음 또는 `MULTIPLE`·count 불일치 중 허용하는 일반 질문은 임시 비개인화 session을
+사용한다. 이 실행은 기존 사용자 Agent session과 Mem0를 읽거나 쓰지 않으며 묶음 종료 후
+폐기한다. 조건부 follow-up도 `request_followup` 요청이 있고 현재 정책을 재검증한 경우에만
+연다.
+
 ## 명령과 동시성 계약
 
 사용자에 종속된 명령은 Dashboard가 마지막으로 읽은 `expectedSessionId`를 전달하고,
 `AutomationService`가 command lock 안에서 현재 session과 비교한다.
 
+`CurrentUserSessionService`는 Voice가 turn 시작 시 사용할 원자적 불변 snapshot, 현재
+`sessionId` 검증과 순서가 보장된 session 변경 event를 제공한다. 구체적인 event API나 SDK
+타입은 이 task의 계약이 아니며 사용자 session service가 Agents SDK 객체를 소유하지 않는다.
+물리 부작용 tool은 model이 호출을 생성한 시점이 아니라 `AutomationService` public API를
+실제로 호출하기 직전에 캡처한 session을 재검증한다.
+
 | 명령 | `expectedSessionId` | 이유 |
 | --- | --- | --- |
 | `AUTO`/`MANUAL` mode 변경 | 필수 | 다른 session mode 변경 방지 |
 | 자세별·custom preset 적용 | 필수 | 현재 session 높이와 소유권 검증 |
-| 향후 Voice Desk tool | 필수 | turn 시작 session 재검증 |
+| Agents SDK Desk function tool | 필수 | turn 시작 capture와 실제 실행 직전 재검증 |
 | HOLD | 불필요 | 신원 독립 명시적 수동 명령 |
 | 직접 높이 | 불필요 | 신원 독립 명시적 수동 명령 |
 | STOP/CANCEL | 검사하지 않음 | 안전 명령 우선 |
@@ -308,6 +353,11 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 - 얼굴 등록·재등록·삭제 중 이전 session과 identity 결과로 AUTO 이동하지 않는다.
 - 익명 session은 custom preset과 profile 장기 기억을 읽거나 저장하지 않는다.
 - session 교대·종료 시 이전 AI 상세 응답을 즉시 숨기고 늦은 turn이 다시 나타나지 않는다.
+- session 교대·종료는 이전 Agent run, 미실행 부작용 tool, TTS와 follow-up을 취소하고 SDK
+  대화 session을 폐기한다.
+- 진행 안내, tool과 최종 응답은 같은 `turnId`로 추적되고 취소 뒤 늦은 event는 모두 버린다.
+- session 없음·다중 상태의 일반 질문은 임시 비개인화 session만 사용하며 기존 Agent
+  대화와 Mem0에 접근하지 않는다.
 - profile 삭제는 장기 기억까지 제거하며 memory 삭제 실패에서는 profile DB를 보존한다.
 
 ## 제외 범위와 알려진 제한
@@ -316,6 +366,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 - ROI 좌표, confidence, frame 수와 카메라 허용 시각 차이의 실측 보정
 - 카메라 간 Re-ID, 장기 trajectory와 여러 책상 지원
 - Pydantic 모델, SQLite migration, FastAPI route와 Dashboard 실제 구현
+- Voice model·VAD·dependency, SDK history compaction과 Mem0 배포 세부
 - 장애물 감지와 무인 park의 실물 안전 보장
 
 무인 park는 fake 상태전이와 목표 기록 검증을 먼저 통과하고, 장애물·의자·장치 조건을 제한한
@@ -329,5 +380,6 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 - [x] AUTO와 수동 제어의 Vision·장치 차단 범위를 분리했다.
 - [x] `expectedSessionId`, 오류 의미와 STOP 우선순위를 확정했다.
 - [x] 얼굴 lifecycle, 서버 재시작과 30초 park 순서를 확정했다.
+- [x] Voice의 사용자·Agent·audio session 수명과 교대 시 취소 경계를 확정했다.
 - [x] 대표 시나리오 결정표와 후속 자동 테스트 계약을 기록했다.
 - [x] workflow와 API 계약 문서에 같은 정책을 반영했다.

@@ -99,7 +99,7 @@ WLED 색상에 사용된다.
 | 자동화 | 안정화 진행, 목표와 차단 이유 |
 | 책상 | Desk·height·relay snapshot |
 | 조명 | WLED snapshot |
-| AI | 같은 Assistant turn의 화면용 상세 응답 |
+| AI | 같은 Assistant `turnId`의 progress/tool/final phase와 화면용 상세 응답 |
 
 익명 session은 “인식 실패” 대신 “게스트”와 기본 75/110cm를 표시하고 custom preset과
 profile 설정은 제공하지 않는다. session이 없으면 사용자 전용 preset과 profile 값을 메인
@@ -110,6 +110,8 @@ ID를 직접 입력하지 않는다. “SYSTEM ONLINE” 한 값으로 모든 �
 
 current `sessionId`가 바뀌거나 없어지면 이전 session의 AI 상세 응답을 즉시 숨긴다. 늦게
 완료된 이전 turn도 화면에 다시 나타나지 않게 turn의 session ID를 현재 snapshot과 비교한다.
+같은 `turnId`에서는 증가하는 sequence만 적용해 진행 안내→tool 상태→최종 응답 순서를
+유지하고, 취소·완료 뒤 도착한 낮은 sequence event는 버린다.
 
 ## profile 수정과 삭제
 

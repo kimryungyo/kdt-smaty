@@ -39,6 +39,7 @@ health API에 더해 MQTT, Arduino 높이 입력, ESP32 relay, 목표·HOLD·STO
 | [컴포넌트 설계](architecture/component-design.md) | 클래스를 만들 때 | 클래스 책임, 공개 API, 의존 방향 |
 | [실행과 동시성](architecture/runtime-and-concurrency.md) | 앱 시작·비동기 루프를 구현할 때 | 컨테이너, singleton 접근, Task 수명주기 |
 | [AI 음성 스피커](architecture/ai-voice-assistant.md) | 로컬 음성 AI를 설계할 때 | Wake Word, 연속 대화, OpenAI STT·LLM·TTS, 후속 Dashboard·camera 연결 보류 |
+| [Agents SDK 음성 전환](architecture/agents-sdk-voice-pipeline.md) | 기존 AI 스피커를 Agents SDK로 교체할 때 | VoicePipeline, model·VAD, 사용자 session, Mem0와 Docker 배포 확정안 |
 | [Voice third-party](third-party/voice.md) | Voice dependency를 설치·배포할 때 | livekit-wakeword와 hi_smarty_ko provenance |
 | [React 대시보드](architecture/frontend.md) | UI를 개발·배포할 때 | Vite 개발 서버, FastAPI 운영 제공 |
 | [책상 제어와 안전](architecture/desk-safety.md) | 높이·릴레이 제어를 구현할 때 | 제어 상태, STOP 우선순위, 하드웨어 경계 |

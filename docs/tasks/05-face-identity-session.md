@@ -37,6 +37,9 @@ user-camera latest frame
 - `CurrentUserSessionService`는 session ID·종류·profile과 전환 이유만 소유한다. mode,
   generation, 목표 교체와 STOP은 task 06의 `AutomationService`가 session 전이를 입력으로
   받아 처리한다.
+- Voice runtime이 사용자 교대와 경합하지 않도록 원자적 불변 snapshot, 현재 `sessionId`
+  검증과 순서가 보장된 변경 event를 제공한다. Agents SDK session·run·TTS 객체는 소유하지
+  않는다.
 
 ## 저장 설계
 
@@ -82,6 +85,10 @@ user-camera latest frame
 - [ ] task 01의 등록·익명 시작, 얼굴 누락·이탈·다중 사용자 전이를 구현한다.
 - [ ] 새 확정 사용자마다 예측 불가능한 `sessionId`와 시작 시각을 발급한다.
 - [ ] 익명→등록, A→B와 A→익명마다 새 session ID, 전환 이유와 변경 시각을 발행한다.
+- [ ] 이전·현재 session ID, 전환 이유, 단조 증가 sequence와 변경 시각을 가진 내부 변경
+  event를 발행하고 구독 해제까지 lifecycle에서 정리한다.
+- [ ] snapshot capture와 `is_current(sessionId)` 검증을 같은 session 상태 경계에서
+  thread-safe하게 제공한다.
 - [ ] session service는 `DeskController`를 직접 호출하거나 mode를 소유하지 않고, task 06이
   목표 교체·MANUAL 보존·STOP 순서를 적용할 수 있는 불변 snapshot을 제공한다.
 - [ ] 서버 시작·재시작에서 session 없음으로 시작하고 fresh 관측을 요구한다.
@@ -111,6 +118,8 @@ fresh 단일 재실이 이어지면 얼굴이 보이지 않아도 등록 session
   결정표와 일치한다.
 - 등록·재등록·삭제 도중 이전 identity와 session으로 자동 이동할 수 없다.
 - server restart 후 profile 데이터는 남지만 현재 사용자와 후보는 비어 있다.
+- session 변경 event는 중복·역순 소비에서도 이전 session을 다시 유효하게 만들지 않으며
+  Voice가 이전 run·TTS·follow-up을 취소할 근거를 제공한다.
 - model version·dimension 불일치 embedding을 비교에 사용하지 않는다.
 - API가 얼굴 이미지·embedding vector를 반환하지 않는다.
 

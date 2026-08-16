@@ -27,6 +27,7 @@ React 상태를 최소한 다음 의미로 구분한다.
 | current user snapshot | 서버가 재실·얼굴로 결정한 등록·익명 read-only session |
 | automation snapshot | 서버가 소유한 mode·상태·차단 이유 |
 | desk/WLED/Voice snapshot | 기능별 장치 상태와 freshness |
+| Assistant turn snapshot | 서버가 정한 `turnId`·`sessionId`·phase·sequence와 화면 응답 |
 
 서버 현재 사용자가 바뀌어도 `editingProfile`이나 입력 draft를 자동으로 바꾸지 않는다. 반대로
 profile 설정 화면을 열거나 닫아도 서버 session과 mode가 바뀌지 않는다.
@@ -75,6 +76,8 @@ Vision debug `/debug/vision`
 - [ ] 설정 route의 `editingProfile`과 서버 current user를 분리하고 `selectedProfile` 기반 제어를
   제거한다.
 - [ ] 기능별 polling 중복과 stale 응답 덮어쓰기를 방지한다.
+- [ ] Assistant turn의 `turnId`, `sessionId`, progress/tool/final phase와 sequence 계약을
+  TypeScript 모델에 추가한다.
 - [ ] 사용자 의존 명령에 화면이 읽은 `expectedSessionId`를 전달한다.
 - [ ] `409` session 충돌 시 명령 성공처럼 보이지 않게 새 snapshot을 다시 읽는다.
 
@@ -100,6 +103,10 @@ Vision debug `/debug/vision`
 - [ ] mode·preset 요청에는 화면이 읽은 `expectedSessionId`를 자동 첨부한다.
 - [ ] WLED, Voice/AI, Vision, Desk의 기능별 연결 상태를 하나의 `SYSTEM ONLINE`과 분리한다.
 - [ ] current `sessionId`가 바뀌거나 없어지면 이전 AI 상세 응답을 즉시 화면에서 제거한다.
+- [ ] 진행 안내, tool 실행 상태와 최종 응답을 같은 `turnId` 안에서 순서대로 갱신하고 낮은
+  sequence나 완료·취소된 turn의 늦은 event를 무시한다.
+- [ ] session 없음·다중 상태의 비개인화 turn은 개인 profile 이름이나 memory 사용 상태로
+  표시하지 않는다.
 
 ### Vision debug
 
@@ -137,6 +144,9 @@ Vision debug `/debug/vision`
 - HOLD release, blur, page hide와 unmount에서 STOP 요청이 유지된다.
 - API 오류, polling 단절과 out-of-order 응답에서 stale 값이 현재 값처럼 표시되지 않는다.
 - A→B 또는 session 종료 즉시 A의 AI 상세 응답이 화면에서 사라진다.
+- 진행 안내→tool 상태→최종 응답이 같은 `turnId`로 갱신되고 out-of-order event가 화면을
+  되돌리지 않는다.
+- session 교대 후 늦은 TTS·tool·final event가 새 사용자 화면에 다시 나타나지 않는다.
 - TypeScript 검사와 production build가 통과하고 주요 화면 흐름을 브라우저에서 확인한다.
 
 ## 완료 조건
