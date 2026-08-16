@@ -87,7 +87,7 @@ Dashboard에 AI 결과를 전달하는 API·event·화면 모델은 아직 설�
 ┌────────────────────────── Local device ──────────────────────────┐
 │                                                                  │
 │ Microphone                                                       │
-│    ↓ 16kHz mono int16 PCM                                        │
+│    ↓ 24kHz mono int16 PCM                                        │
 │ LocalAudioInput → WakeWordDetector → VoiceService                │
 │                                      ├─ utterance recorder       │
 │                                      ├─ OpenAiGateway.transcribe │
@@ -194,7 +194,7 @@ STT·LLM·TTS마다 provider interface와 factory를 만들지 않는다. 테스
 
 물리 microphone와 callback thread를 소유한다.
 
-- 16kHz, mono, int16 PCM 입력
+- 24kHz, mono, int16 PCM 입력
 - callback에서 PCM을 복사하고 event loop로 전달
 - 크기가 제한된 queue
 - queue가 가득 차면 가장 오래된 frame 폐기
@@ -238,7 +238,7 @@ class AudioUtterance:
 ```
 
 `captured_at`은 `time.monotonic()` 기준이다. STT에는 header가 있는 memory WAV를
-전달한다. 최대 10초의 16kHz mono int16 PCM은 크기가 작으므로 임시 파일이나 audio
+전달한다. 최대 10초의 24kHz mono int16 PCM은 크기가 작으므로 임시 파일이나 audio
 DB를 만들지 않는다.
 
 ### AI 응답
@@ -794,7 +794,7 @@ audio sample format은 provider와 Wake Word model의 고정 계약이므로 임
 늘리지 않는다.
 
 ```text
-microphone input: 16kHz / mono / signed int16
+microphone input: 24kHz / mono / signed int16
 TTS PCM output:   24kHz / mono / signed int16 little-endian
 ```
 
@@ -875,6 +875,7 @@ Python 의존성 후보:
 openai
 sounddevice
 livekit-wakeword==0.2.1
+soxr  # microphone 24kHz → Wake Word model 16kHz
 mem0ai  # Phase 2에서만 추가
 ```
 
@@ -887,8 +888,9 @@ PipeWire/PulseAudio 환경에서 microphone와 speaker의 안정적인 device na
 system service가 사용하는 사용자의 audio session에서 FastAPI를 실행해야 한다.
 
 `livekit-wakeword` 0.2.1과 프로젝트에서 학습한 `hi_smarty_ko` ONNX를 사용한다.
-16kHz mono PCM16의 80ms frame 25개를 2초 rolling window로 유지하며, package에 포함된
-feature model과 repository의 classifier만 사용하므로 시작 시 model download가 없다.
+24kHz mono PCM16의 80ms frame 25개를 2초 rolling window로 유지하고, 추론 직전에
+SoXR로 16kHz/32,000 samples로 변환한다. package에 포함된 feature model과 repository의
+classifier만 사용하므로 시작 시 model download가 없다.
 현재 classifier는 합성 데이터 기준선이므로 실제 장치의 연속 오디오로 threshold와
 오탐률을 다시 검증한다. provenance와 재배포 검토 사항은 별도 third-party 문서에
 기록한다.

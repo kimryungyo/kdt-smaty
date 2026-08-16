@@ -64,6 +64,9 @@ class OpenAiGatewayPort(Protocol):
 
 
 def _validate_transcription_wav(utterance: AudioUtterance) -> None:
+    # assistant package 초기화 중 voice package를 다시 여는 순환 import를 피한다.
+    from smart_desk.modules.voice.models import INPUT_SAMPLE_RATE
+
     if len(utterance.wav) > MAX_TRANSCRIPTION_BYTES:
         raise OpenAiTurnError(stage="stt", code="audio_too_large")
     try:
@@ -71,7 +74,7 @@ def _validate_transcription_wav(utterance: AudioUtterance) -> None:
             valid = (
                 wav_file.getnchannels() == 1
                 and wav_file.getsampwidth() == 2
-                and wav_file.getframerate() == 16_000
+                and wav_file.getframerate() == INPUT_SAMPLE_RATE
                 and wav_file.getcomptype() == "NONE"
                 and wav_file.getnframes() > 0
             )

@@ -20,6 +20,7 @@ from smart_desk.modules.voice.models import (
     AudioChunk,
     AudioUtterance,
     INPUT_FRAME_BYTES,
+    INPUT_FRAME_SAMPLES,
     INPUT_FRAME_SECONDS,
     INPUT_SAMPLE_RATE,
     OUTPUT_SAMPLE_RATE,
@@ -129,7 +130,7 @@ def analyze_signal_frame(pcm: bytes) -> AudioSignalFrame:
 
 
 def build_wav(pcm_frames: Sequence[bytes]) -> AudioUtterance:
-    """16kHz mono PCM16 frame을 하나의 memory WAV로 조립한다."""
+    """24kHz mono PCM16 frame을 하나의 memory WAV로 조립한다."""
 
     if not pcm_frames:
         raise ValueError("WAV를 만들 PCM frame이 없습니다.")
@@ -217,7 +218,7 @@ class LocalAudioInput:
             stream = await asyncio.to_thread(
                 sounddevice.RawInputStream,
                 samplerate=INPUT_SAMPLE_RATE,
-                blocksize=1_280,
+                blocksize=INPUT_FRAME_SAMPLES,
                 device=device,
                 channels=1,
                 dtype="int16",

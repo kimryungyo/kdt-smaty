@@ -11,13 +11,18 @@ from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.assistant.models import AssistantReply, OpenAiTurn
 from smart_desk.modules.assistant.service import AssistantService
 from smart_desk.modules.voice.audio import RmsRecorder
-from smart_desk.modules.voice.models import AudioChunk, EffectName, VoiceState
+from smart_desk.modules.voice.models import (
+    AudioChunk,
+    EffectName,
+    INPUT_FRAME_SAMPLES,
+    VoiceState,
+)
 from smart_desk.modules.voice.playback import PlaybackCoordinator
 from smart_desk.modules.voice.service import VoiceService
 
 
 def pcm_frame(value: int) -> bytes:
-    return struct.pack("<h", value) * 1_280
+    return struct.pack("<h", value) * INPUT_FRAME_SAMPLES
 
 
 class FakeAudioInput:

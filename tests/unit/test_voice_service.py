@@ -18,6 +18,7 @@ from smart_desk.modules.voice.audio import build_wav
 from smart_desk.modules.voice.models import (
     AudioChunk,
     EffectName,
+    INPUT_FRAME_SAMPLES,
     RecordingEnd,
     VoiceFatalError,
     VoiceState,
@@ -26,7 +27,7 @@ from smart_desk.modules.voice.service import VoiceService
 
 
 def pcm_frame(value: int) -> bytes:
-    return struct.pack("<h", value) * 1_280
+    return struct.pack("<h", value) * INPUT_FRAME_SAMPLES
 
 
 class FakeAudioInput:

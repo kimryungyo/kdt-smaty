@@ -11,6 +11,7 @@ from smart_desk.modules.assistant.models import AssistantReply
 from smart_desk.modules.assistant.openai import OpenAiGateway, OpenAiTurnError
 from smart_desk.modules.assistant.tooling import AssistantToolSpec
 from smart_desk.modules.voice.audio import build_wav
+from smart_desk.modules.voice.models import INPUT_FRAME_BYTES
 
 
 class NoArguments(BaseModel):
@@ -133,7 +134,7 @@ async def test_transcription_uses_named_memory_wav_and_language_array(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gateway, client, constructor_args = make_gateway(monkeypatch)
-    utterance = build_wav([b"\0" * 2_560])
+    utterance = build_wav([b"\0" * INPUT_FRAME_BYTES])
 
     result = await gateway.transcribe(utterance)
 
@@ -154,7 +155,7 @@ async def test_transcription_includes_configured_prompt(
         transcription_prompt="스마트 데스크",
     )
 
-    await gateway.transcribe(build_wav([b"\0" * 2_560]))
+    await gateway.transcribe(build_wav([b"\0" * INPUT_FRAME_BYTES]))
 
     assert client.transcriptions.requests[0]["prompt"] == "스마트 데스크"
 

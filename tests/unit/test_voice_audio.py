@@ -24,6 +24,8 @@ from smart_desk.modules.voice.audio import (
 from smart_desk.modules.voice.models import (
     AudioChunk,
     INPUT_FRAME_BYTES,
+    INPUT_FRAME_SAMPLES,
+    INPUT_SAMPLE_RATE,
     RecordingEnd,
     VoiceFatalError,
 )
@@ -53,7 +55,10 @@ def test_calculate_rms_uses_signed_int16_without_overflow() -> None:
 def test_analyze_signal_frame_reports_finite_silence_and_pcm_levels() -> None:
     silence = analyze_signal_frame(pcm_frame(0))
     symmetric = analyze_signal_frame(
-        struct.pack("<1280h", *([1_000, -1_000] * 640))
+        struct.pack(
+            f"<{INPUT_FRAME_SAMPLES}h",
+            *([1_000, -1_000] * (INPUT_FRAME_SAMPLES // 2)),
+        )
     )
     constant = analyze_signal_frame(pcm_frame(1_000))
 
@@ -68,11 +73,13 @@ def test_analyze_signal_frame_reports_finite_silence_and_pcm_levels() -> None:
 
 
 def test_analyze_signal_frame_detects_pcm_rails_without_overflow() -> None:
-    samples = [-32_768] * 5 + [0] * (1_280 - 5)
-    signal = analyze_signal_frame(struct.pack("<1280h", *samples))
+    samples = [-32_768] * 5 + [0] * (INPUT_FRAME_SAMPLES - 5)
+    signal = analyze_signal_frame(
+        struct.pack(f"<{INPUT_FRAME_SAMPLES}h", *samples)
+    )
 
     assert signal.peak_dbfs == pytest.approx(0.0)
-    assert signal.clipping_ratio == pytest.approx(5 / 1_280)
+    assert signal.clipping_ratio == pytest.approx(5 / INPUT_FRAME_SAMPLES)
     assert math.isfinite(signal.rms_dbfs)
 
 
@@ -82,8 +89,8 @@ def test_build_wav_has_expected_header_format_and_duration() -> None:
     with wave.open(BytesIO(utterance.wav), "rb") as wav_file:
         assert wav_file.getnchannels() == 1
         assert wav_file.getsampwidth() == 2
-        assert wav_file.getframerate() == 16_000
-        assert wav_file.getnframes() == 2_560
+        assert wav_file.getframerate() == INPUT_SAMPLE_RATE
+        assert wav_file.getnframes() == 2 * INPUT_FRAME_SAMPLES
     assert utterance.duration_seconds == pytest.approx(0.16)
 
 
@@ -223,7 +230,9 @@ async def test_callback_moves_owned_pcm_to_event_loop_queue() -> None:
         def __bool__(self) -> bool:
             return False
 
-    audio._callback(memoryview(pcm_frame(321)), 1_280, object(), Status())  # noqa: SLF001
+    audio._callback(  # noqa: SLF001
+        memoryview(pcm_frame(321)), INPUT_FRAME_SAMPLES, object(), Status()
+    )
     await asyncio.sleep(0)
 
     chunk = await audio.read(timeout_seconds=0.1)
@@ -271,7 +280,7 @@ async def test_recorder_uses_two_frame_start_preroll_and_silence_end() -> None:
     assert utterance is not None
     assert utterance.duration_seconds == pytest.approx(1.04)
     with wave.open(BytesIO(utterance.wav), "rb") as wav_file:
-        first_samples = wav_file.readframes(2_560)
+        first_samples = wav_file.readframes(2 * INPUT_FRAME_SAMPLES)
     assert first_samples.startswith(pcm_frame(0))
 
 

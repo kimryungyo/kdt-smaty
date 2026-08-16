@@ -13,7 +13,11 @@ from typing import Protocol
 
 import numpy as np
 
-from smart_desk.modules.voice.models import INPUT_FRAME_BYTES, VoiceFatalError
+from smart_desk.modules.voice.models import (
+    INPUT_FRAME_BYTES,
+    INPUT_SAMPLE_RATE,
+    VoiceFatalError,
+)
 
 
 class WakeWordDetector(Protocol):
@@ -44,7 +48,9 @@ class WakeWordDebugSnapshot:
 
 
 MODEL_NAME = "hi_smarty_ko"
+MODEL_SAMPLE_RATE = 16_000
 WINDOW_FRAMES = 25
+MODEL_WINDOW_SAMPLES = MODEL_SAMPLE_RATE * 2
 RECENT_SCORE_WINDOW_SECONDS = 30.0
 INFERENCE_LATENCY_SAMPLES = 256
 
@@ -64,11 +70,28 @@ def _infer(model: object, samples: np.ndarray) -> float:
     return score
 
 
+def _resample_for_model(samples: np.ndarray) -> np.ndarray:
+    """24kHz microphone window를 Wake Word 모델의 16kHz 계약으로 변환한다."""
+
+    soxr = importlib.import_module("soxr")
+    resampled = soxr.resample(  # type: ignore[attr-defined]
+        samples,
+        INPUT_SAMPLE_RATE,
+        MODEL_SAMPLE_RATE,
+        quality="HQ",
+    )
+    if resampled.dtype != np.dtype("int16") or resampled.shape != (
+        MODEL_WINDOW_SAMPLES,
+    ):
+        raise ValueError("invalid wakeword resampling result")
+    return resampled
+
+
 def _timed_infer(model: object, samples: np.ndarray) -> tuple[float, float]:
-    """모델 추론 함수 자체의 실행 시간만 밀리초 단위로 반환한다."""
+    """리샘플링과 모델 추론의 총 실행 시간을 밀리초 단위로 반환한다."""
 
     started_at = time.perf_counter()
-    score = _infer(model, samples)
+    score = _infer(model, _resample_for_model(samples))
     return score, (time.perf_counter() - started_at) * 1_000
 
 

@@ -23,9 +23,9 @@ from smart_desk.modules.voice.models import (
 def test_audio_chunk_requires_exact_pcm_and_monotonic_timestamp() -> None:
     chunk = AudioChunk(pcm=b"\0" * INPUT_FRAME_BYTES, captured_at=1.25)
 
-    assert len(chunk.pcm) == 2_560
+    assert len(chunk.pcm) == INPUT_FRAME_BYTES
 
-    with pytest.raises(ValueError, match="2560"):
+    with pytest.raises(ValueError, match=str(INPUT_FRAME_BYTES)):
         AudioChunk(pcm=b"\0" * 2, captured_at=1.25)
     with pytest.raises(ValueError, match="finite"):
         AudioChunk(pcm=b"\0" * INPUT_FRAME_BYTES, captured_at=float("nan"))

@@ -6,6 +6,10 @@
 P1 입력 신호 관측과 P2 AKG Ara microphone gain 교정을 구현·수행할 다음 AI 작업자에게
 현재 상태, 확정 범위, 구현 계약, 사용자 협업 지점과 완료 조건을 전달한다.
 
+> 2026-08-16 `feat/agents-sdk-voice-pipeline`에서 microphone 입력 계약을
+> 24kHz/1,920 samples/80ms로 변경했다. 아래 16kHz 수치와 측정값은 P1·P2 당시 기준선이며,
+> 현재 Wake Word 경로는 2초 입력 창을 추론 직전에 16kHz로 변환한다.
+
 이 작업의 목표는 아직 noise suppression을 도입하는 것이 아니다. 먼저 raw PCM을
 저장하지 않는 content-free 계측으로 입력 품질을 숫자로 확인하고, 대상 microphone의
 gain을 실제 사용자의 거리·음량에 맞춘다. 이 결과가 있어야 다음 단계에서 threshold,
@@ -18,7 +22,7 @@ inference cadence, high-pass filter 또는 noise suppressor를 근거 있게 비
 | 기준 커밋 | `5c27f73` |
 | 프로젝트 경로 | `/srv/smart-desk-fin` |
 | 대상 microphone | AKG Ara USB Microphone, USB ID `0ecb:2057` |
-| 입력 계약 | 16kHz, mono, signed PCM16 little-endian, 1,280 samples/80ms |
+| 당시 입력 계약 | 16kHz, mono, signed PCM16 little-endian, 1,280 samples/80ms |
 | Wake Word model | `hi_smarty_ko_synthetic_v0_1_0.onnx` |
 
 이 문서는 Wake Word 관측·교정 작업의 범위와 기준선만 다룬다. 다음 작업자는 실제

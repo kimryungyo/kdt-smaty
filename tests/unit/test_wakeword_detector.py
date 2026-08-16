@@ -1,13 +1,22 @@
 """`하이 스마티` livekit-wakeword ONNX adapter 테스트."""
 
+import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from smart_desk.modules.voice.models import INPUT_FRAME_BYTES, VoiceFatalError
-from smart_desk.modules.voice.wakeword import LiveKitWakeWordOnnxDetector, WINDOW_FRAMES
+from smart_desk.modules.voice.models import (
+    INPUT_FRAME_BYTES,
+    INPUT_FRAME_SAMPLES,
+    VoiceFatalError,
+)
+from smart_desk.modules.voice.wakeword import (
+    LiveKitWakeWordOnnxDetector,
+    MODEL_WINDOW_SAMPLES,
+    WINDOW_FRAMES,
+)
 
 
 MODEL_PATH = Path("assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx")
@@ -29,9 +38,10 @@ class FakeModel:
 
 def install_fake_module(monkeypatch: pytest.MonkeyPatch, model: FakeModel) -> None:
     module = SimpleNamespace(WakeWordModel=lambda: model)
+    import_module = importlib.import_module
     monkeypatch.setattr(
         "smart_desk.modules.voice.wakeword.importlib.import_module",
-        lambda name: module if name == "livekit.wakeword" else None,
+        lambda name: module if name == "livekit.wakeword" else import_module(name),
     )
 
 
@@ -41,7 +51,7 @@ async def feed_frames(
     *,
     value: int = 0,
 ) -> list[bool]:
-    pcm = np.full(1_280, value, dtype="<i2").tobytes()
+    pcm = np.full(INPUT_FRAME_SAMPLES, value, dtype="<i2").tobytes()
     return [await detector.detect(pcm) for _ in range(count)]
 
 
@@ -76,7 +86,7 @@ async def test_detector_uses_two_second_rolling_window_and_consecutive_frames(
     assert snapshot.armed is False
     assert await feed_frames(detector, 1) == [False]
     assert model.processed[0].dtype == np.dtype("int16")
-    assert model.processed[0].shape == (32_000,)
+    assert model.processed[0].shape == (MODEL_WINDOW_SAMPLES,)
 
     detector.reset()
     assert detector.get_debug_snapshot().score == 0.5
