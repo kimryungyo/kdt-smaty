@@ -8,6 +8,11 @@
 세부 동작은 [기존 AI 스피커 설계](ai-voice-assistant.md)에 남기되, 두 문서가 충돌하면
 Agents SDK 교체 범위에서는 이 문서가 우선한다.
 
+문서 우선순위는 범위별로 적용한다. 이 문서는 Voice runtime, model·오디오, tool 실행 구조,
+SDK 대화 session과 Mem0 adapter의 기준이다. [task 01 상태·워크플로우 계약](../tasks/01-workflow-contracts.md)은
+사용자·재실 session, `expectedSessionId`, 물리 제어와 STOP 안전 계약의 기준이며 이 문서도
+그 경계를 우회하지 않는다.
+
 ## 1. 확정 결정
 
 | 항목 | 확정안 |
@@ -59,6 +64,10 @@ Microphone 24kHz PCM16
 오디오 연결과 대화 memory의 수명은 분리한다. `VoicePipeline` 실행은 Wake Word와 조건부
 follow-up 묶음마다 짧게 만들고 종료하지만, Agents SDK session은 현재 책상 사용자
 `sessionId`가 유지되는 동안 여러 음성 실행에서 재사용한다.
+
+즉 책상 사용자 session 하나에는 여러 Agent turn과 여러 짧은 `VoicePipeline` 실행이 들어간다.
+Agents SDK session은 이 turn들 사이의 단기 대화 문맥이고, `profileId`로 영속하는 Mem0 장기
+기억과는 별도다.
 
 ## 3. 책임 경계
 
@@ -158,6 +167,10 @@ TTS 자체를 function tool로 만들지 않는다. workflow가 Agent의 text de
 전에 안내를 누락한 경우에는 workflow가 일반적인 짧은 진행 안내를 보완할 수 있다. 안내는
 성공을 미리 단정하지 않고 `확인해보겠습니다`처럼 실제 상태와 모순되지 않게 한다.
 
+진행 안내 TTS, tool 상태와 최종 TTS는 모두 같은 프로젝트 `turnId`에 속한다. SDK의 한
+`Runner` 실행이 여러 model 호출과 tool 호출을 포함하더라도 하나의 논리적 Assistant turn으로
+취급하고, Dashboard event와 audio에도 동일한 `turnId`와 증가하는 sequence를 붙인다.
+
 기존 `AssistantToolRegistry`, tool spec/call DTO와 수동 dispatch loop는 제거하고 Agents SDK
 hosted tool 또는 `function_tool`로 옮긴다. 도메인 서비스와 오류 변환은 재사용한다.
 
@@ -167,8 +180,10 @@ hosted tool 또는 `function_tool`로 옮긴다. 도메인 서비스와 오류 �
 - Camera/crop/OCR: 해당 task가 구현될 때 function/hosted tool로 추가
 - 장기 기억: Agent에 Mem0 SDK를 직접 노출하지 않고 `MemoryService` 정책을 통함
 
-물리 부작용 tool은 호출 직전에 turn 시작 시 캡처한 `sessionId`가 여전히 현재 session인지
-검증한다. STOP 성격의 안전 명령은 사용자 session과 무관하게 기존 안전 경계를 따른다.
+물리 부작용 tool은 model이 tool call을 생성하거나 argument validation을 끝낸 시점이 아니라
+`AutomationService` public API를 실제 호출하기 직전에, turn 시작 시 캡처한 `sessionId`가
+여전히 현재 session인지 검증한다. 검증 성공 자체를 이후 실행 권한으로 오래 보관하지 않는다.
+STOP 성격의 안전 명령은 사용자 session과 무관하게 기존 안전 경계를 따른다.
 
 ## 6. 조건부 follow-up과 half-duplex
 
@@ -221,15 +236,23 @@ TTS 중 사용자의 끼어들기, AEC와 barge-in은 범위에서 제외한다.
 ### turn 경합 처리
 
 1. turn 시작 시 `sessionId`, `profileId`와 현재 상태를 원자적으로 capture한다.
-2. tool 실행 직전에 같은 session이 유효한지 검증한다.
-3. TTS 재생과 follow-up 진입 직전에 다시 검증한다.
-4. Mem0 저장 직전에 같은 등록 session인지 검증한다.
-5. session 종료·전환 event를 받으면 진행 중 turn, TTS와 follow-up을 취소한다.
-6. 늦게 끝난 과거 turn은 새 사용자의 Dashboard 응답이나 memory를 갱신하지 않는다.
+2. session 전환 경계에서는 이전 session을 먼저 무효화하고 비동기 cleanup을 시작한다.
+3. 부작용 function tool은 실제 domain service 호출 직전에 같은 session이 유효한지 검증한다.
+4. TTS 재생, follow-up 진입과 Mem0 저장 직전에 각각 정책과 session을 다시 검증한다.
+5. session 종료·전환 event를 받으면 진행 중 Agent run, 아직 domain service를 호출하지 않은
+   부작용 tool, 재생 중·대기 중 TTS와 follow-up을 취소한다.
+6. 이전 `sessionId`의 SDK memory session을 폐기하고 이후 조회·저장을 거절한다.
+7. 취소와 경합해 늦게 끝난 transcript, tool 결과, audio와 Dashboard event는 새 사용자
+   응답이나 memory를 갱신하지 않는다.
 
 `CurrentUserSessionService` 구현은 원자적 snapshot 조회, `sessionId` 검증과 변경 event 구독을
 제공해야 한다. Agents SDK 객체는 사용자 session service에 넣지 않고 Voice memory adapter가
 `sessionId`를 key로 생성·폐기한다.
+
+내부 변경 event는 최소한 이전·현재 `sessionId`, 전환 이유, 단조 증가 sequence와 변경 시각을
+전달한다. Voice runtime은 event sequence를 기준으로 중복·역순 전달을 안전하게 무시하되,
+이미 무효화된 session의 실행을 재개하지 않는다. 구체적인 event bus 구현은 task 05에서
+선택한다.
 
 ## 8. Mem0 저장과 배포
 
@@ -358,5 +381,8 @@ dependency 해석 결과와 native audio import는 x86 개발 환경과 Raspberr
 - [OpenAI Realtime VAD](https://developers.openai.com/api/docs/guides/realtime-vad)
 - [OpenAI Voice Agents](https://developers.openai.com/api/docs/guides/voice-agents)
 - [OpenAI Agents SDK 실행](https://developers.openai.com/api/docs/guides/agents/running-agents)
+- [OpenAI Agents SDK VoicePipeline](https://openai.github.io/openai-agents-python/voice/pipeline/)
+- [OpenAI Agents SDK function tools](https://openai.github.io/openai-agents-python/tools/)
+- [OpenAI Agents SDK sessions](https://openai.github.io/openai-agents-python/sessions/)
 - [Mem0 OSS Python quickstart](https://docs.mem0.ai/open-source/python-quickstart)
 - [Mem0 self-hosted setup](https://docs.mem0.ai/open-source/setup)
