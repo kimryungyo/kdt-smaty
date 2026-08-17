@@ -18,6 +18,9 @@ from smart_desk.modules.desk.models import HeightStatus
 from smart_desk.modules.mqtt.client import MqttStartupError
 from smart_desk.modules.profiles import ActivityModeRepository, ProfileRepository
 from smart_desk.storage import SQLiteDatabase, StorageCorruptedError, StorageNotReadyError
+from smart_desk.config.settings import VoiceSettings
+from smart_desk.modules.voice.models import VoiceFatalError, VoiceState
+from smart_desk.modules.voice.service import VoiceService
 
 
 class FakeMqttClient:
@@ -63,11 +66,45 @@ class FakeDeskController(FakeHeightMonitor):
     """애플리케이션 테스트용 lifecycle 책상 제어기."""
 
 
-class VoiceErrorResource(FakeHeightMonitor):
-    """start가 예외를 전파하지 않고 Voice-only ERROR가 된 상황을 재현한다."""
-
+class FailingVoiceAudio:
     async def start(self) -> None:
-        self.start_count += 1
+        raise VoiceFatalError("microphone_open_failed")
+
+    async def stop(self) -> None:
+        return None
+
+    def set_accepting(self, _value: bool) -> None:
+        return None
+
+    def discard_pending(self) -> None:
+        return None
+
+
+class VoiceWake:
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    def reset(self) -> None:
+        return None
+
+
+class VoicePlayback:
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def stop_speech(self) -> None:
+        return None
+
+
+class VoiceRuntime:
+    async def stop(self) -> None:
+        return None
 
 
 def build_test_container(
@@ -315,7 +352,11 @@ async def test_voice_only_start_error_does_not_fail_application(
         _env_file=None,
     )
     container, mqtt, height_monitor = build_test_container(settings)
-    voice = VoiceErrorResource()
+    voice = VoiceService(
+        audio_input=FailingVoiceAudio(), wakeword=VoiceWake(), runtime=VoiceRuntime(),
+        playback=VoicePlayback(), settings=VoiceSettings(), task_manager=container.task_manager,
+    )  # type: ignore[arg-type]
+    container.voice = voice
     container.register(
         ResourceRegistration(
             name="voice",
@@ -330,9 +371,10 @@ async def test_voice_only_start_error_does_not_fail_application(
         assert container.runtime.snapshot().status is ApplicationStatus.READY
         assert mqtt.start_count == 1
         assert height_monitor.start_count == 1
-        assert voice.start_count == 1
+        assert voice.get_snapshot().state is VoiceState.ERROR
+        assert voice.get_snapshot().last_error == "microphone_open_failed"
 
-    assert voice.stop_count == 1
+    assert voice.get_snapshot().state is VoiceState.DISABLED
 
 
 async def test_react_build_and_spa_fallback_are_served(tmp_path) -> None:

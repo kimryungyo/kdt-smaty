@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { getAssistantLatest, type AssistantTurn } from "../../api/dashboard";
 import { useSnapshotPoll } from "../../hooks/useSnapshotPoll";
+import { VoiceStatusPanel } from "../voice/VoiceStatusPanel";
 
 type Props = { currentSessionId: string | null; currentSessionKind: "REGISTERED" | "ANONYMOUS" | null; registeredProfileName: string | null };
 
@@ -35,8 +36,8 @@ export function AssistantPanel({ currentSessionId, currentSessionKind, registere
   const personalized = turn !== null && currentSessionKind === "REGISTERED";
   const owner = personalized ? `${registeredProfileName ?? "등록 사용자"}의 현재 session 응답` : "비개인화 게스트 응답 · 장기 기억을 사용하지 않습니다.";
 
-  return <section className="card dashboard-section assistant-panel" aria-label="음성 AI 응답">
-    <p className="card-label">VOICE / AI</p>
+  return <><VoiceStatusPanel /><section className="card dashboard-section assistant-panel" aria-label="Assistant 응답">
+    <p className="card-label">ASSISTANT · 최신 응답</p>
     {turn ? <>
       <h2>{turn.title}</h2>
       <p className="assistant-state" role="status" aria-live="polite">{phaseText(turn)}</p>
@@ -51,5 +52,5 @@ export function AssistantPanel({ currentSessionId, currentSessionKind, registere
     <p className={latest.error ? "assistant-freshness is-stale" : "assistant-freshness"} role="status">
       {latest.error ? `polling 오류 · ${latest.error}. 마지막으로 안전하게 확인한 응답을 표시합니다.` : freshness(latest.lastSuccessAt)}
     </p>
-  </section>;
+  </section></>;
 }

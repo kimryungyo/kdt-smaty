@@ -213,6 +213,26 @@ def test_build_container_registers_voice_debug_after_voice(
     assert container.resources[-1].shutdown_order == 91
 
 
+@pytest.mark.parametrize("failure", [ImportError("agents missing"), ValueError("bad runtime config")])
+def test_enabled_voice_build_failure_is_explicit_and_preserves_cause(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception,
+) -> None:
+    def fail_build(cls, **_):
+        raise failure
+
+    monkeypatch.setattr(AgentsVoiceRuntime, "build_for_services", classmethod(fail_build))
+    settings = Settings(
+        voice={"enabled": True},
+        openai={"api_key": "test-key"},
+        _env_file=None,
+    )
+
+    with pytest.raises(RuntimeError, match="Voice resource 'voice'") as captured:
+        build_container(settings)
+
+    assert captured.value.__cause__ is failure
+
+
 def test_disabled_voice_does_not_import_optional_packages() -> None:
     code = """
 import builtins

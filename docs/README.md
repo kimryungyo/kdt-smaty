@@ -8,9 +8,10 @@ FastAPI 프로세스와 `asyncio` 기반 구조로 단순화한다.
 
 설정, `AppContainer`, 공유 자원 수명주기, `TaskManager`, 구조화 로그와 FastAPI
 health API에 더해 MQTT, Arduino 높이 입력, ESP32 relay, 목표·HOLD·STOP
-`DeskController`, React 대시보드와 camera media pipeline이 구현되어 있다. 로컬 AI
-스피커도 optional 기능으로 구현됐으며 장치 없는 자동 테스트까지 완료했다. 실제 audio
-장치와 OpenAI 계정 검증은 opt-in 단계이고 Vision 추론·자동화는 아직 구현되지 않았다.
+`DeskController`, React 대시보드와 camera media pipeline이 구현되어 있다. Vision 상태·현재
+사용자 session·작업 모드 자동화와 Agents SDK Voice runtime도 구현되어 있으며, Voice는
+선택 기능으로 상태만 Dashboard에서 polling한다. 실제 audio 장치와 OpenAI 계정 검증은
+opt-in 단계다.
 
 | 구현 영역 | 현재 코드 |
 | --- | --- |
@@ -26,8 +27,8 @@ health API에 더해 MQTT, Arduino 높이 입력, ESP32 relay, 목표·HOLD·STO
 | 상태 확인 | `src/smart_desk/api/routes/health.py` |
 | React 개발 소스 | `frontend/src` |
 | React 정적 제공 | `src/smart_desk/frontend.py` |
-| OpenAI text/audio adapter와 history | `src/smart_desk/modules/assistant` |
-| Wake Word·녹음·재생 상태 머신 | `src/smart_desk/modules/voice` |
+| Agents SDK Voice runtime·session/turn projection | `src/smart_desk/modules/assistant` |
+| Wake Word·녹음·재생 상태 머신과 상태 snapshot | `src/smart_desk/modules/voice` |
 
 ## 문서 안내
 

@@ -123,6 +123,10 @@ export type AssistantTurn = {
 export type AssistantLatest = { turn: AssistantTurn | null };
 export const getAssistantLatest = (signal?: AbortSignal) => request<AssistantLatest>("/api/assistant/latest", { signal });
 
+export type VoiceState = "DISABLED" | "WAITING_WAKE" | "WAITING_FOLLOWUP" | "RECORDING" | "PROCESSING" | "SPEAKING" | "ERROR";
+export type VoiceStatus = { state: VoiceState; lastTransitionAt: string | null; followupExpiresAt: string | null; lastError: string | null };
+export const getVoiceStatus = (signal?: AbortSignal) => request<VoiceStatus>("/api/voice/status", { signal });
+
 export type CurrentUser = { session: { sessionId: string; kind: "REGISTERED" | "ANONYMOUS"; profileId: string | null; startedAt: string; changedAt: string } | null };
 export type VisionStatus = { cameras: Record<string, { status: "OFFLINE" | "ONLINE" | "STALE" | "ERROR"; observedAt: string | null; expiresAt: string | null; ageSeconds: number | null; error: string | null }>; identity: { status: string; profileId: string | null; observedAt: string | null; expiresAt: string | null }; presence: { rawStatus: string; status: string; upperCount: number | null; lowerCount: number | null; observedAt: string | null; expiresAt: string | null }; posture: { rawStatus: string; status: string; candidateSince: string | null; observedAt: string | null; expiresAt: string | null }; association: { usable: boolean; reasonCodes: string[] } };
 export type AutomationStatus = { sessionId: string | null; controlMode: "AUTO" | "MANUAL" | null; activityMode: ActivityMode | null; state: string; heightPolicy: string | null; postureCandidate: string | null; candidateSince: string | null; targetHeightCm: number | null; intentSource: string | null; blockedReasonCodes: string[]; initialMoveDueAt: string | null; parkDueAt: string | null; generation: number; revision: number; lastTransitionReason: string; lastTransitionSource: string; lastTransitionAt: string; updatedAt: string };

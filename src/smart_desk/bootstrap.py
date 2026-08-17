@@ -355,15 +355,16 @@ def build_container(settings: Settings) -> AppContainer:
                 settings=settings.voice,
                 task_manager=task_manager,
             )
-        except Exception:
-            LOGGER.error(
-                "Voice dependency를 초기화하지 못했습니다.",
+        except Exception as error:
+            LOGGER.exception(
+                "Voice resource를 조립하지 못했습니다.",
                 extra={
                     "component": "voice",
                     "event": "voice_build_failed",
                     "error_code": "voice_dependency_missing",
                 },
             )
+            raise RuntimeError("Voice resource 'voice' 구성에 실패했습니다.") from error
         else:
             container.voice = voice
             container.register(

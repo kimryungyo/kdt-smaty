@@ -33,6 +33,7 @@ from smart_desk.modules.desk.models import (
 )
 from smart_desk.modules.profiles import ActivityModeRepository, ProfileRepository
 from smart_desk.storage import SQLiteDatabase
+from smart_desk.modules.voice.models import VoiceSnapshot, VoiceState
 
 
 class FakeDesk:
@@ -102,6 +103,51 @@ class ApiAutomation:
     async def delete_activity_mode(self, _mode_id: str) -> None:
         if self.active_mode:
             raise AutomationConflictError("ACTIVE_ACTIVITY_MODE")
+
+
+class FakeVoice:
+    def __init__(self, snapshot: VoiceSnapshot) -> None:
+        self.snapshot = snapshot
+
+    def get_snapshot(self) -> VoiceSnapshot:
+        return self.snapshot
+
+
+async def test_voice_status_api_distinguishes_disabled_and_active_snapshot(tmp_path) -> None:
+    settings = Settings(
+        environment="test", storage=StorageSettings(database_path=tmp_path / "desk.db"),
+        dashboard=DashboardSettings(serve_frontend=False), _env_file=None,
+    )
+    database = SQLiteDatabase(settings.storage.database_path)
+    profiles = ProfileRepository(database)
+    activity_modes = ActivityModeRepository(database)
+    desk = FakeDesk()
+    container = AppContainer(
+        settings=settings, runtime=RuntimeState(), task_manager=TaskManager(), database=database,
+        profiles=profiles, activity_modes=activity_modes, dashboard=DashboardService(desk, profiles),
+        mqtt=object(), height_monitor=object(), relay=object(), desk=desk,
+    )  # type: ignore[arg-type]
+    application = create_application(settings=settings, container=container)
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        disabled = await client.get("/api/voice/status")
+        assert disabled.status_code == 200
+        assert disabled.json() == {
+            "state": "DISABLED", "lastTransitionAt": None,
+            "followupExpiresAt": None, "lastError": None,
+        }
+
+        container.voice = FakeVoice(VoiceSnapshot(
+            VoiceState.WAITING_FOLLOWUP, datetime(2026, 8, 8, tzinfo=UTC),
+            datetime(2026, 8, 8, 0, 0, 4, tzinfo=UTC), None,
+        ))  # type: ignore[assignment]
+        active = await client.get("/api/voice/status")
+
+    assert active.status_code == 200
+    assert active.json() == {
+        "state": "WAITING_FOLLOWUP", "lastTransitionAt": "2026-08-08T00:00:00Z",
+        "followupExpiresAt": "2026-08-08T00:00:04Z", "lastError": None,
+    }
 
 
 async def test_automation_api_uses_camel_case_and_preserves_error_meanings(tmp_path) -> None:

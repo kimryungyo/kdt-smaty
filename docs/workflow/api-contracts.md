@@ -254,6 +254,26 @@ session override는 저장된 작업 모드의 `ledColor`를 수정하지 않는
 
 Dashboard는 낙관적 성공을 표시하지 않고 current-user와 automation snapshot을 다시 읽는다.
 
+## Voice 상태
+
+| Method | 경로 | 목적 |
+| --- | --- | --- |
+| `GET` | `/api/voice/status` | Voice hardware/runtime의 content-free 상태 조회 |
+
+```json
+{
+  "state": "WAITING_WAKE",
+  "lastTransitionAt": "2026-08-16T10:00:03Z",
+  "followupExpiresAt": null,
+  "lastError": null
+}
+```
+
+Voice가 비활성화되어 container에 없으면 정상 상태로
+`{"state":"DISABLED","lastTransitionAt":null,"followupExpiresAt":null,"lastError":null}`를
+반환한다. 활성 Voice의 timestamp는 UTC ISO 시각이다. transcript, audio, provider 세부와
+비밀값은 이 API에 포함하지 않는다. 이 상태 조회에는 전역 readiness guard를 적용하지 않는다.
+
 | HTTP | 공개 의미 |
 | ---: | --- |
 | `404` | profile, activity mode 또는 enrollment 없음 |

@@ -19,7 +19,9 @@ Voice 구현은 legacy `AssistantService`가 아니라
 - WLED와 Voice는 각각 `enabled` 설정일 때만 생성되며 장치 장애는 기능 snapshot으로 표현한다.
 - profile CRUD, 작업 모드 CRUD와 `/api/status`는 전역 application readiness와 무관하게
   관련 저장소 또는 snapshot이 준비되면 응답한다.
-- 현재 Voice는 legacy 경로다. Agents SDK core 전환을 먼저 끝낸 뒤 최종 lifecycle을 연결한다.
+- Voice는 Agents SDK runtime을 조립해 lifecycle order 90으로 시작한다. 정적 조립 오류는
+  시작 설정 오류로 전파하고, 시작 뒤 microphone·speaker·OpenAI 오류만 Voice `ERROR` snapshot에 격리한다.
+- `/api/voice/status`와 Dashboard Voice 카드는 Voice 상태만 polling하며 transcript·audio·provider 비밀은 노출하지 않는다.
 
 ## 확정 분류
 
@@ -60,30 +62,30 @@ dependency 또는 model 파일이 잘못된 경우에는 조용히 기능을 생
 
 ### Agents SDK 선행 정리
 
-- [ ] task 08의 Agents SDK core 전환으로 legacy gateway·수동 tool loop를 제거한다.
-- [ ] `AgentsVoiceRuntime`, Agent factory와 SDK 대화 session adapter의 최종 생성 경계를 정한다.
-- [ ] SDK 객체를 `VoiceService`와 사용자 session service에 흩어 놓지 않는다.
+- [x] task 08의 Agents SDK core 전환으로 legacy gateway·수동 tool loop를 제거한다.
+- [x] `AgentsVoiceRuntime`, Agent factory와 SDK 대화 session adapter의 생성 경계를 정했다.
+- [x] SDK 객체를 `VoiceService`와 사용자 session service에 흩어 놓지 않는다.
 
 ### 설정과 조립
 
-- [ ] SQLite·MQTT·height·relay·Desk와 WLED·Voice의 분류를 container 타입에 반영한다.
-- [ ] WLED·Voice `enabled=false`는 정상 `DISABLED`, 활성화된 기능의 잘못된 정적 구성은 명시적
-  오류가 되게 한다.
-- [ ] Voice debug만 운영 Voice와 독립적인 개발용 선택 기능으로 유지한다.
-- [ ] dependency 생성 실패를 삼키지 않고 resource 이름과 원인을 보존한다.
-- [ ] fake WLED·Voice·height·relay를 주입할 수 있는 현재 테스트 경계를 유지한다.
+- [x] SQLite·MQTT·height·relay·Desk와 WLED·Voice의 분류를 container 타입에 반영했다.
+- [x] WLED·Voice `enabled=false`는 정상 `DISABLED`이며, 활성화된 Voice의 잘못된 정적 구성은
+  resource 이름과 원인을 보존한 오류가 된다.
+- [x] Voice debug는 Voice가 활성화된 경우에만 별도 개발용 선택 서버로 order 91을 유지한다.
+- [x] Voice dependency/runtime 생성 실패를 삼키지 않고 resource 이름과 원인을 보존한다.
+- [x] fake WLED·Voice·height·relay를 주입할 수 있는 현재 테스트 경계를 유지한다.
 
 ### lifecycle과 상태
 
 - [x] 현재 lifecycle 등록 resource의 startup order와 shutdown order 역순 종료를 검증한다.
 - [x] 일부 시작 실패 시 이미 시작한 resource가 역순으로 정확히 한 번 종료되고 목록에서 제거됨을 검증한다.
 - [ ] MQTT·Arduino·ESP32 단절은 Desk 기능별 `BLOCKED` 근거가 되고 STOP을 시도하게 한다.
-- [ ] WLED·오디오·OpenAI runtime 단절은 해당 기능 상태와 복구로만 나타나게 한다.
+- [x] WLED·오디오·OpenAI runtime 단절은 해당 기능 상태와 복구로만 나타나게 한다.
 - [x] profile·작업 모드 CRUD와 `/api/status`에서 전역 readiness guard를 제거하고, 저장소 오류만 `503`으로 변환한다.
 
 ### 문서와 운영
 
-- [ ] 개발·운영 환경변수에서 핵심 service와 선택 기능을 구분한다.
+- [x] 개발·운영 환경변수에서 핵심 service와 선택 기능을 구분한다.
 - [ ] Arduino·ESP32·WLED·오디오·OpenAI 단절의 확인·복구 절차를 각각 기록한다.
 - [ ] 운영 문서에서 serial bridge를 시작하거나 확인하도록 안내하지 않는다.
 
