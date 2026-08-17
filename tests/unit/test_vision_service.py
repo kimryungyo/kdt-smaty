@@ -61,12 +61,19 @@ class FakeDetector:
         return self.lower
 
 
-def make_service(clock: Clock, detector: FakeDetector, upper: FakeSource, lower: FakeSource) -> VisionService:
+def make_service(
+    clock: Clock, detector: FakeDetector, upper: FakeSource, lower: FakeSource
+) -> VisionService:
     return VisionService(
         upper_source=upper,  # type: ignore[arg-type]
         lower_source=lower,  # type: ignore[arg-type]
         detector=detector,
-        settings=VisionSettings(stable_after_seconds=3, frame_stale_after_seconds=2, result_stale_after_seconds=2),
+        settings=VisionSettings(
+            stable_after_seconds=3,
+            frame_stale_after_seconds=2,
+            result_stale_after_seconds=2,
+            lower_inference_interval_seconds=0.01,
+        ),
         monotonic=clock.monotonic,
         utc_now=clock.utc_now,
     )
@@ -213,3 +220,66 @@ async def test_slow_detector_runs_outside_event_loop_and_stop_cleans_task() -> N
     await service.start()
     await service.stop()
     assert service.get_snapshot().usable is False
+
+
+async def test_lower_rate_limit_uses_latest_frame_without_queueing() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=None), LowerDetection(1, PostureStatus.SITTING)
+    )
+    service = VisionService(
+        upper_source=upper,
+        lower_source=lower,
+        detector=detector,
+        settings=VisionSettings(
+            lower_inference_interval_seconds=0.5,
+            frame_stale_after_seconds=2,
+            result_stale_after_seconds=2,
+        ),
+        monotonic=clock.monotonic,
+        utc_now=clock.utc_now,
+    )
+    for value in (0.0, 0.1, 0.2, 0.5):
+        clock.value = value
+        lower.frame = (np.full((1, 1), value), value)
+        await service.process_once()
+    assert detector.lower_calls == 2
+    assert service.get_snapshot().lower.captured_monotonic == 0.5
+
+
+async def test_fresh_lower_raw_posture_is_visible_when_upper_is_unavailable() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    upper.connected = False
+    detector = FakeDetector(
+        UpperDetection(body_count=None), LowerDetection(1, PostureStatus.SITTING)
+    )
+    lower.frame = (np.zeros((1, 1)), 0.0)
+    service = make_service(clock, detector, upper, lower)
+    await service.process_once()
+    snapshot = service.get_snapshot()
+    assert snapshot.raw_posture is PostureStatus.SITTING
+    assert snapshot.stable_posture is PostureStatus.UNKNOWN
+    assert snapshot.usable is False
+
+
+async def test_malformed_lower_result_is_model_error_and_unknown() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING))
+    detector.lower = ValueError("bad shape")  # type: ignore[assignment]
+    lower.frame = (np.zeros((1, 1)), 0.0)
+    service = make_service(clock, detector, upper, lower)
+    await service.process_once()
+    snapshot = service.get_snapshot()
+    assert BlockCode.MODEL_ERROR in snapshot.reason_codes
+    assert snapshot.raw_posture is PostureStatus.UNKNOWN
+
+
+async def test_non_single_lower_cannot_expose_raw_posture() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=None), LowerDetection(2, PostureStatus.SITTING)
+    )
+    lower.frame = (np.zeros((1, 1)), 0.0)
+    service = make_service(clock, detector, upper, lower)
+    await service.process_once()
+    assert service.get_snapshot().raw_posture is PostureStatus.UNKNOWN

@@ -368,6 +368,23 @@ class VisionSettings(BaseModel):
     result_stale_after_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
     stable_after_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
     max_camera_skew_seconds: float = Field(default=0.5, gt=0, le=10, allow_inf_nan=False)
+    # 하단 YOLO pose는 선택 기능이다. 경로가 비어 있으면 Noop detector로 안전하게 동작한다.
+    lower_pose_model_path: Path | None = None
+    lower_inference_interval_seconds: float = Field(
+        default=0.5, gt=0, le=10, allow_inf_nan=False
+    )
+    lower_pose_input_size: int = Field(default=640, ge=64, le=2048)
+    lower_pose_min_person_confidence: float = Field(default=0.30, ge=0, le=1)
+    lower_pose_min_hip_confidence: float = Field(default=0.08, ge=0, le=1)
+    lower_pose_min_knee_ankle_confidence: float = Field(default=0.45, ge=0, le=1)
+    lower_pose_decision_threshold: float = Field(default=0.52, ge=0, le=1)
+
+    @field_validator("lower_pose_model_path", mode="before")
+    @classmethod
+    def normalize_lower_pose_model_path(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def validate_freshness(self) -> VisionSettings:

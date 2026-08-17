@@ -56,6 +56,10 @@
 
 ### 코드와 계약
 
+- [x] 하단 YOLO pose adapter fake-output 자동 회귀: empty/single/multiple, 유효·부족·퇴화 관절,
+  malformed output fail-closed, 2Hz 최신-frame rate limit과 상단 unavailable raw 관측을 검증한다.
+- [x] 외부 read-only sample 자동 회귀: `sitting` 10, `sitting_fullbody` 6, `standing` 4, `empty` 6
+  장을 로컬 ONNX로 실행한다. 실제 RTSP camera와 ROI calibration은 이 결과에 포함하지 않는다.
 - [ ] Python 전체 unit·integration test와 compile/static 검사를 실행한다.
 - [ ] React TypeScript 검사와 production build를 실행한다.
 - [ ] HTTP request/response, 오류 코드와 stale `sessionId` 계약을 확인한다.

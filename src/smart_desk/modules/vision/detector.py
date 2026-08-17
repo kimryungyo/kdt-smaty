@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from math import acos, degrees
+from pathlib import Path
 from typing import Protocol
 
+import cv2
 import numpy as np
 
-from smart_desk.modules.vision.models import LowerDetection, UpperDetection
+from smart_desk.modules.vision.models import LowerDetection, PostureStatus, UpperDetection
 
 
 class VisionDetector(Protocol):
@@ -25,3 +28,102 @@ class NoopVisionDetector:
 
     def detect_lower(self, _frame: np.ndarray) -> LowerDetection:
         return LowerDetection(count=None)
+
+
+class OpenCvYoloPoseLowerDetector:
+    """OpenCV DNN YOLO pose 하단 detector.
+
+    상단 detector는 이번 단계의 범위 밖이므로 의도적으로 unavailable을 유지한다.
+    """
+
+    _OUTPUT_SHAPE = (1, 300, 57)
+
+    def __init__(
+        self,
+        model_path: Path,
+        *,
+        input_size: int,
+        min_person_confidence: float,
+        min_hip_confidence: float,
+        min_knee_ankle_confidence: float,
+        decision_threshold: float,
+    ) -> None:
+        if not model_path.is_file():
+            raise FileNotFoundError(f"Lower pose model not found: {model_path}")
+        self._net = cv2.dnn.readNetFromONNX(str(model_path))
+        self._input_size = input_size
+        self._min_person_confidence = min_person_confidence
+        self._min_hip_confidence = min_hip_confidence
+        self._min_knee_ankle_confidence = min_knee_ankle_confidence
+        self._decision_threshold = decision_threshold
+
+    def detect_upper(self, _frame: np.ndarray) -> UpperDetection:
+        return UpperDetection(body_count=None)
+
+    def detect_lower(self, frame: np.ndarray) -> LowerDetection:
+        canvas, scale, pad_x, pad_y = self._letterbox(frame)
+        blob = cv2.dnn.blobFromImage(
+            canvas, 1.0 / 255.0, (self._input_size, self._input_size), swapRB=True, crop=False
+        )
+        self._net.setInput(blob)
+        output = self._net.forward()
+        if not isinstance(output, np.ndarray) or output.shape != self._OUTPUT_SHAPE:
+            raise ValueError(
+                f"Unexpected lower pose model output shape: {getattr(output, 'shape', None)!r}; "
+                f"expected {self._OUTPUT_SHAPE}"
+            )
+        people = output[0][output[0, :, 4] >= self._min_person_confidence]
+        count = len(people)
+        if count != 1:
+            return LowerDetection(count=count)
+        keypoints = people[0, 6:].reshape(17, 3).astype(np.float32)
+        keypoints[:, 0] = (keypoints[:, 0] - pad_x) / scale
+        keypoints[:, 1] = (keypoints[:, 1] - pad_y) / scale
+        posture = self._posture_from_keypoints(keypoints)
+        return LowerDetection(count=1, posture=posture)
+
+    def _letterbox(self, frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
+        if frame.ndim != 3 or frame.shape[0] <= 0 or frame.shape[1] <= 0:
+            raise ValueError("Lower pose frame must be a non-empty color image")
+        height, width = frame.shape[:2]
+        scale = min(self._input_size / width, self._input_size / height)
+        resized_width, resized_height = round(width * scale), round(height * scale)
+        pad_x = (self._input_size - resized_width) // 2
+        pad_y = (self._input_size - resized_height) // 2
+        canvas = np.full((self._input_size, self._input_size, 3), 114, dtype=np.uint8)
+        resized = cv2.resize(frame, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
+        canvas[pad_y : pad_y + resized_height, pad_x : pad_x + resized_width] = resized
+        return canvas, scale, pad_x, pad_y
+
+    def _posture_from_keypoints(self, keypoints: np.ndarray) -> PostureStatus:
+        extensions: list[float] = []
+        for hip, knee, ankle in ((11, 13, 15), (12, 14, 16)):
+            if (
+                keypoints[hip, 2] < self._min_hip_confidence
+                or keypoints[knee, 2] < self._min_knee_ankle_confidence
+                or keypoints[ankle, 2] < self._min_knee_ankle_confidence
+            ):
+                continue
+            angle = self._angle(keypoints[hip, :2], keypoints[knee, :2], keypoints[ankle, :2])
+            if angle is None:
+                continue
+            extensions.append(max(0.0, min(1.0, (angle - 120.0) / 45.0)))
+        if not extensions:
+            return PostureStatus.UNKNOWN
+        if min(extensions) >= self._decision_threshold:
+            return PostureStatus.STANDING
+        return PostureStatus.SITTING
+
+    @staticmethod
+    def _angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None:
+        if not np.isfinite(np.concatenate((a, b, c))).all():
+            return None
+        ba, bc = a - b, c - b
+        denominator = float(np.linalg.norm(ba) * np.linalg.norm(bc))
+        if not np.isfinite(denominator) or denominator < 1e-7:
+            return None
+        cosine = float(np.dot(ba, bc)) / denominator
+        if not np.isfinite(cosine):
+            return None
+        cosine = max(-1.0, min(1.0, cosine))
+        return degrees(acos(cosine))

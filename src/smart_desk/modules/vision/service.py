@@ -61,6 +61,7 @@ class VisionService:
         self._detector_lock = threading.Lock()
         self._last_upper_capture: float | None = None
         self._last_lower_capture: float | None = None
+        self._last_lower_inference_monotonic: float | None = None
         self._last_combined_pair: tuple[float, float] | None = None
         self._upper = self._empty_observation(upper_source)
         self._lower = self._empty_observation(lower_source)
@@ -119,7 +120,7 @@ class VisionService:
         if upper_frame is not None:
             kinds.append(("upper", upper_frame))
             jobs.append(asyncio.to_thread(self._detect_upper, upper_frame[0]))
-        if lower_frame is not None:
+        if lower_frame is not None and self._lower_inference_due():
             kinds.append(("lower", lower_frame))
             jobs.append(asyncio.to_thread(self._detect_lower, lower_frame[0]))
         if jobs:
@@ -130,6 +131,7 @@ class VisionService:
                     self._upper = self._make_upper_observation(frame, result)
                 else:
                     self._last_lower_capture = frame[1]
+                    self._last_lower_inference_monotonic = self._monotonic()
                     self._lower = self._make_lower_observation(frame, result)
         self._snapshot = self._compose_snapshot(advance=self._has_distinct_combined_pair())
 
@@ -198,6 +200,12 @@ class VisionService:
             return None
         return frame
 
+    def _lower_inference_due(self) -> bool:
+        previous = self._last_lower_inference_monotonic
+        return previous is None or (
+            self._monotonic() - previous >= self._settings.lower_inference_interval_seconds
+        )
+
     def _make_upper_observation(self, frame: LatestFrame, result: object) -> CameraObservation:
         now, wall = self._monotonic(), self._utc_now()
         if isinstance(result, BaseException) or not isinstance(result, UpperDetection):
@@ -243,7 +251,18 @@ class VisionService:
         reason_codes = self._reason_codes(upper, lower, force_stale)
         hard_reasons = tuple(code for code in reason_codes if code is not BlockCode.POSTURE_UNASSOCIATED)
         raw_presence = self._raw_presence(upper, lower, hard_reasons)
-        raw_posture = lower.posture if not hard_reasons and raw_presence is PresenceStatus.PRESENT_SINGLE else PostureStatus.UNKNOWN
+        # 하단 raw 자세는 관측성용으로 독립 노출한다. 상단 detector가 아직 unavailable이어도
+        # fresh singleton 하단 frame은 볼 수 있지만, usable/stable 결합 안전 조건은 완화하지 않는다.
+        raw_posture = (
+            lower.posture
+            if (
+                lower.connected
+                and lower.count == 1
+                and not lower.detector_error
+                and self._is_fresh(lower)
+            )
+            else PostureStatus.UNKNOWN
+        )
         if force_stale or hard_reasons:
             self._presence_candidate = None
             self._posture_candidate = None

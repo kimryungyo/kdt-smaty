@@ -1,7 +1,11 @@
 """최신 frame 기반 Vision 관측 공개 경계."""
 
 from smart_desk.core.container import get_container
-from smart_desk.modules.vision.detector import NoopVisionDetector, VisionDetector
+from smart_desk.modules.vision.detector import (
+    OpenCvYoloPoseLowerDetector,
+    NoopVisionDetector,
+    VisionDetector,
+)
 from smart_desk.modules.vision.models import (
     BlockCode,
     FaceBox,
@@ -25,6 +29,7 @@ def get_vision() -> VisionService:
 
 __all__ = [
     "BlockCode", "FaceBox", "FreshFaceObservation", "IdentityStatus", "LowerDetection",
-    "NoopVisionDetector", "PostureStatus", "PresenceStatus", "UpperDetection",
-    "VisionDetector", "VisionService", "VisionSnapshot", "get_vision",
+    "OpenCvYoloPoseLowerDetector", "NoopVisionDetector", "PostureStatus",
+    "PresenceStatus", "UpperDetection", "VisionDetector", "VisionService",
+    "VisionSnapshot", "get_vision",
 ]

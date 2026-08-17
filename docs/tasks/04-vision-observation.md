@@ -18,6 +18,13 @@
   소비한다. `workspace`는 Vision 자세 입력으로 대체하지 않는다.
 - `/api/vision/status`는 fail-closed raw/stable snapshot과 camera freshness를 제공한다.
 - 기본 `NoopVisionDetector`는 실제 관측인 척하지 않고 `MODEL_UNAVAILABLE`를 반환한다.
+- 선택 하단 detector는 OpenCV DNN YOLO pose ONNX의 `(1,300,57)` end-to-end NMS 출력을 검증한다.
+  최신 posture RTSP frame 전체를 letterbox 640으로 처리하고 2Hz에서 최신 frame 하나만 사용한다.
+  상단 model이 unavailable이어도 fresh singleton 하단의 frame-level raw posture는 보이지만,
+  stable posture와 association/AUTO는 기존 양쪽 camera singleton 결합 조건을 계속 요구한다.
+- ROI calibration 전에는 전체 하단 frame을 사용한다. 주변 통행도 count되면 보수적으로
+  `MULTIPLE_PEOPLE`가 되어 자동화를 차단한다. WHEP/aiortc, FastAPI/web UI, MJPEG/JPEG polling이나
+  preview endpoint는 구현하거나 복사하지 않았다.
 - Dashboard와 debug 화면의 Vision 내용은 placeholder다.
 
 ## 첫 구현의 관측 범위
@@ -61,16 +68,17 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 
 - [x] 두 `RtspFrameSource`를 container에서 Vision service에 주입할 수 있게 보관한다.
 - [ ] 설정 기반 카메라 경로·방향·해상도·FPS와 책상 ROI 구조를 만들고 실물 연결 뒤 값을 확인한다.
-- [ ] 카메라별 처리 주기, frame 만료와 detector 결과 만료 설정을 정의한다.
+- [x] 하단 detector 2Hz 처리 상한, frame/result freshness와 detector threshold 설정을 정의한다.
 - [ ] 상단 몸체/얼굴과 하단 하체의 책상 ROI 및 singleton 결합을 구현한다.
 - [ ] 상단 얼굴 detector를 한 번 load·실행하고 fresh box/count snapshot을 task 05가 재사용할
   수 있게 한다. task 05가 별도 얼굴 detector loop를 만들지 않게 한다.
 - [x] 같은 frame을 중복 추론하지 않도록 captured time을 추적한다.
-- [ ] resize, crop과 색공간 변환을 담당하는 최소 전처리 경계를 구현한다.
+- [x] 하단 full-frame letterbox 640, RGB blob 전처리와 COCO hip/knee/ankle 기하 판정을 구현한다.
 
 ### detector와 안정화
 
-- [ ] 사람 수·재실 detector와 자세 detector의 모델·입력·출력을 선정한다.
+- [x] 하단 사람 수·자세에 OpenCV DNN YOLO pose ONNX를 적용한다. 모든 threshold 이상 row를
+  count하고 정확히 한 명일 때만 stateless raw 자세를 계산한다. 상단 detector는 계속 미구현이다.
 - [x] detector 추론을 event loop 밖에서 수행한다.
 - [x] 같은 detector/model의 upper/lower 호출은 작은 lock으로 직렬화한다.
 - [x] raw 결과와 안정화 결과를 구분하고 앉음·섬 후보 유지 timer를 구현한다.
@@ -108,8 +116,8 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 
 ## 실물 확인 항목
 
-- 실제 detector/model과 ROI는 아직 연결하지 않았다. fake/noop adapter의 자동 검증만 완료됐으며
-  model load/import, CPU 지연, threshold와 ROI 보정은 실제 camera에서 수행해야 한다.
+- 하단 ONNX adapter의 fake output과 제공 sample 자동 회귀는 완료했지만, 실제 RTSP camera, CPU 지연,
+  threshold와 ROI 보정은 수행하지 않았다. 상단 detector/얼굴 embedding/전체 association도 미완료다.
 - MediaMTX WebRTC/HLS preview 방식과 상단·하단 camera 배치, FPS·조명·책상 주변 통행에 대한
   실측은 아직 수행하지 않았다.
 - 앉음·섬·이탈과 책상 주변 통행을 ROI에서 촬영해 오검출 패턴을 기록한다.

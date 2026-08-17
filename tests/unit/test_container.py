@@ -19,6 +19,7 @@ from smart_desk.modules.desk import get_desk
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
 from smart_desk.modules.profiles import get_activity_modes, get_profiles
 from smart_desk.modules.assistant.agents_runtime import AgentsVoiceRuntime
+from smart_desk.modules.vision import NoopVisionDetector
 
 
 def test_get_container_requires_installation() -> None:
@@ -73,6 +74,14 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
     qos, handler = container.mqtt._handlers[ESP32_STATUS_TOPIC]  # noqa: SLF001
     assert qos == 0
     assert handler.__self__ is container.relay
+
+
+def test_missing_lower_pose_model_falls_back_to_noop_without_failing_bootstrap() -> None:
+    container = build_container(
+        Settings(vision={"lower_pose_model_path": "/missing/yolo26n-pose.onnx"}, _env_file=None)
+    )
+    assert container.vision is not None
+    assert isinstance(container.vision._detector, NoopVisionDetector)  # noqa: SLF001
 
 
 def test_build_container_registers_media_roles_independently() -> None:

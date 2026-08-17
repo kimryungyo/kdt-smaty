@@ -19,7 +19,11 @@ from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.modules.wled.client import WledClient
-from smart_desk.modules.vision import NoopVisionDetector, VisionService
+from smart_desk.modules.vision import (
+    OpenCvYoloPoseLowerDetector,
+    NoopVisionDetector,
+    VisionService,
+)
 from smart_desk.modules.identity import FaceIdentityService, UnavailableFaceEmbeddingExtractor
 from smart_desk.modules.identity.repository import FaceEmbeddingRepository
 from smart_desk.modules.identity.session import CurrentUserSessionService
@@ -224,10 +228,25 @@ def build_container(settings: Settings) -> AppContainer:
         )
     # Vision은 user(상단)와 posture(하단)만 소비한다. workspace 영상은 AI 작업공간
     # 역할이므로 편의상 자세 입력으로 대체하지 않는다.
+    detector = NoopVisionDetector()
+    if settings.vision.lower_pose_model_path is not None:
+        try:
+            detector = OpenCvYoloPoseLowerDetector(
+                settings.vision.lower_pose_model_path,
+                input_size=settings.vision.lower_pose_input_size,
+                min_person_confidence=settings.vision.lower_pose_min_person_confidence,
+                min_hip_confidence=settings.vision.lower_pose_min_hip_confidence,
+                min_knee_ankle_confidence=settings.vision.lower_pose_min_knee_ankle_confidence,
+                decision_threshold=settings.vision.lower_pose_decision_threshold,
+            )
+        except Exception:
+            LOGGER.exception(
+                "Failed to load lower YOLO pose model; using unavailable detector"
+            )
     vision = VisionService(
         upper_source=container.user_frame_source,
         lower_source=container.posture_frame_source,
-        detector=NoopVisionDetector(),
+        detector=detector,
         settings=settings.vision,
     )
     container.vision = vision
