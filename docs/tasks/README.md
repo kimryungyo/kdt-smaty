@@ -45,6 +45,7 @@ runtime은 이미 task 02 lifecycle에 연결돼 있고, 남은 Voice 작업은 
 | 07 | [Dashboard 워크플로우](07-dashboard-workflow.md) | 설정 대상과 현재 사용자 분리 | 진행 중 | 주요 workflow·Assistant/Voice 상태 구현; preview/debug 일부 미완료 |
 | 08 | [Agents SDK 음성과 AI 사용자 문맥](08-ai-user-context.md) | VoicePipeline·session context/tool/turn | 진행 중 | 실제 audio/OpenAI/Mem0 운영 검증과 남은 항목 구분 |
 | 09 | [통합·실물 검증](09-system-validation.md) | 장애·복구·실제 동작 증거 | 진행 중 | 자동 검증 누적, 실물 검증 대기 |
+| 10 | [로컬 서비스 운영 준비](10-operational-readiness.md) | 얼굴·camera·Voice를 실제 사용자 흐름으로 연결 | 진행 중 | 운영 gap 감사 완료; production adapter와 실측 진행 |
 
 구현 순서는 더 이상 착수 계획이 아니다. 02·03의 코드 경계, 04 하단 detector, 05의
 repository/session/API 기반, 06 자동화 정책, 07 Dashboard 주요 흐름, 08 Agents SDK 단일

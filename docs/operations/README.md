@@ -4,6 +4,9 @@
 테스트 통과는 실물 장치 동작 승인이 아니다. 실제 이동은 [Task 09](../tasks/09-system-validation.md)의
 안전 순서와 현장 책임자 승인 뒤에만 검증한다.
 
+얼굴·camera·Voice를 실제 사용자 흐름으로 만드는 현재 gap과 구현 순서는
+[Task 10](../tasks/10-operational-readiness.md)을 따른다.
+
 ## 운영 구성요소와 시작 순서
 
 운영 relay 경로는 **ESP32 Wi-Fi/MQTT → EMQX → FastAPI `RelayClient`**다. MQTT→USB-serial

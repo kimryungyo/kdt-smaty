@@ -49,6 +49,7 @@ opt-in 단계다.
 | [구현 순서](implementation/roadmap.md) | 개발 계획을 세울 때 | 2~3개월 단계와 완료 조건 |
 | [Docker 배포·분산 Vision 인수인계](implementation/containerization-handoff.md) | Docker 상세 설계와 다중 호스트 배치를 시작할 때 | 역할별 이미지, Compose, Main–Vision 계약과 검증 기준 |
 | [작업 목록](tasks/README.md) | 실제 구현을 시작할 때 | 번호순 작업, 선행 조건, 검증과 완료 기준 |
+| [로컬 서비스 운영 준비](tasks/10-operational-readiness.md) | 실제 camera·얼굴·Voice를 연결할 때 | 현재 운영 gap, 최소 구현 순서와 완료 증거 |
 | [운영 runbook](operations/README.md) | 실행·복구·실물 검증을 준비할 때 | production 구성, health, degraded, backup 주의와 미완료 checklist |
 
 ## 설계 결정
