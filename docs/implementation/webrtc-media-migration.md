@@ -70,3 +70,18 @@ PyAV를 애플리케이션 의존성으로 사용한다. 송출과 수신이 같
 5. 실행 중인 FFmpeg RTSP publisher와 8554 수신 연결이 없는지 확인한다.
 6. `/bottom-cam` 외부 publisher가 살아나면 자세 추론을 확인한다.
 7. 밝은 환경에서 얼굴 등록, 인식, 세션 시작/중단을 순서대로 검증한다.
+
+## 2026-08-17 운영 검증 결과
+
+- `user-cam`과 `workspace-cam` WHIP publish가 MediaMTX 1.19.2에 연결됐다.
+- WHEP로 user `1920x1080`, workspace `1920x1080` BGR frame을 실제 수신했다.
+- user Vision camera는 `ONLINE`이고 애플리케이션 `/health/ready`는 `200 ready`다.
+- 운영 MediaMTX의 RTSP listener를 비활성화했으며 호스트 `:8554` listener와 FFmpeg
+  publisher process가 없음을 확인했다.
+- workspace는 publish-only인 현재 역할에 맞춰 운영 capture를 `1920x1080@15`로 낮춰
+  5MP 소프트웨어 인코딩 부하를 줄였다.
+- `/bottom-cam/whep`은 외부 publisher가 현재 보이지 않아 `404` bounded backoff 상태다.
+  로컬 `~/sitting`은 이 경로의 WHEP consumer일 뿐 publisher가 아니며, 외부 하체 카메라
+  송출 주체를 WHIP로 재기동해야 자세·session 라이브 검증을 계속할 수 있다.
+- 마이크는 미연결 상태라 Voice만 `input_device_name_invalid`이고 전역 readiness와 영상은
+  유지된다.
