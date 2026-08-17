@@ -500,4 +500,3 @@ def _to_device_pcm(pcm: bytes) -> bytes:
     samples = np.frombuffer(pcm, dtype="<i2")
     upsampled = np.repeat(samples, 2)
     return np.repeat(upsampled[:, np.newaxis], 2, axis=1).tobytes()
-
