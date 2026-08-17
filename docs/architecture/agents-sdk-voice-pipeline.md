@@ -53,7 +53,7 @@ Microphone 24kHz PCM16
            └─ VoicePipeline
               ├─ gpt-4o-transcribe + server_vad
               ├─ SmartDeskVoiceWorkflow
-              │   ├─ Agent(gpt-5.6-terra / low)
+              │   ├─ Agent(gpt-5.6-terra / low) + Runner.run_streamed
               │   ├─ Agents SDK session
               │   ├─ hosted/function tools
               │   └─ Mem0 MemoryService
@@ -92,19 +92,21 @@ Agents SDK session은 이 turn들 사이의 단기 대화 문맥이고, `profile
 
 `AgentsVoiceRuntime`은 기존 `OpenAiGateway`처럼 `transcribe()`,
 `create_response_step()`, `synthesize()`를 각각 노출하지 않는다. 세 단계는 하나의 SDK
-pipeline 실행으로 묶는다.
+pipeline 실행으로 묶는다. 공개 입력은 `run_audio(chunks: AsyncIterable[bytes])` 하나이며,
+각 24kHz mono PCM16 원본 chunk를 `StreamedAudioInput.add_audio()`에 넣고 종료에는 `None`을
+넣는다. full WAV/static buffer convenience API는 제공하지 않는다.
 
 ### `SmartDeskVoiceWorkflow`
 
-기본 `SingleAgentVoiceWorkflow` 대신 프로젝트용 workflow를 둔다.
+기본 `SingleAgentVoiceWorkflow` 대신 프로젝트용 `SmartDeskVoiceWorkflow`를 둔다.
 
-- 책상 사용자 snapshot과 Agents SDK session 선택
-- `gpt-5.6-terra / low` Agent 실행
-- SDK hosted tool과 local function tool 연결
-- tool 실행 전 진행 안내 음성 처리
-- 조건부 follow-up 신호 처리
-- session 변경·취소와 memory read/write 정책 적용
-- tool 이름, 지연, token usage를 debug snapshot으로 전달
+- 하나의 Agent에 `Runner.run_streamed()`를 호출하고 `VoiceWorkflowHelper.stream_text_from()`의
+  text stream만 TTS로 전달
+- 확정 STT turn의 final transcription을 provider-neutral callback으로 runtime 상위 계층에 전달
+- session·memory·local function tool·`request_followup` 연결은 08B가 이 경계에 추가
+
+08A core에는 multi-agent, handoff, MCP, 가짜 tool event 또는 partial transcript callback을
+넣지 않는다.
 
 ### `PlaybackCoordinator`
 
@@ -343,7 +345,10 @@ numpy               >=2.2,<3
 sounddevice, livekit-wakeword, soxr 유지
 ```
 
-현재 `openai>=2.53,<3`, `numpy>=2.1` 제약을 그대로 둔 채 Agents SDK를 추가하지 않는다.
+실제 개발 환경 import 검증 결과 `openai-agents==0.21.1`, `openai==3.1.0`,
+`numpy==2.5.2`가 함께 동작했다. 따라서 pyproject는 `openai-agents[voice]>=0.21,<0.22`,
+`openai>=3,<4`, `numpy>=2.2,<3`로 고정한다. Raspberry Pi native audio import는 배포 전
+별도로 검증한다.
 dependency 해석 결과와 native audio import는 x86 개발 환경과 Raspberry Pi 운영 환경에서
 각각 검증한다.
 

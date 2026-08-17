@@ -75,13 +75,18 @@ broker는 이번 범위에 추가하지 않는다.
 
 ### Agents SDK 음성 전환
 
-- [ ] `openai-agents[voice]`, `openai`, NumPy와 native audio dependency가 함께 해석되는 version
+- [x] `openai-agents[voice]>=0.21,<0.22`, `openai>=3,<4`, `numpy>=2.2,<3`를 고정하고
+  Python 3.14 개발 환경에서 `agents==0.21.1`, `openai==3.1.0`, `numpy==2.5.2` import와
+  `AudioInput`/`SingleAgentVoiceWorkflow`/`VoicePipeline` API를 확인했다. Raspberry Pi native
+  audio import는 배포 전 별도 검증이 필요하다.
   조합을 고정하고 x86·Raspberry Pi에서 import를 검증한다.
-- [ ] `AgentsVoiceRuntime`과 프로젝트용 Agent workflow를 만들고 model·STT·TTS·VAD 설정을
-  한 조립 경계에서 명시한다.
+- [x] `AgentsVoiceRuntime`과 `SmartDeskVoiceWorkflow`를 만들고 model·STT·TTS·VAD 설정을
+  불변 `AgentsVoiceConfig` 한 조립 경계에서 명시한다. runtime 입력은 24kHz mono PCM16
+  `AsyncIterable`을 `StreamedAudioInput`에 직접 공급하며, 실행별 순번이 있는
+  lifecycle/transcript/audio/error event만 외부로 낸다.
 - [ ] 첫 구현은 단일 Agent + `Runner` + 필요한 local function tool만 사용하고, handoff나
   다중 Agent orchestration을 추가하지 않는다.
-- [ ] microphone은 24kHz mono PCM16으로 한 번 capture하고, Wake Word 입력만 stateful
+- [x] microphone은 24kHz mono PCM16으로 한 번 capture하고, Wake Word 입력만 stateful
   resampler로 16kHz로 변환해 원본 24kHz chunk를 VoicePipeline에 전달한다.
 - [ ] final transcript 전에 Desk·WLED 같은 부작용 tool을 실행하지 않고, SDK hosted/function
   tool이 기존 public domain service만 호출하게 한다.
@@ -91,7 +96,7 @@ broker는 이번 범위에 추가하지 않는다.
   TTS drain과 정책 재검증 뒤 제한된 follow-up 창을 연다.
 - [ ] 전환 완료 후 `OpenAiGateway`, 수동 Responses/tool loop, local RMS 발화 종료와 WAV STT
   경로를 제거하고 legacy/SDK 이중 실행 flag를 두지 않는다.
-- [ ] SDK lifecycle·usage·tool·오류 event를 provider 중립 Voice/Assistant snapshot으로
+- [x] SDK lifecycle·audio·오류 event를 provider 중립 Voice runtime event로
   변환하고 OpenAI SDK 타입을 Dashboard·AutomationService에 노출하지 않는다.
 
 ### 현재 사용자 연결
