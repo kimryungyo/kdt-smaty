@@ -16,6 +16,7 @@ from smart_desk.modules.mqtt.client import MqttClient
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
 from smart_desk.modules.media import CameraPublisher, RtspFrameSource
 from smart_desk.modules.profiles.repository import ProfileRepository
+from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.modules.wled.client import WledClient
 from smart_desk.storage import SQLiteDatabase
@@ -35,6 +36,7 @@ def build_container(settings: Settings) -> AppContainer:
     )
     database = SQLiteDatabase(settings.storage.database_path)
     profiles = ProfileRepository(database)
+    activity_modes = ActivityModeRepository(database)
     mqtt = MqttClient(settings.mqtt, task_manager)
     serial_source = SerialLineSource(settings.serial)
     decoder = SegmentDecoder(settings.desk)
@@ -66,6 +68,7 @@ def build_container(settings: Settings) -> AppContainer:
         task_manager=task_manager,
         database=database,
         profiles=profiles,
+        activity_modes=activity_modes,
         dashboard=dashboard,
         mqtt=mqtt,
         height_monitor=height_monitor,

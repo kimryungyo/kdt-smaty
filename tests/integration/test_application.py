@@ -16,7 +16,7 @@ from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.dashboard import DashboardService
 from smart_desk.modules.desk.models import HeightStatus
 from smart_desk.modules.mqtt.client import MqttStartupError
-from smart_desk.modules.profiles import ProfileRepository
+from smart_desk.modules.profiles import ActivityModeRepository, ProfileRepository
 from smart_desk.storage import SQLiteDatabase, StorageCorruptedError, StorageNotReadyError
 
 
@@ -75,6 +75,7 @@ def build_test_container(
 ) -> tuple[AppContainer, FakeMqttClient, FakeHeightMonitor]:
     database = SQLiteDatabase(settings.storage.database_path)
     profiles = ProfileRepository(database)
+    activity_modes = ActivityModeRepository(database)
     mqtt = FakeMqttClient()
     height_monitor = FakeHeightMonitor()
     desk = FakeDeskController()
@@ -85,6 +86,7 @@ def build_test_container(
         task_manager=TaskManager(),
         database=database,
         profiles=profiles,
+        activity_modes=activity_modes,
         dashboard=dashboard,
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]
@@ -129,6 +131,7 @@ def build_test_container(
 def build_failing_test_container(settings: Settings) -> AppContainer:
     database = SQLiteDatabase(settings.storage.database_path)
     profiles = ProfileRepository(database)
+    activity_modes = ActivityModeRepository(database)
     mqtt = FailingMqttClient()
     height_monitor = FakeHeightMonitor()
     desk = FakeDeskController()
@@ -139,6 +142,7 @@ def build_failing_test_container(settings: Settings) -> AppContainer:
         task_manager=TaskManager(),
         database=database,
         profiles=profiles,
+        activity_modes=activity_modes,
         dashboard=dashboard,
         mqtt=mqtt,  # type: ignore[arg-type]
         height_monitor=height_monitor,  # type: ignore[arg-type]

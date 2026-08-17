@@ -17,7 +17,7 @@ from smart_desk.modules.mqtt import get_mqtt
 from smart_desk.modules.dashboard import get_dashboard
 from smart_desk.modules.desk import get_desk
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
-from smart_desk.modules.profiles import get_profiles
+from smart_desk.modules.profiles import get_activity_modes, get_profiles
 
 
 def test_get_container_requires_installation() -> None:
@@ -33,6 +33,7 @@ def test_installed_container_is_returned_as_same_instance() -> None:
     assert get_mqtt() is container.mqtt
     assert get_desk() is container.desk
     assert get_profiles() is container.profiles
+    assert get_activity_modes() is container.activity_modes
     assert get_dashboard() is container.dashboard
 
 
@@ -44,6 +45,7 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
     assert container.desk is not None
     assert container.database is not None
     assert container.profiles is not None
+    assert container.activity_modes is not None
     assert container.dashboard is not None
     assert container.assistant is None
     assert container.voice is None

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 PROFILE_ID_PATTERN = r"^profile-[0-9a-f]{32}$"
+ACTIVITY_MODE_ID_PATTERN = r"^mode-[0-9a-f]{32}$"
 LED_COLOR_PATTERN = re.compile(r"^[0-9A-Fa-f]{6}$")
 
 
@@ -114,3 +115,66 @@ class ProfileUpdate(_ProfileModel):
             if getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} 필드는 null일 수 없습니다.")
         return self
+
+
+class _ActivityModeModel(_ProfileModel):
+    @field_validator("name", check_fields=False)
+    @classmethod
+    def normalize_activity_mode_name(cls, value: str | None) -> str | None:
+        return cls.normalize_name(value)
+
+
+class ActivityModeCreate(_ActivityModeModel):
+    """사용자 정의 작업 모드 생성 입력이다."""
+
+    name: str = Field(strict=True)
+    sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
+    standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
+    led_color: str | None = Field(default=None, strict=True)
+
+
+class ActivityModeUpdate(_ActivityModeModel):
+    """사용자 정의 작업 모드의 명시적 부분 수정 입력이다."""
+
+    name: str | None = Field(default=None, strict=True)
+    sitting_height_cm: float | None = Field(
+        default=None, strict=True, ge=75, le=115, allow_inf_nan=False
+    )
+    standing_height_cm: float | None = Field(
+        default=None, strict=True, ge=75, le=115, allow_inf_nan=False
+    )
+    led_color: str | None = Field(default=None, strict=True)
+
+    @model_validator(mode="after")
+    def require_valid_changes(self) -> ActivityModeUpdate:
+        if not self.model_fields_set:
+            raise ValueError("변경할 작업 모드 필드를 하나 이상 전달해야 합니다.")
+        for field_name in self.model_fields_set & {
+            "name", "sitting_height_cm", "standing_height_cm"
+        }:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} 필드는 null일 수 없습니다.")
+        return self
+
+
+class ActivityMode(_ActivityModeModel):
+    """저장된 사용자 정의 작업 모드다."""
+
+    id: str = Field(strict=True, pattern=ACTIVITY_MODE_ID_PATTERN)
+    profile_id: str = Field(strict=True, pattern=PROFILE_ID_PATTERN)
+    name: str = Field(strict=True)
+    sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
+    standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
+    led_color: str | None = Field(strict=True)
+
+
+class EffectiveActivityMode(_ActivityModeModel):
+    """기본 profile 값과 custom row를 합성한 설정 화면용 작업 모드다."""
+
+    key: str = Field(strict=True)
+    kind: str = Field(strict=True, pattern=r"^(DEFAULT|CUSTOM)$")
+    name: str = Field(strict=True)
+    sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
+    standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
+    led_color: str | None = Field(strict=True)
+    editable: bool = Field(strict=True)

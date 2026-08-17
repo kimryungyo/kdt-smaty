@@ -100,7 +100,10 @@ profile의 기존 `sittingHeightCm`, `standingHeightCm`, `ledColor`는 내장 `�
 합성 항목은 `key`, `kind`, `name`, `sittingHeightCm`, `standingHeightCm`, `ledColor`,
 `editable`을 가진다. 기본 항목은 `key="default"`, `kind="DEFAULT"`, `editable=false`다.
 설정 CRUD는 current session, active mode, WLED와 Desk를 바꾸지 않는다. 현재 active custom
-mode 삭제는 `409`다. 수정값은 다음 mode 선택 또는 다음 session부터 적용된다.
+mode 삭제 `409` guard는 Task 06의 active snapshot 구현과 함께 연결한다. 이 Task의 삭제는
+custom row가 존재하면 `204`, 없으면 `404`이며, 수정값은 다음 mode 선택 또는 다음 session부터
+적용된다. 같은 profile의 정규화 이름 중복은 `409`, unknown field·빈 이름·높이/LED 범위 오류는
+`422`다.
 
 ## 자동화 상태
 

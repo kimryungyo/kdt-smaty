@@ -21,7 +21,7 @@ from smart_desk.modules.desk.models import (
     RelaySnapshot,
     RelayState,
 )
-from smart_desk.modules.profiles import ProfileRepository
+from smart_desk.modules.profiles import ActivityModeRepository, ProfileRepository
 from smart_desk.storage import SQLiteDatabase
 
 
@@ -29,6 +29,7 @@ class FakeDesk:
     def __init__(self) -> None:
         self.reject = False
         self.unavailable = False
+        self.commands: list[str] = []
         self.snapshot = DeskSnapshot(
             state=DeskState.IDLE,
             height=HeightSnapshot(90.0, datetime(2026, 8, 8, tzinfo=UTC), HeightStatus.ONLINE),
@@ -44,23 +45,30 @@ class FakeDesk:
         return self.snapshot
 
     async def hold_up(self) -> None:
+        self.commands.append("hold_up")
         if self.reject:
             raise DeskCommandRejectedError("릴레이가 준비되지 않았습니다.")
         if self.unavailable:
             raise RuntimeError("controller not running")
 
-    async def hold_down(self) -> None: pass
-    async def stop_motion(self, _reason: str) -> None: pass
-    async def set_target(self, _target: float) -> None: pass
+    async def hold_down(self) -> None:
+        self.commands.append("hold_down")
+
+    async def stop_motion(self, _reason: str) -> None:
+        self.commands.append("stop_motion")
+
+    async def set_target(self, _target: float) -> None:
+        self.commands.append("set_target")
 
 
 async def test_dashboard_api_contract_and_profile_crud(tmp_path) -> None:
     settings = Settings(environment="test", storage=StorageSettings(database_path=tmp_path / "desk.db"), dashboard=DashboardSettings(serve_frontend=False), _env_file=None)
     database = SQLiteDatabase(settings.storage.database_path)
     profiles = ProfileRepository(database)
+    activity_modes = ActivityModeRepository(database)
     desk = FakeDesk()
     runtime = RuntimeState()
-    container = AppContainer(settings=settings, runtime=runtime, task_manager=TaskManager(), database=database, profiles=profiles, dashboard=DashboardService(desk, profiles), mqtt=object(), height_monitor=object(), relay=object(), desk=desk)  # type: ignore[arg-type]
+    container = AppContainer(settings=settings, runtime=runtime, task_manager=TaskManager(), database=database, profiles=profiles, activity_modes=activity_modes, dashboard=DashboardService(desk, profiles), mqtt=object(), height_monitor=object(), relay=object(), desk=desk)  # type: ignore[arg-type]
     application = create_application(settings=settings, container=container)
     await database.start()
     runtime.mark(ApplicationStatus.READY, "test ready")
@@ -78,12 +86,41 @@ async def test_dashboard_api_contract_and_profile_crud(tmp_path) -> None:
         assert created.json()["ledColor"] == "FF3000"
         profile_id = created.json()["id"]
 
+        modes = await client.get(f"/api/profiles/{profile_id}/activity-modes")
+        assert modes.status_code == 200
+        assert modes.json() == [{
+            "key": "default", "kind": "DEFAULT", "name": "기본",
+            "sittingHeightCm": 80.0, "standingHeightCm": 105.0,
+            "ledColor": "FF3000", "editable": False,
+        }]
+        custom = await client.post(
+            f"/api/profiles/{profile_id}/activity-modes",
+            json={"name": " 독서 ", "sittingHeightCm": 82, "standingHeightCm": 108, "ledColor": "ffd080"},
+        )
+        assert custom.status_code == 201
+        assert custom.json()["kind"] == "CUSTOM"
+        assert custom.json()["name"] == "독서"
+        mode_id = custom.json()["key"]
+        assert (await client.post(
+            f"/api/profiles/{profile_id}/activity-modes",
+            json={"name": "독서", "sittingHeightCm": 82, "standingHeightCm": 108},
+        )).status_code == 409
+        assert (await client.patch(
+            f"/api/activity-modes/{mode_id}", json={"standingHeightCm": 109}
+        )).json()["standingHeightCm"] == 109.0
+        assert (await client.patch(
+            f"/api/activity-modes/{mode_id}", json={"unknown": True}
+        )).status_code == 422
+        assert (await client.delete(f"/api/activity-modes/{mode_id}")).status_code == 204
+        assert (await client.delete(f"/api/activity-modes/{mode_id}")).status_code == 404
+
         updated = await client.patch(f"/api/profiles/{profile_id}", json={"ledColor": None})
         assert updated.status_code == 200
         assert updated.json()["ledColor"] is None
         assert (await client.get("/api/profiles")).json()[0]["id"] == profile_id
         assert (await client.delete(f"/api/profiles/{profile_id}")).status_code == 204
         assert (await client.get(f"/api/profiles/{profile_id}")).status_code == 404
+        assert desk.commands == []
 
         assert (await client.post("/api/target", json={"action": "SET", "targetCm": 116})).status_code == 422
         assert (await client.post("/api/control", json={"action": "HOLD", "direction": "UP", "unknown": True})).status_code == 422

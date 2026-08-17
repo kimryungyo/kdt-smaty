@@ -37,9 +37,10 @@
 - profile 설정 CRUD는 현재 사용자 session, active 작업 모드, LED와 책상을 변경하지 않는다.
 - 활성 작업 모드는 session 안에 값 snapshot으로 보관한다. 저장값 수정은 다음 선택 또는 다음
   session 시작부터 적용한다.
-- 현재 활성화된 custom 작업 모드는 삭제를 `409`로 거절한다. 다른 모드나 기본 모드로
-  전환한 뒤 삭제한다.
-- profile 삭제 시 작업 모드, 얼굴 embedding과 장기 기억을 기존 삭제 순서에 따라 함께 정리한다.
+- 현재 활성화된 custom 작업 모드 삭제 `409` guard는 Task 06이 active mode snapshot을
+  구현할 때 이 API에 연결한다. 현재 설정 API는 custom row를 삭제만 하며 session을 읽지 않는다.
+- profile 삭제는 현재 DB transaction에서 custom 작업 모드를 cascade한다. 얼굴 embedding과
+  장기 기억 삭제 orchestration은 각각 후속 Task 05·08과 통합할 때 완성한다.
 
 ## 저장 구조
 
@@ -80,27 +81,27 @@ profile_modes custom rows ──┴─→ EffectiveActivityMode[]
 
 ### schema와 모델
 
-- [ ] version 2 DB를 보존하는 SQLite version 3 migration과 schema 검증을 작성한다.
-- [ ] `profile_modes` foreign key, profile별 `normalized_name` unique 제약과 index를 정의한다.
-- [ ] `ActivityMode` create·update·effective 모델과 repository CRUD를 구현한다.
-- [ ] 두 높이 각각 75~115cm, 유한 숫자, LED `RRGGBB|null`, 이름 trim·빈 값·정규화 중복을
+- [x] version 2 DB를 보존하는 SQLite version 3 migration과 schema 검증을 작성한다.
+- [x] `profile_modes` foreign key, profile별 `normalized_name` unique 제약과 index를 정의한다.
+- [x] `ActivityMode` create·update·effective 모델과 repository CRUD를 구현한다.
+- [x] 두 높이 각각 75~115cm, 유한 숫자, LED `RRGGBB|null`, 이름 trim·빈 값·정규화 중복을
   DB와 Pydantic 경계에서 검증한다.
-- [ ] 기존 profile row를 별도 기본 mode row로 복제하지 않는다.
+- [x] 기존 profile row를 별도 기본 mode row로 복제하지 않는다.
 
 ### service와 API
 
-- [ ] profile별 기본+custom 작업 모드 합성 목록을 제공한다.
-- [ ] custom 작업 모드 생성·수정·삭제 API를 구현한다.
-- [ ] 기본 모드 수정은 기존 profile PATCH를 사용하고 custom 모드 API에서 기본 key를 받지 않는다.
-- [ ] profile 삭제 후 custom mode가 남지 않고 없는 profile·mode 요청은 일관된 `404`가 되게 한다.
-- [ ] 설정 API가 current session, `AutomationService` 명령, `DeskController` 또는 WLED control을
+- [x] profile별 기본+custom 작업 모드 합성 목록을 제공한다.
+- [x] custom 작업 모드 생성·수정·삭제 API를 구현한다.
+- [x] 기본 모드 수정은 기존 profile PATCH를 사용하고 custom 모드 API에서 기본 key를 받지 않는다.
+- [x] profile 삭제 후 custom mode가 남지 않고 없는 profile·mode 요청은 일관된 `404`가 되게 한다.
+- [x] 설정 API가 current session, `AutomationService` 명령, `DeskController` 또는 WLED control을
   호출하지 않게 한다.
 
 ### 문서
 
-- [ ] API 요청·응답 예시와 version 3 migration 의미를 갱신한다.
-- [ ] 기본 모드 수정과 custom 모드 CRUD 위치를 Dashboard workflow에 명시한다.
-- [ ] `controlMode`와 `activityMode`를 화면에서 각각 `제어 방식`, `작업 모드`로 표시한다.
+- [x] API 요청·응답 예시와 version 3 migration 의미를 갱신한다.
+- [x] 기본 모드 수정과 custom 모드 CRUD 위치를 Dashboard workflow에 명시한다.
+- [x] `controlMode`와 `activityMode`를 화면에서 각각 `제어 방식`, `작업 모드`로 표시한다.
 
 ## 제외 범위
 

@@ -13,10 +13,10 @@ from smart_desk.storage import (
     StorageNotReadyError,
     StorageVersionError,
 )
-from smart_desk.storage.sqlite import _migrate_to_version_1
+from smart_desk.storage.sqlite import _migrate_to_version_1, _migrate_to_version_2
 
 
-async def test_new_database_migrates_to_version_two(tmp_path: Path) -> None:
+async def test_new_database_migrates_to_version_three(tmp_path: Path) -> None:
     database = SQLiteDatabase(tmp_path / "nested" / "smart-desk.db")
 
     await database.start()
@@ -36,8 +36,8 @@ async def test_new_database_migrates_to_version_two(tmp_path: Path) -> None:
     )
 
     assert database.path == (tmp_path / "nested" / "smart-desk.db").resolve()
-    assert version == 2
-    assert tables == ["profiles", "desk_height_cache"]
+    assert version == 3
+    assert tables == ["profiles", "desk_height_cache", "profile_modes"]
     assert columns == [
         "id",
         "name",
@@ -73,7 +73,7 @@ async def test_interrupted_new_database_migration_resumes_from_version_one(
         )
     )
 
-    assert version == 2
+    assert version == 3
     assert cache_table_count == 1
     await database.stop()
 
@@ -216,7 +216,7 @@ async def test_non_sqlite_file_is_preserved(tmp_path: Path) -> None:
         await database.read(lambda connection: None)
 
 
-@pytest.mark.parametrize("version", [2, 100])
+@pytest.mark.parametrize("version", [3, 100])
 async def test_future_schema_version_is_not_downgraded(
     tmp_path: Path,
     version: int,
@@ -231,6 +231,82 @@ async def test_future_schema_version_is_not_downgraded(
 
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == version
+
+
+async def test_version_two_data_migrates_once_to_profile_modes_without_loss(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "smart-desk.db"
+    profile = ("profile-" + "a" * 32, "기존 사용자", 80.0, 105.0, "FF3000")
+    cache = (1, 91.2, "2026-08-17T00:00:00Z")
+    with sqlite3.connect(path, isolation_level=None) as connection:
+        _migrate_to_version_1(connection)
+        _migrate_to_version_2(connection)
+        connection.execute("INSERT INTO profiles VALUES (?, ?, ?, ?, ?)", profile)
+        connection.execute("INSERT INTO desk_height_cache VALUES (?, ?, ?)", cache)
+
+    database = SQLiteDatabase(path)
+    await database.start()
+    version, restored_profile, restored_cache, mode_count = await database.read(
+        lambda connection: (
+            connection.execute("PRAGMA user_version").fetchone()[0],
+            tuple(connection.execute("SELECT * FROM profiles").fetchone()),
+            tuple(connection.execute("SELECT * FROM desk_height_cache").fetchone()),
+            connection.execute("SELECT COUNT(*) FROM profile_modes").fetchone()[0],
+        )
+    )
+
+    assert version == 3
+    assert restored_profile == profile
+    assert restored_cache == cache
+    assert mode_count == 0
+    await database.stop()
+
+
+async def test_version_three_migration_rolls_back_when_index_creation_fails(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "smart-desk.db"
+    profile = ("profile-" + "b" * 32, "보존", 80.0, 100.0, None)
+    with sqlite3.connect(path, isolation_level=None) as connection:
+        _migrate_to_version_1(connection)
+        _migrate_to_version_2(connection)
+        connection.execute("INSERT INTO profiles VALUES (?, ?, ?, ?, ?)", profile)
+        connection.execute("CREATE INDEX profile_modes_profile_id_idx ON profiles(name)")
+
+    database = SQLiteDatabase(path)
+    with pytest.raises(Exception):
+        await database.start()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert tuple(connection.execute("SELECT * FROM profiles").fetchone()) == profile
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'profile_modes'"
+        ).fetchone()[0] == 0
+
+
+async def test_profile_mode_foreign_key_cascades_on_profile_delete(tmp_path: Path) -> None:
+    database = SQLiteDatabase(tmp_path / "smart-desk.db")
+    profile_id = "profile-" + "c" * 32
+    await database.start()
+    await database.write(
+        lambda connection: (
+            connection.execute(
+                "INSERT INTO profiles VALUES (?, ?, ?, ?, ?)",
+                (profile_id, "cascade", 80.0, 100.0, None),
+            ),
+            connection.execute(
+                "INSERT INTO profile_modes VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("mode-" + "c" * 32, profile_id, "독서", "독서", 80.0, 100.0, None),
+            ),
+            connection.execute("DELETE FROM profiles WHERE id = ?", (profile_id,)),
+        )
+    )
+    assert await database.read(
+        lambda connection: connection.execute("SELECT COUNT(*) FROM profile_modes").fetchone()[0]
+    ) == 0
+    await database.stop()
 
 
 async def test_version_one_schema_mismatch_is_not_repaired(tmp_path: Path) -> None:

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.media import CameraPublisher, RtspFrameSource
     from smart_desk.modules.mqtt.client import MqttClient
     from smart_desk.modules.profiles.repository import ProfileRepository
+    from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
     from smart_desk.modules.assistant.service import AssistantService
     from smart_desk.modules.voice.service import VoiceService
     from smart_desk.modules.voice.debug import VoiceDebugServer
@@ -55,6 +56,7 @@ class AppContainer:
     task_manager: TaskManager
     database: SQLiteDatabase
     profiles: ProfileRepository
+    activity_modes: ActivityModeRepository
     dashboard: DashboardService
     mqtt: MqttClient
     height_monitor: DeskHeightMonitor
@@ -72,7 +74,6 @@ class AppContainer:
     posture_frame_source: RtspFrameSource | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
-
     def register(self, registration: ResourceRegistration) -> None:
         """애플리케이션 수명주기에서 관리할 공유 자원을 등록한다."""
 

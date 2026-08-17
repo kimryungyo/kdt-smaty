@@ -5,7 +5,14 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from smart_desk.modules.profiles import Profile, ProfileCreate, ProfileUpdate
+from smart_desk.modules.profiles import (
+    ActivityModeCreate,
+    ActivityModeUpdate,
+    EffectiveActivityMode,
+    Profile,
+    ProfileCreate,
+    ProfileUpdate,
+)
 
 
 def test_profile_accepts_snake_and_camel_case_and_serializes_aliases() -> None:
@@ -85,4 +92,41 @@ def test_update_distinguishes_empty_unset_and_nullable_led() -> None:
 
     update = ProfileUpdate(ledColor=None)
     assert update.model_fields_set == {"led_color"}
+    assert update.model_dump(exclude_unset=True) == {"ledColor": None}
+
+
+def test_activity_mode_models_normalize_and_expose_effective_contract() -> None:
+    create = ActivityModeCreate(
+        name=" 독서 ", sittingHeightCm=82, standingHeightCm=108, ledColor="ffd080"
+    )
+    effective = EffectiveActivityMode(
+        key="default",
+        kind="DEFAULT",
+        name="기본",
+        sittingHeightCm=80,
+        standingHeightCm=105,
+        ledColor=None,
+        editable=False,
+    )
+
+    assert create.name == "독서"
+    assert create.led_color == "FFD080"
+    assert effective.model_dump() == {
+        "key": "default", "kind": "DEFAULT", "name": "기본",
+        "sittingHeightCm": 80.0, "standingHeightCm": 105.0,
+        "ledColor": None, "editable": False,
+    }
+
+
+def test_activity_mode_update_rejects_empty_unknown_or_nullable_required_fields() -> None:
+    with pytest.raises(ValidationError):
+        ActivityModeUpdate()
+    with pytest.raises(ValidationError):
+        ActivityModeUpdate(name=None)
+    with pytest.raises(ValidationError):
+        ActivityModeCreate.model_validate(
+            {"name": "독서", "sittingHeightCm": 82, "standingHeightCm": 108, "unknown": True}
+        )
+
+    update = ActivityModeUpdate(ledColor=None)
     assert update.model_dump(exclude_unset=True) == {"ledColor": None}
