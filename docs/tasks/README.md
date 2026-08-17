@@ -37,7 +37,7 @@ runtime은 이미 task 02 lifecycle에 연결돼 있고, 남은 Voice 작업은 
 | 순서 | 작업 | 핵심 결과 | 상태 | 선행·비고 |
 | ---: | --- | --- | --- | --- |
 | 01 | [상태·워크플로우 계약 확정](01-workflow-contracts.md) | 구현 가능한 상태·전이·API 기준 | 완료 | - |
-| 02 | [서비스 수명주기와 준비 상태](02-required-services.md) | 시작·이동 필수 조건과 선택 기능 degraded 분리 | 진행 중 | 선택 기능 분리는 구현; 최초 MQTT cold-start 의존과 실제 단절·복구 재검토 필요 |
+| 02 | [서비스 수명주기와 준비 상태](02-required-services.md) | 시작·이동 필수 조건과 선택 기능 degraded 분리 | 실물 검증 대기 | MQTT cold-start 재연결과 자동 검증 완료; 실제 단절·복구는 Task 09에서 검증 |
 | 03 | [프로필과 작업 모드](03-profile-and-presets.md) | 활동별 앉기·서기 높이와 LED 저장 | 코드 완료 | 실제 장치 적용은 06·09 |
 | 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 진행 중 | 하단 구현 완료; 상단 detector·실제 ROI 보정 미완료 |
 | 05 | [얼굴 식별과 사용자 세션](05-face-identity-session.md) | 얼굴 등록·식별과 서버 현재 사용자 | 진행 중 | fake-driven session/repository/API 기반; production 얼굴 추론·등록 미완료 |

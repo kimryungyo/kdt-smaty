@@ -30,7 +30,7 @@ curl http://127.0.0.1:9090/health/ready
 
 | 범주 | 필수/선택 | 확인 대상 |
 | --- | --- | --- |
-| 시작 필수 | 필수 | `SMART_DESK_STORAGE__DATABASE_PATH`, SQLite 쓰기 권한, 유효한 기본 설정, 현재 구현의 최초 EMQX 연결·구독 |
+| 시작 필수 | 필수 | `SMART_DESK_STORAGE__DATABASE_PATH`, SQLite 쓰기 권한, 유효한 기본 설정 |
 | 이동 필수 | 실제 이동 때 필수 | 지속 중인 MQTT 연결, Arduino `SMART_DESK_SERIAL__PORT`, ESP32 Wi-Fi/MQTT 상태와 fresh height |
 | media | 역할별 선택 | FFmpeg, MediaMTX RTSP path, 안정된 `/dev/v4l/by-id/...` camera path |
 | 하단 Vision | 선택 | `SMART_DESK_VISION__LOWER_POSE_MODEL_PATH`와 ONNX 파일 |
@@ -72,10 +72,9 @@ curl http://127.0.0.1:9090/api/assistant/latest
    차단하며, 이를 `DISABLED` Voice/WLED와 혼동하지 않는다.
 2. receive-only camera의 RTSP source가 없을 때 Vision snapshot이 stale/unknown으로 바뀌고
    AUTO가 blocked로 남는지 확인한다. 실제 camera 탈착은 Task 09 현장 항목이다.
-3. 최초 MQTT 연결·구독에 성공해 서버가 시작된 뒤 runtime MQTT 단절 또는 height/relay
-   미준비 상태에서 profile과 상태 조회가 가능하고 이동 요청은 blocked되는지 확인한다. 현재
-   구현은 MQTT cold-start 실패 시 API를 제공하지 않으며, 실제 broker/Wi-Fi 단절에서 ESP32
-   GPIO STOP을 증명한 것은 아니다.
+3. EMQX가 늦게 시작되거나 runtime MQTT가 단절된 동안에도 profile과 상태 조회가 가능하고
+   이동 요청은 blocked되는지 확인한다. MQTT runner는 연결·전체 구독 완료까지 재시도하며,
+   실제 broker/Wi-Fi 단절에서 ESP32 GPIO STOP을 증명한 것은 아니다.
 4. 선택 Voice를 활성화한 경우에만 audio/OpenAI 오류가 Voice snapshot에 격리되는지 확인한다.
    실제 microphone/speaker/OpenAI 계정 검증은 opt-in 환경에서 수행한다.
 
@@ -95,7 +94,7 @@ memory 행 삭제는 피한다. migration 실패나 profile 삭제 중 memory �
 
 | 범위 | 자동 증거 | 아직 필요한 증거 |
 | --- | --- | --- |
-| backend 전체 | 2026-08-17: `442 passed, 2 skipped in 6.13s`; compileall, diff check 통과 | 환경별 재실행 로그 |
+| backend 전체 | 2026-08-17: `445 passed, 2 skipped in 5.62s`; compileall, diff check 통과 | 환경별 재실행 로그 |
 | 하단 pose | fake adapter와 sample 26/26 (`sitting` 10, fullbody 6, standing 4, empty 6) | actual RTSP/ROI/CPU, model provisioning/license record |
 | lifecycle/API/automation | fake adapter, repository, API, session/turn tests | EMQX/Arduino/ESP32/WLED 실제 단절·복구와 제한 이동 |
 | Voice/AI | Agents SDK/session/tool/turn contract tests | microphone/speaker/OpenAI/Mem0 live operation |

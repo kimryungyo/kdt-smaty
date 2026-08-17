@@ -24,7 +24,7 @@ class MqttClientError(RuntimeError):
 
 
 class MqttStartupError(MqttClientError):
-    """최초 MQTT 연결과 구독을 완료하지 못한 오류."""
+    """최초 MQTT runner가 예상 밖 오류로 종료된 오류."""
 
 
 class MqttUnavailableError(MqttClientError):
@@ -68,7 +68,7 @@ class MqttClient:
         self._handlers[validated_topic] = (validated_qos, handler)
 
     async def start(self) -> None:
-        """최초 연결과 등록 토픽 전체 구독을 완료한다."""
+        """첫 연결을 기다리되 broker가 없으면 재연결 runner를 남긴다."""
 
         if self._runner_task is not None and not self._runner_task.done():
             raise RuntimeError("MQTT client가 이미 실행 중입니다.")
@@ -85,18 +85,21 @@ class MqttClient:
         try:
             async with asyncio.timeout(self._settings.operation_timeout_seconds):
                 await self._startup_event.wait()
-        except TimeoutError as error:
-            await self._cancel_runner()
-            raise MqttStartupError(
-                "MQTT 최초 연결과 구독 시간이 초과되었습니다."
-            ) from error
+        except TimeoutError:
+            # Broker cold-start는 lifecycle을 막지 않는다. runner는 연결을 기다린다.
+            return
 
         if self._connected:
             return
 
+        if isinstance(self._last_error, aiomqtt.MqttError):
+            # 최초 connect/subscribe 실패도 runtime disconnect와 같은 transient 오류다.
+            return
+
         startup_error = self._last_error
-        await self._cancel_runner()
-        raise MqttStartupError("MQTT 최초 연결과 구독에 실패했습니다.") from startup_error
+        if startup_error is not None:
+            await self._cancel_runner()
+            raise MqttStartupError("MQTT 최초 연결과 구독에 실패했습니다.") from startup_error
 
     async def stop(self) -> None:
         """수신·재연결 runner와 현재 broker 연결을 안전하게 종료한다."""
@@ -149,7 +152,7 @@ class MqttClient:
     async def _run(self) -> None:
         """메시지를 수신하고 최초 성공 이후의 연결 단절을 복구한다."""
 
-        connected_once = False
+        startup_observed = False
         while True:
             try:
                 async with aiomqtt.Client(
@@ -165,8 +168,8 @@ class MqttClient:
                     await self._subscribe_all(client)
                     self._connected = True
                     self._last_error = None
-                    if not connected_once:
-                        connected_once = True
+                    if not startup_observed:
+                        startup_observed = True
                         self._startup_event.set()
                     LOGGER.info(
                         "MQTT broker 연결과 구독을 완료했습니다.",
@@ -181,16 +184,16 @@ class MqttClient:
                 raise
             except aiomqtt.MqttError as error:
                 self._last_error = error
-                if not connected_once:
+                if not startup_observed:
+                    startup_observed = True
                     self._startup_event.set()
-                    return
                 LOGGER.warning(
                     "MQTT 연결이 끊어졌습니다.",
                     extra={"component": "mqtt", "event": "mqtt_disconnected"},
                 )
             except Exception as error:
                 self._last_error = error
-                if not connected_once:
+                if not startup_observed:
                     self._startup_event.set()
                 raise
             finally:

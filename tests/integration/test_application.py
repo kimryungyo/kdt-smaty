@@ -1,6 +1,7 @@
 """FastAPI lifespan과 health API 통합 테스트."""
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 from httpx import ASGITransport, AsyncClient
@@ -14,7 +15,13 @@ from smart_desk.core.container import AppContainer, ResourceRegistration, get_co
 from smart_desk.core.runtime import ApplicationStatus, RuntimeState
 from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.dashboard import DashboardService
-from smart_desk.modules.desk.models import HeightStatus
+from smart_desk.modules.desk.models import (
+    DeskSnapshot,
+    DeskState,
+    HeightSnapshot,
+    HeightStatus,
+    RelaySnapshot,
+)
 from smart_desk.modules.mqtt.client import MqttStartupError
 from smart_desk.modules.profiles import ActivityModeRepository, ProfileRepository
 from smart_desk.storage import SQLiteDatabase, StorageCorruptedError, StorageNotReadyError
@@ -48,6 +55,13 @@ class FailingMqttClient(FakeMqttClient):
         raise MqttStartupError("test startup failure")
 
 
+class ColdStartMqttClient(FakeMqttClient):
+    """Broker 재연결 대기 중인 MQTT resource 경계다."""
+
+    def is_connected(self) -> bool:
+        return False
+
+
 class FakeHeightMonitor:
     """애플리케이션 테스트가 실제 Arduino에 접근하지 않게 하는 resource."""
 
@@ -64,6 +78,30 @@ class FakeHeightMonitor:
 
 class FakeDeskController(FakeHeightMonitor):
     """애플리케이션 테스트용 lifecycle 책상 제어기."""
+
+    def get_snapshot(self) -> DeskSnapshot:
+        return DeskSnapshot(
+            state=DeskState.ERROR,
+            height=HeightSnapshot(
+                height_cm=None,
+                observed_at=None,
+                status=HeightStatus.WAITING,
+            ),
+            relay=RelaySnapshot(
+                event=None,
+                state=None,
+                firmware=None,
+                code=None,
+                detail=None,
+                received_at=None,
+                last_error="MQTT broker offline",
+            ),
+            target_height_cm=None,
+            direction=None,
+            detail="장치 연결을 기다리고 있습니다.",
+            last_error="MQTT broker offline",
+            updated_at=datetime.now(UTC),
+        )
 
 
 class FailingVoiceAudio:
@@ -109,11 +147,13 @@ class VoiceRuntime:
 
 def build_test_container(
     settings: Settings,
+    *,
+    mqtt: FakeMqttClient | None = None,
 ) -> tuple[AppContainer, FakeMqttClient, FakeHeightMonitor]:
     database = SQLiteDatabase(settings.storage.database_path)
     profiles = ProfileRepository(database)
     activity_modes = ActivityModeRepository(database)
-    mqtt = FakeMqttClient()
+    mqtt = mqtt or FakeMqttClient()
     height_monitor = FakeHeightMonitor()
     desk = FakeDeskController()
     dashboard = DashboardService(desk, profiles)  # type: ignore[arg-type]
@@ -239,6 +279,41 @@ async def test_health_endpoints_report_ready_during_lifespan(tmp_path: Path) -> 
     assert mqtt.stop_count == 1
     assert height_monitor.start_count == 1
     assert height_monitor.stop_count == 1
+
+
+async def test_broker_cold_start_keeps_lifecycle_and_profile_api_available(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        environment="test",
+        storage=StorageSettings(database_path=tmp_path / "smart-desk.db"),
+        dashboard=DashboardSettings(serve_frontend=False),
+        _env_file=None,
+    )
+    cold_mqtt = ColdStartMqttClient()
+    container, mqtt, _height_monitor = build_test_container(settings, mqtt=cold_mqtt)
+    application = create_application(settings=settings, container=container)
+
+    async with application.router.lifespan_context(application):
+        transport = ASGITransport(app=application)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            assert (await client.get("/health/ready")).status_code == 200
+            assert (await client.get("/api/status")).status_code == 200
+            created = await client.post(
+                "/api/profiles",
+                json={
+                    "name": "Broker offline profile",
+                    "sittingHeightCm": 80,
+                    "standingHeightCm": 100,
+                },
+            )
+            assert created.status_code == 201
+
+        assert container.runtime.snapshot().status is ApplicationStatus.READY
+        assert mqtt.is_connected() is False
+
+    assert mqtt.start_count == 1
+    assert mqtt.stop_count == 1
 
 
 async def test_mqtt_startup_failure_prevents_application_start(tmp_path: Path) -> None:

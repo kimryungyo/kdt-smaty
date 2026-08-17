@@ -211,32 +211,40 @@ async def test_start_connects_with_v311_and_subscribes_all_topics(
 
 
 @pytest.mark.parametrize(
-    "broker_client",
+    "failed_client",
     [
         FakeBrokerClient(enter_error=aiomqtt.MqttError("connect failed")),
         FakeBrokerClient(subscribe_error=aiomqtt.MqttError("subscribe failed")),
     ],
 )
-async def test_initial_connection_or_subscription_failure_is_startup_error(
+async def test_cold_start_failure_reconnects_resubscribes_and_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
-    broker_client: FakeBrokerClient,
+    failed_client: FakeBrokerClient,
 ) -> None:
+    connected_client = FakeBrokerClient()
     monkeypatch.setattr(
         "smart_desk.modules.mqtt.client.aiomqtt.Client",
-        FakeClientFactory(broker_client),
+        FakeClientFactory(failed_client, connected_client),
     )
     task_manager = TaskManager()
-    client = MqttClient(mqtt_settings(), task_manager)
+    client = MqttClient(mqtt_settings(reconnect_interval_seconds=0.05), task_manager)
     client.register_handler("/smartdesk/test", _ignore_message)
 
-    with pytest.raises(MqttStartupError):
-        await client.start()
+    await client.start()
 
     assert client.is_connected() is False
+    with pytest.raises(MqttUnavailableError):
+        await client.publish("/desk_ctl", '{"command":"STOP"}')
+
+    await wait_until(lambda: connected_client.entered and client.is_connected())
+    assert connected_client.subscriptions == [("/smartdesk/test", 1, 0.2)]
+    assert task_manager.failures() == ()
+
+    await client.stop()
     await task_manager.shutdown()
 
 
-async def test_initial_connection_timeout_cancels_runner(
+async def test_start_timeout_leaves_runner_alive_for_later_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     broker_client = FakeBrokerClient(enter_blocker=asyncio.Event())
@@ -250,10 +258,58 @@ async def test_initial_connection_timeout_cancels_runner(
         task_manager,
     )
 
-    with pytest.raises(MqttStartupError, match="초과"):
-        await client.start()
+    await client.start()
 
     assert client.is_connected() is False
+    broker_client.enter_blocker.set()
+    await wait_until(lambda: broker_client.entered and client.is_connected())
+
+    await client.stop()
+    await task_manager.shutdown()
+
+
+async def test_unexpected_initial_error_is_startup_error_and_critical_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "smart_desk.modules.mqtt.client.aiomqtt.Client",
+        FakeClientFactory(FakeBrokerClient(enter_error=ValueError("bad settings"))),
+    )
+    task_manager = TaskManager()
+    client = MqttClient(mqtt_settings(), task_manager)
+
+    with pytest.raises(MqttStartupError, match="실패") as error:
+        await client.start()
+
+    assert isinstance(error.value.__cause__, ValueError)
+    await wait_until(lambda: len(task_manager.failures()) == 1)
+    failure = task_manager.failures()[0]
+    assert failure.name == "mqtt"
+    assert failure.critical is True
+    assert isinstance(failure.error, ValueError)
+    await task_manager.shutdown()
+
+
+async def test_unexpected_runtime_error_ends_critical_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broker_client = FakeBrokerClient()
+    factory = FakeClientFactory(broker_client)
+    monkeypatch.setattr("smart_desk.modules.mqtt.client.aiomqtt.Client", factory)
+    task_manager = TaskManager()
+    client = MqttClient(mqtt_settings(reconnect_interval_seconds=0.05), task_manager)
+    await client.start()
+
+    broker_client.messages.put(ValueError("programming error"))
+    await wait_until(lambda: len(task_manager.failures()) == 1)
+
+    assert client.is_connected() is False
+    assert len(factory.calls) == 1
+    failure = task_manager.failures()[0]
+    assert failure.name == "mqtt"
+    assert failure.critical is True
+    assert isinstance(failure.error, ValueError)
+    await client.stop()
     await task_manager.shutdown()
 
 

@@ -54,8 +54,8 @@
 
 ## 자동 검증 묶음
 
-2026-08-17 main 기준으로 상위 검증에서 `.venv/bin/python -m pytest`는 **442 passed,
-2 skipped in 6.13s**, `.venv/bin/python -m compileall -q src tests`와 `git diff --check`는
+2026-08-17 main 기준으로 상위 검증에서 `.venv/bin/python -m pytest`는 **445 passed,
+2 skipped in 5.62s**, `.venv/bin/python -m compileall -q src tests`와 `git diff --check`는
 통과했다. 하체 관련 suite는 **83 passed**다. 이 수치는 fake/adapter/API 계약의 증거이며
 실제 camera, model, audio 또는 하드웨어 완료를 뜻하지 않는다. 같은 main의 frontend에서
 `npm run build`로 TypeScript와 Vite production build도 통과했다.
@@ -66,8 +66,8 @@
   malformed output fail-closed, 2Hz 최신-frame rate limit과 상단 unavailable raw 관측을 검증한다.
 - [x] 외부 read-only sample 자동 회귀: `sitting` 10, `sitting_fullbody` 6, `standing` 4, `empty` 6
   장을 로컬 ONNX로 실행했다(총 26/26). 실제 RTSP camera와 ROI calibration은 이 결과에 포함하지 않는다.
-- [x] Python 전체 unit·integration test와 compile 검사를 실행했다: 442 passed, 2 skipped in
-  6.13s. `compileall`과 `git diff --check`도 통과했다.
+- [x] Python 전체 unit·integration test와 compile 검사를 실행했다: 445 passed, 2 skipped in
+  5.62s. `compileall`과 `git diff --check`도 통과했다.
 - [x] React TypeScript 검사와 Vite production build를 실행했다.
 - [x] HTTP request/response, 오류 코드와 stale `sessionId` 계약을 API unit/integration tests로 확인했다.
 - [x] MQTT command/status payload, QoS와 non-retained 명령을 relay/MQTT unit tests로 확인했다.

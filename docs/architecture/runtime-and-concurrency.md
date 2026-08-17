@@ -108,13 +108,20 @@ FastAPI lifespan에서 컨테이너를 시작하고 종료한다. 개별 장기 
 
 ```text
 사전 인프라: EMQX → 호스트 MediaMTX
-애플리케이션 시작: 설정 → SQLite 검증 → MQTT → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → 카메라별 FFmpeg → RTSP 최신 프레임 입력 → Vision → API 제공
+애플리케이션 시작: 설정 → SQLite 검증 → MQTT runner 시작(offline 재시도 가능) → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → 카메라별 FFmpeg → RTSP 최신 프레임 입력 → Vision → API 제공
 애플리케이션 종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → RTSP reader 종료 → FFmpeg 종료 → MQTT/시리얼 해제 → SQLite 종료
 ```
 
 초기화 실패 시 HTTP 서버만 남긴 채 제어 루프를 계속 실행하지 않는다. 특히
 Desk 시작이 실패하거나 센서 상태가 불명확하면 릴레이 STOP을 먼저 시도한다.
 SQLite 시작이 실패하면 MQTT와 Desk는 시작하지 않고 readiness를 올리지 않는다.
+
+MQTT runner는 최초 연결 또는 등록 토픽 구독의 `aiomqtt.MqttError`도 실행 중 단절처럼
+재연결 interval 뒤 반복한다. `start()`는 broker가 준비됐을 때 연결·전체 구독 완료를 기다리는
+호환성을 유지하되, 첫 transient 실패나 시작 대기 시간 초과에는 runner를 취소하지 않고
+disconnected 상태로 lifecycle을 계속한다. `is_connected()`는 전체 구독 완료 전 `false`이고
+publish는 fail-closed다. 반대로 설정·프로그래밍 오류는 runner를 종료해 `TaskManager`의 기존
+critical failure 처리를 따른다.
 
 SQLite의 동기 API는 각 operation마다 `asyncio.to_thread()`로 event loop 밖에서
 실행한다. 하나의 `asyncio.Lock`이 read/write와 종료를 직렬화하며, 호출 coroutine이
