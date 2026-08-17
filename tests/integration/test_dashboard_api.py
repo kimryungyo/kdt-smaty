@@ -150,6 +150,38 @@ async def test_voice_status_api_distinguishes_disabled_and_active_snapshot(tmp_p
     }
 
 
+async def test_tilt_contract_is_explicitly_unavailable_until_hardware_exists(tmp_path) -> None:
+    settings = Settings(
+        environment="test", storage=StorageSettings(database_path=tmp_path / "desk.db"),
+        dashboard=DashboardSettings(serve_frontend=False), _env_file=None,
+    )
+    database = SQLiteDatabase(settings.storage.database_path)
+    profiles = ProfileRepository(database)
+    activity_modes = ActivityModeRepository(database)
+    desk = FakeDesk()
+    container = AppContainer(
+        settings=settings, runtime=RuntimeState(), task_manager=TaskManager(), database=database,
+        profiles=profiles, activity_modes=activity_modes, dashboard=DashboardService(desk, profiles),
+        mqtt=object(), height_monitor=object(), relay=object(), desk=desk,
+    )  # type: ignore[arg-type]
+    application = create_application(settings=settings, container=container)
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        current = await client.get("/api/tilt/status")
+        command = await client.put("/api/tilt/target", json={"level": 3})
+        invalid = await client.put("/api/tilt/target", json={"level": 6})
+
+    assert current.status_code == 200
+    assert current.json() | {"updatedAt": None} == {
+        "status": "UNAVAILABLE", "level": None, "targetLevel": None,
+        "minLevel": 0, "maxLevel": 5,
+        "detail": "틸팅 하드웨어가 아직 연결되지 않았습니다.",
+        "lastError": None, "updatedAt": None,
+    }
+    assert command.status_code == 503
+    assert invalid.status_code == 422
+
+
 async def test_automation_api_uses_camel_case_and_preserves_error_meanings(tmp_path) -> None:
     settings = Settings(
         environment="test",

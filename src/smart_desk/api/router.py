@@ -15,6 +15,7 @@ from smart_desk.api.routes.identity import router as identity_router
 from smart_desk.api.routes.automation import router as automation_router, desk_router
 from smart_desk.api.routes.assistant import router as assistant_router
 from smart_desk.api.routes.voice import router as voice_router
+from smart_desk.api.routes.tilt import router as tilt_router
 
 
 api_router = APIRouter()
@@ -30,3 +31,4 @@ api_router.include_router(automation_router)
 api_router.include_router(desk_router)
 api_router.include_router(assistant_router)
 api_router.include_router(voice_router)
+api_router.include_router(tilt_router)
