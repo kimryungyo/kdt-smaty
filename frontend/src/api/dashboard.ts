@@ -52,7 +52,8 @@ export type WledStatus = "DISABLED" | "UNKNOWN" | "ONLINE" | "ERROR";
 export type WledSnapshot = { status: WledStatus; on: boolean | null; brightness: number | null; mode: WledMode | null; color: string | null; effectId: number | null; effectName: string | null; paletteId: number | null; speed: number | null; intensity: number | null; observedAt: string | null; lastError: string | null };
 export type WledCatalogItem = { id: number; name: string };
 export type WledCapabilities = { deviceName: string; firmwareVersion: string; effects: WledCatalogItem[]; palettes: WledCatalogItem[]; observedAt: string };
-export type WledControl = { action: "OFF" } | { action: "BRIGHTNESS"; brightness: number } | { action: "SOLID"; color: string } | { action: "EFFECT"; effectId: number; paletteId?: number; speed?: number; intensity?: number; color?: string };
+type WledExpectedSession = { expectedSessionId?: string };
+export type WledControl = WledExpectedSession & ({ action: "OFF" } | { action: "BRIGHTNESS"; brightness: number } | { action: "SOLID"; color: string } | { action: "EFFECT"; effectId: number; paletteId?: number; speed?: number; intensity?: number; color?: string });
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -111,6 +112,16 @@ export const deleteActivityMode = (modeId: string) =>
 export const getWledStatus = (signal?: AbortSignal) => request<WledSnapshot>("/api/wled/status", { signal });
 export const getWledCapabilities = () => request<WledCapabilities>("/api/wled/capabilities");
 export const controlWled = (command: WledControl) => request<WledSnapshot>("/api/wled/control", json(command));
+
+export type AssistantPhase = "LISTENING" | "PROCESSING" | "TOOL" | "FINAL";
+export type AssistantTurnStatus = "RUNNING" | "SUCCEEDED" | "CANCELLED" | "FAILED";
+export type AssistantTurn = {
+  turnId: string; sessionId: string | null; profileId: string | null; phase: AssistantPhase; sequence: number;
+  status: AssistantTurnStatus; title: string; summary: string | null; detail: string | null;
+  startedAt: string; updatedAt: string; completedAt: string | null; errorCode: string | null;
+};
+export type AssistantLatest = { turn: AssistantTurn | null };
+export const getAssistantLatest = (signal?: AbortSignal) => request<AssistantLatest>("/api/assistant/latest", { signal });
 
 export type CurrentUser = { session: { sessionId: string; kind: "REGISTERED" | "ANONYMOUS"; profileId: string | null; startedAt: string; changedAt: string } | null };
 export type VisionStatus = { cameras: Record<string, { status: "OFFLINE" | "ONLINE" | "STALE" | "ERROR"; observedAt: string | null; expiresAt: string | null; ageSeconds: number | null; error: string | null }>; identity: { status: string; profileId: string | null; observedAt: string | null; expiresAt: string | null }; presence: { rawStatus: string; status: string; upperCount: number | null; lowerCount: number | null; observedAt: string | null; expiresAt: string | null }; posture: { rawStatus: string; status: string; candidateSince: string | null; observedAt: string | null; expiresAt: string | null }; association: { usable: boolean; reasonCodes: string[] } };

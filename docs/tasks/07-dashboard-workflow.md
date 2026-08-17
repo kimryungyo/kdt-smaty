@@ -9,12 +9,13 @@
 
 ## 현재 상태
 
-- 첫 화면의 profile 카드를 누르면 React `selectedProfile`을 설정하고 메인 Dashboard로 간다.
-- `selectedProfile`은 사용자 정보, 앉은·선 목표와 WLED profile 색상에 사용된다.
-- 서버의 현재 사용자·Vision·자동화 API가 없어 자세와 AUTO 표시는 placeholder다.
-- profile 생성은 기본 정보와 높이 2단계이며 사용처 없는 키 입력, profile과 무관한 5초
-  placeholder와 얼굴·작업 모드 미구현 영역이 섞여 있다.
-- 얼굴 인식에 따라 특정 profile 화면을 자동으로 여는 코드는 현재도 없다.
+- `/`은 서버 current user·Vision·자동화·Desk·WLED snapshot을 각각 polling하는 Dashboard다.
+- 설정 route의 편집 profile과 서버 current user session은 분리되어 있으며, 얼굴 인식이 설정
+  화면을 자동으로 열지 않는다.
+- Assistant 최신 turn은 현재 session과 일치할 때만 polling으로 표시하며, 화면에서도 `turnId`와
+  증가 sequence, terminal 상태를 확인한다.
+- 수동 WLED 제어는 session이 있으면 `expectedSessionId`를 보내는 현재 session override이고,
+  저장된 작업 모드·profile 값은 바꾸지 않는다.
 
 ## 화면 상태 원칙
 
@@ -76,10 +77,9 @@ Vision debug `/debug/vision`
 - [x] 설정 route의 `editingProfile`과 서버 current user를 분리하고 `selectedProfile` 기반 제어를
   제거한다.
 - [x] 기능별 polling 중복과 stale 응답 덮어쓰기를 방지한다.
-- [ ] Assistant turn의 `turnId`, `sessionId`, progress/tool/final phase와 sequence 계약을
+- [x] Assistant turn의 `turnId`, `sessionId`, progress/tool/final phase와 sequence 계약을
   TypeScript 모델에 추가한다.
-- [x] control/activity mode 명령에 화면이 읽은 `expectedSessionId`를 전달한다. WLED의 stale-session
-  검증은 현재 backend request model에 필드가 없어 Task 08B 의존으로 남긴다.
+- [x] control/activity mode와 WLED 명령에 화면이 읽은 `expectedSessionId`를 전달한다.
 - [x] `409` session 충돌 시 명령 성공처럼 보이지 않게 새 snapshot을 다시 읽는다.
 
 ### profile 설정 흐름
@@ -101,16 +101,15 @@ Vision debug `/debug/vision`
 - [x] `controlMode`를 `제어 방식`, `activityMode`를 `작업 모드`로 구분해 표시한다.
 - [x] 작업 모드 선택과 control mode 변경·직접 제어를 명령 API에 연결한다.
 - [x] MANUAL 작업 모드 선택은 LED만 바뀌고 책상이 움직이지 않음을 명확히 표시한다.
-- [ ] 수동 LED 변경은 저장값이 아니라 현재 session override임을 표시한다. (Task 08B의 WLED
-  `expectedSessionId` backend 계약 필요)
+- [x] 수동 LED 변경은 저장값이 아니라 현재 session override임을 표시한다.
 - [x] session이 없으면 개인 작업 모드와 profile 값을 사용하지 않되 HOLD·직접 높이·STOP은 제공한다.
 - [x] control/activity mode 요청에는 화면이 읽은 `expectedSessionId`를 자동 첨부한다.
 - [x] WLED, Voice/AI, Vision, Desk의 기능별 연결 상태를 하나의 `SYSTEM ONLINE`과 분리한다.
-- [ ] current `sessionId`가 바뀌거나 없어지면 이전 AI 상세 응답을 즉시 화면에서 제거한다.
-- [ ] `/api/assistant/latest`를 polling해 진행 안내, tool 실행 상태와 최종 응답을 같은
+- [x] current `sessionId`가 바뀌거나 없어지면 이전 AI 상세 응답을 즉시 화면에서 제거한다.
+- [x] `/api/assistant/latest`를 polling해 진행 안내, tool 실행 상태와 최종 응답을 같은
   `turnId` 안에서 순서대로 갱신하고 낮은
   sequence나 완료·취소된 turn의 늦은 event를 무시한다.
-- [ ] session 없음·다중 상태의 비개인화 turn은 개인 profile 이름이나 memory 사용 상태로
+- [x] session 없음·다중 상태의 비개인화 turn은 개인 profile 이름이나 memory 사용 상태로
   표시하지 않는다.
 
 ### Vision debug
