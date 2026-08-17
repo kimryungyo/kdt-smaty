@@ -10,6 +10,8 @@
 ## 현재 상태
 
 - `/`은 서버 current user·Vision·자동화·Desk·WLED snapshot을 각각 polling하는 Dashboard다.
+- SMATY 디자인을 기준으로 화면을 수정할 때는 기존 카드·모달·색상·여백·반응형 구성을
+  유지하고, 연결하지 않은 기능도 이후 같은 UI 문맥에서 확장한다.
 - 설정 route의 편집 profile과 서버 current user session은 분리되어 있으며, 얼굴 인식이 설정
   화면을 자동으로 열지 않는다.
 - Assistant 최신 turn은 현재 session과 일치할 때만 polling으로 표시하며, 화면에서도 `turnId`와
@@ -152,6 +154,8 @@ Vision debug `/debug/vision`
   되돌리지 않는다.
 - session 교대 후 늦은 TTS·tool·final event가 새 사용자 화면에 다시 나타나지 않는다.
 - TypeScript 검사와 production build가 통과하고 주요 화면 흐름을 브라우저에서 확인한다.
+- 외부 디자인을 이식한 변경은 기준 원본과 동일 viewport의 전체 렌더링을 비교하고, 헤더,
+  카드 경계·텍스트, 모달, 모바일 화면을 2배 이상 확대해 오차를 확인한다.
 
 ## 완료 조건
 

@@ -95,3 +95,27 @@ master 밝기 0~255다. 따라서 이 상태는 Desk polling에 포함하지 않
 응답의 `brightness`가 요청값과 일치할 때만 성공한다.
 
 지원하지 않는 effect/palette는 `409`, 장치 미연결은 `503`, 잘못된 장치 응답은 `502`이다.
+
+## 데스크 틸팅 (하드웨어 준비 인터페이스)
+
+틸팅 actuator는 아직 연결하지 않았지만, UI와 이후 firmware가 같은 계약을 사용할 수
+있도록 endpoint를 먼저 고정한다. `GET /api/tilt/status`는 아래처럼 현재 상태를
+`200`으로 반환한다.
+
+```json
+{
+  "status": "UNAVAILABLE",
+  "level": null,
+  "targetLevel": null,
+  "minLevel": 0,
+  "maxLevel": 5,
+  "detail": "틸팅 하드웨어가 아직 연결되지 않았습니다.",
+  "lastError": null,
+  "updatedAt": "2026-08-18T00:00:00Z"
+}
+```
+
+`PUT /api/tilt/target`은 `{ "level": 0..5 }`를 받는다. actuator service를 연결하기
+전에는 요청을 성공으로 가장하지 않고 `503`을 반환한다. 실제 구현 시에도 이 응답
+모델과 단계 범위는 유지하며, 안전 interlock과 정지 정책은 그 hardware 작업에서
+명시한다.
