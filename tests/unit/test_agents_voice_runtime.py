@@ -395,7 +395,7 @@ async def _empty_text(_: object) -> AsyncIterator[str]:
         yield ""
 
 
-async def test_turn_ended_finalizes_after_tts_and_exposes_current_followup_only() -> None:
+async def test_turn_ended_defers_success_until_voice_playback_finalizes() -> None:
     context = Context()
     context.followup_requested = True
 
@@ -417,9 +417,31 @@ async def test_turn_ended_finalizes_after_tts_and_exposes_current_followup_only(
             yield ""
 
     workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), tool_text, context_factory=lambda: _context(context))
-    events = [event async for event in AgentsVoiceRuntime(EndingPipeline(workflow, "final"), Input, workflow=workflow).run_audio(chunks(b"\0\0"))]
+    runtime = AgentsVoiceRuntime(EndingPipeline(workflow, "final"), Input, workflow=workflow)
+    events = [event async for event in runtime.run_audio(chunks(b"\0\0"))]
     assert events[-1].followup_requested is True
+    assert context.phases == ["PROCESSING", "TOOL"]
+    await runtime.finalize_turn("SUCCEEDED")
     assert context.phases == ["PROCESSING", "TOOL", "FINAL:SUCCEEDED"]
+
+
+async def test_runtime_consumer_cancellation_finalizes_current_turn_cancelled() -> None:
+    context = Context()
+    workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), _empty_text, context_factory=lambda: _context(context))
+    pipeline = WorkflowPipeline(workflow, "final", wait=True)
+    stream = AgentsVoiceRuntime(pipeline, Input, workflow=workflow).run_audio(chunks(b"\0\0"))
+    await anext(stream)
+    await stream.aclose()
+    assert context.phases == ["PROCESSING", "FINAL:CANCELLED"]
+
+
+async def test_session_ended_cancels_unfinished_turn_without_success() -> None:
+    context = Context()
+    workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), _empty_text, context_factory=lambda: _context(context))
+    pipeline = Pipeline(Result([Event("voice_stream_event_lifecycle", event="session_ended")]))
+    events = [event async for event in AgentsVoiceRuntime(pipeline, Input, workflow=workflow).run_audio(chunks(b"\0\0"))]
+    assert events[0].lifecycle.value == "session_ended"
+    assert context.phases == ["FINAL:CANCELLED"]
 
 
 async def test_runtime_error_after_a_turn_marks_failed_not_succeeded() -> None:

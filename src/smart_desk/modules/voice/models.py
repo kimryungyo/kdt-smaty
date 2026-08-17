@@ -38,7 +38,6 @@ class AudioChunk:
             raise ValueError("audio capture 시각은 0 이상의 finite 값이어야 합니다.")
 
 
-@dataclass(frozen=True, slots=True)
 class EffectName(StrEnum):
     ACKNOWLEDGEMENT = "acknowledgement"
     ERROR = "error"
@@ -73,4 +72,3 @@ class VoiceSnapshot:
             not self.last_error or not self.last_error.replace("_", "").isalnum()
         ):
             raise ValueError("Voice 오류는 content-free code여야 합니다.")
-

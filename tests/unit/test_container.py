@@ -113,6 +113,8 @@ def test_build_container_registers_media_roles_independently() -> None:
         "rtsp-frame-source-user",
         "vision",
         "face-identity",
+        "assistant-context",
+        "assistant-turns",
         "desk-automation",
     ]
     assert split.user_camera_publisher is None
@@ -135,11 +137,11 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
         )
     )
 
-    assert [registration.startup_order for registration in enabled.resources][-9:] == [
-        40, 41, 42, 50, 51, 52, 60, 70, 80
+    assert [registration.startup_order for registration in enabled.resources][-11:] == [
+        40, 41, 42, 50, 51, 52, 60, 70, 75, 76, 80
     ]
-    assert [registration.shutdown_order for registration in enabled.resources][-9:] == [
-        40, 41, 42, 50, 51, 52, 60, 70, 80
+    assert [registration.shutdown_order for registration in enabled.resources][-11:] == [
+        40, 41, 42, 50, 51, 52, 60, 70, 75, 76, 80
     ]
     assert [
         registration.name
@@ -148,8 +150,10 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             key=lambda registration: registration.shutdown_order,
             reverse=True,
         )
-    ][:9] == [
+    ][:11] == [
         "desk-automation",
+        "assistant-turns",
+        "assistant-context",
         "face-identity",
         "vision",
         "rtsp-frame-source-workspace",

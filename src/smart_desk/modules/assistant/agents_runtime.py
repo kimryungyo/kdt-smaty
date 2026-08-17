@@ -170,6 +170,8 @@ class AgentsVoiceRuntime:
         self._run_in_progress = False
         self._close_callback = close_callback
         self._closed = False
+        self._turn_context: Any | None = None
+        self._turn_terminal = False
 
     @classmethod
     def build(
@@ -251,6 +253,23 @@ class AgentsVoiceRuntime:
         if self._close_callback is not None:
             await self._close_callback()
 
+    async def finalize_turn(
+        self, outcome: str, *, error_code: str | None = None
+    ) -> None:
+        """Let the hardware owner close the dashboard turn after speaker drain.
+
+        The SDK knows when its workflow ended, but only ``VoiceService`` knows
+        whether streamed TTS drained.  This intentionally makes success a
+        post-playback terminal state.
+        """
+        if self._turn_terminal or self._turn_context is None:
+            return
+        from smart_desk.modules.assistant.turns import TurnStatus
+
+        status = TurnStatus(outcome)
+        self._turn_terminal = True
+        await self._turn_context.finish(status, error_code=error_code)
+
     async def run_audio(self, chunks: AsyncIterable[bytes]) -> AsyncIterator[VoiceRuntimeEvent]:
         """24kHz mono PCM16 chunk stream 하나를 SDK stream 하나에 연결한다.
 
@@ -274,12 +293,18 @@ class AgentsVoiceRuntime:
         transcript_channel: asyncio.Queue[str] | None = None
         sequence = 0
         saw_sdk_event = False
+        saw_turn_ended = False
+        consumer_cancelled = False
 
         try:
             self._run_in_progress = True
+            self._turn_context = None
+            self._turn_terminal = False
             audio_input = self._streamed_input_factory()
             if self._workflow is not None:
                 await self._workflow.prepare_run()
+                self._turn_context = self._workflow._active_context
+                self._turn_terminal = False
                 # Register the public run consumer (the VoiceService child task),
                 # never the SDK workflow producer.  Cancelling process_turns alone
                 # can leave StreamedAudioResult.stream() awaiting forever.
@@ -347,14 +372,8 @@ class AgentsVoiceRuntime:
                                     )
                                     transcript_wait = asyncio.create_task(transcript_channel.get())
                             sequence = mapped.sequence if mapped.sequence > sequence else sequence + 1
-                            if (
-                                mapped.lifecycle is VoiceRuntimeLifecycle.TURN_ENDED
-                                and self._workflow is not None
-                                and self._workflow._active_context is not None
-                            ):
-                                from smart_desk.modules.assistant.turns import TurnStatus
-
-                                await self._workflow._active_context.finish(TurnStatus.SUCCEEDED)
+                            if mapped.lifecycle is VoiceRuntimeLifecycle.TURN_ENDED:
+                                saw_turn_ended = True
                             followup_requested = None
                             if (
                                 mapped.lifecycle is VoiceRuntimeLifecycle.TURN_ENDED
@@ -365,16 +384,12 @@ class AgentsVoiceRuntime:
                                 )
                             ):
                                 followup_requested = self._workflow._active_context.followup_requested
-                            if (
-                                mapped.type is VoiceRuntimeEventType.ERROR
-                                and self._workflow is not None
-                                and self._workflow._active_context is not None
-                            ):
-                                from smart_desk.modules.assistant.turns import TurnStatus
-
-                                await self._workflow._active_context.finish(
-                                    TurnStatus.FAILED, error_code="voice_pipeline_failed"
+                            if mapped.type is VoiceRuntimeEventType.ERROR:
+                                await self.finalize_turn(
+                                    "FAILED", error_code="voice_pipeline_failed"
                                 )
+                            if mapped.lifecycle is VoiceRuntimeLifecycle.SESSION_ENDED:
+                                await self.finalize_turn("CANCELLED")
                             yield VoiceRuntimeEvent(
                                 sequence=sequence,
                                 type=mapped.type,
@@ -411,15 +426,11 @@ class AgentsVoiceRuntime:
                 )
                 transcript_wait = asyncio.create_task(transcript_channel.get())
         except asyncio.CancelledError:
+            consumer_cancelled = True
             raise
         except Exception:
             # SDK exception/original transcript/provider error는 공개 event에 포함하지 않는다.
-            if self._workflow is not None and self._workflow._active_context is not None:
-                from smart_desk.modules.assistant.turns import TurnStatus
-
-                await self._workflow._active_context.finish(
-                    TurnStatus.FAILED, error_code="voice_pipeline_failed"
-                )
+            await self.finalize_turn("FAILED", error_code="voice_pipeline_failed")
             sequence += 1
             yield VoiceRuntimeEvent(
                 sequence=sequence,
@@ -427,6 +438,11 @@ class AgentsVoiceRuntime:
                 error_code="voice_pipeline_failed",
             )
         finally:
+            # A consumer cancellation, input with no transcript, or a session
+            # ending before TURN_ENDED must not strand a visible RUNNING turn.
+            if consumer_cancelled or not saw_turn_ended:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self.finalize_turn("CANCELLED")
             self._run_in_progress = False
             if self._workflow is not None:
                 self._workflow._set_runtime_final_transcript_sink(None)

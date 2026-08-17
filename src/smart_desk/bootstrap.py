@@ -320,11 +320,6 @@ def build_container(settings: Settings) -> AppContainer:
 
             api_key = settings.openai.api_key
             assert api_key is not None  # Settings validates enabled Voice/OpenAI.
-            runtime = AgentsVoiceRuntime.build_for_services(
-                api_key=api_key.get_secret_value(), sessions=container.assistant_context,
-                memory=container.profile_memory, turns=container.assistant_turns,
-                automation=automation, wled=container.wled,
-            )
             audio_input = LocalAudioInput(
                 device_name=settings.voice.input_device_name,
                 queue_frames=settings.voice.input_queue_frames,
@@ -344,6 +339,13 @@ def build_container(settings: Settings) -> AppContainer:
                 inference_interval_frames=(
                     settings.voice.wakeword_inference_interval_frames
                 ),
+            )
+            # Keep local construction ahead of the OpenAI client.  A bad local
+            # device/model/effect configuration then cannot leak a runtime client.
+            runtime = AgentsVoiceRuntime.build_for_services(
+                api_key=api_key.get_secret_value(), sessions=container.assistant_context,
+                memory=container.profile_memory, turns=container.assistant_turns,
+                automation=automation, wled=container.wled,
             )
             voice = VoiceService(
                 audio_input=audio_input,

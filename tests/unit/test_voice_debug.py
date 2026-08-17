@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi.testclient import TestClient
+import httpx
 
 from smart_desk.modules.voice.audio import AudioInputDebugSnapshot
 from smart_desk.modules.voice.debug import VoiceDebugView, create_voice_debug_application
@@ -61,17 +61,20 @@ class FakeAudioInput:
         )
 
 
-def make_client() -> TestClient:
+def make_application():
     view = VoiceDebugView(
         voice=FakeVoice(),  # type: ignore[arg-type]
         wakeword=FakeWakeWord(),  # type: ignore[arg-type]
         audio_input=FakeAudioInput(),  # type: ignore[arg-type]
     )
-    return TestClient(create_voice_debug_application(view))
+    return create_voice_debug_application(view)
 
 
-def test_debug_snapshot_combines_voice_observability_without_provider_secret() -> None:
-    response = make_client().get("/api/snapshot")
+async def test_debug_snapshot_combines_voice_observability_without_provider_secret() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=make_application()), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/snapshot")
 
     assert response.status_code == 200
     payload = response.json()
@@ -85,8 +88,11 @@ def test_debug_snapshot_combines_voice_observability_without_provider_secret() -
     assert "api_key" not in response.text
 
 
-def test_debug_page_is_no_store_and_polls_snapshot() -> None:
-    response = make_client().get("/")
+async def test_debug_page_is_no_store_and_polls_snapshot() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=make_application()), base_url="http://test"
+    ) as client:
+        response = await client.get("/")
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"

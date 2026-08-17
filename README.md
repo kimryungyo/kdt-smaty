@@ -172,22 +172,13 @@ SMART_DESK_VOICE__INPUT_DEVICE_NAME=<stable full name>
 SMART_DESK_VOICE__OUTPUT_DEVICE_NAME=<stable full name>
 ```
 
-음성 흐름은 프로젝트의 `하이 스마티` 호출어, local 확인음, 최대 10초 memory WAV,
-`gpt-transcribe`, 같은 `voice:local` Responses history, `gpt-4o-mini-tts` PCM 재생과
-4초 follow-up 순서다. 사용자 테스트 전에 사용자에게 **“이 음성은 AI가 생성합니다”**를
-고정 화면 문구, 물리 라벨 또는 온보딩으로 고지해야 한다.
+음성 흐름은 프로젝트의 `하이 스마티` 호출어와 local 확인음 뒤에 원본 24kHz PCM을
+Agents SDK `VoicePipeline`에 streaming으로 전달하고, final transcript 뒤에 PCM TTS를
+재생한다. follow-up은 Agent가 명시적으로 요청한 turn에서만 열린다. 사용자 테스트 전에
+사용자에게 **“이 음성은 AI가 생성합니다”**를 고정 화면 문구, 물리 라벨 또는 온보딩으로
+고지해야 한다.
 
-OpenAI live test에는 24kHz mono PCM16 WAV fixture를 별도로 지정한다.
-
-```bash
-SMART_DESK_RUN_OPENAI_VOICE_INTEGRATION=1 \
-SMART_DESK_OPENAI__API_KEY=... \
-SMART_DESK_OPENAI_VOICE_FIXTURE=/absolute/path/to/korean-voice.wav \
-  .venv/bin/python -m pytest -m openai_voice_integration \
-  tests/integration/test_openai_voice_live.py
-```
-
-실제 장치 open과 acknowledgement 재생 검증:
+실제 장치 검증은 자동 테스트 증거가 아니며, 배포 환경에서 별도로 수행한다:
 
 ```bash
 SMART_DESK_RUN_VOICE_HARDWARE=1 \
@@ -195,7 +186,7 @@ SMART_DESK_VOICE__ENABLED=true \
 SMART_DESK_VOICE__INPUT_DEVICE_NAME='<stable full name>' \
 SMART_DESK_VOICE__OUTPUT_DEVICE_NAME='<stable full name>' \
   .venv/bin/python -m pytest -m voice_hardware \
-  tests/integration/test_voice_hardware.py -s
+  # microphone, wake word, acknowledgement, speaker를 수동 점검
 ```
 
 Wake Word model의 사용 조건과 wheel provenance는
