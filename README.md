@@ -7,6 +7,10 @@ SMART DESK를 단일 FastAPI 프로세스와 `asyncio` 기반으로 재구성하
 upload와 실물 검증은 아직 수행하지 않았다. 영상은 카메라별 FFmpeg publisher가
 기존 호스트 MediaMTX에 발행하고 Python은 RTSP에서 최신 frame 하나를 읽는다.
 
+현재 운영 transport는 서버와 ESP32가 EMQX를 통해 직접 통신하는 Wi-Fi/MQTT 경로다.
+MQTT→USB-serial bridge는 실행하거나 배포하지 않는다. Arduino 높이 리더의 USB serial과
+relay 분리 bench용 ESP32 serial 명령은 이 운영 transport와 별개의 입력·검증 경로다.
+
 ## 최종 제품 방향
 
 이 프로젝트의 최종 목표는 단순한 책상 제어기나 음성 비서가 아니라, **책상 전체를

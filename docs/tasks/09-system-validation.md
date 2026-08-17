@@ -12,6 +12,16 @@ MANUAL preset과 Voice 응답을 시연할 수 있다. 장치나 네트워크가
 자동 검증을 누적하고, 여기서는 실제 EMQX·MediaMTX·카메라·Arduino·ESP32·WLED·오디오를
 연결한 계약과 실물 동작을 최종 확인한다.
 
+## 운영 transport 기준
+
+- 현재 운영 및 이 task의 ESP32 검증 기준은 `main`의 Wi-Fi/MQTT firmware다.
+- 서버와 ESP32 사이에 MQTT→USB-serial bridge를 두지 않으며 bridge process의 시작·복구는
+  완료 조건에 포함하지 않는다.
+- Arduino 높이 입력은 별도 USB serial 연결을 계속 사용한다.
+- relay 분리 bench용 ESP32 USB serial 명령은 GPIO·timer 검증에만 사용하고 production
+  command/status transport로 간주하지 않는다.
+- `feature/serial-esp32`의 firmware나 bridge 결과를 `main`의 통합 검증 증거로 대체하지 않는다.
+
 실제 책상 이동은 다음 순서를 지킨다.
 
 ```text

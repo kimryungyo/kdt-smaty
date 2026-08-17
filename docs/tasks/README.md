@@ -5,6 +5,10 @@
 프레임 수집과 Voice/WLED 기반 코드는 새로운 task로 다시 설명하지 않는다. 남아 있는 실물
 검증은 [통합·실물 검증](09-system-validation.md)으로 이관한다.
 
+현재 운영 transport는 `main`의 Wi-Fi/MQTT firmware와 서버 계약이다. MQTT→USB-serial
+bridge와 `feature/serial-esp32`은 운영·통합 검증 범위에 포함하지 않는다. Arduino 높이
+입력 USB serial과 relay 분리 bench용 serial 명령은 ESP32 운영 transport와 구분한다.
+
 단, legacy Voice의 수동 STT→Responses→TTS 구조는 확정적으로 교체하므로 task 08에서
 Agents SDK 전환 자체를 예외적으로 소유한다.
 
