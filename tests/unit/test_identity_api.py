@@ -141,7 +141,11 @@ async def test_profile_delete_storage_failure_aborts_identity_suspension(
     identity = IdentityMutation()
     monkeypatch.setattr(
         profiles_route, "get_container",
-        lambda: SimpleNamespace(runtime=SimpleNamespace(snapshot=lambda: SimpleNamespace(ready=True)), identity=identity),
+        lambda: SimpleNamespace(
+            runtime=SimpleNamespace(snapshot=lambda: SimpleNamespace(ready=True)),
+            identity=identity,
+            profile_memory=None,
+        ),
     )
     monkeypatch.setattr(profiles_route, "get_dashboard", lambda: Dashboard())
 
@@ -183,7 +187,11 @@ async def test_profile_delete_cancellation_aborts_identity_suspension(
     dashboard = Dashboard()
     monkeypatch.setattr(
         profiles_route, "get_container",
-        lambda: SimpleNamespace(runtime=SimpleNamespace(snapshot=lambda: SimpleNamespace(ready=True)), identity=identity),
+        lambda: SimpleNamespace(
+            runtime=SimpleNamespace(snapshot=lambda: SimpleNamespace(ready=True)),
+            identity=identity,
+            profile_memory=None,
+        ),
     )
     monkeypatch.setattr(profiles_route, "get_dashboard", lambda: dashboard)
 
@@ -193,3 +201,59 @@ async def test_profile_delete_cancellation_aborts_identity_suspension(
     with pytest.raises(asyncio.CancelledError):
         await deletion
     assert identity.calls == ["prepare:profile-1", "abort:profile-1"]
+
+
+async def test_profile_memory_delete_precedes_identity_and_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    class Memory:
+        async def delete_profile(self, profile_id: str) -> None: calls.append(f"memory:{profile_id}")
+    class IdentityMutation:
+        async def prepare_profile_delete(self, profile_id: str) -> None: calls.append(f"prepare:{profile_id}")
+        async def abort_profile_delete(self, profile_id: str) -> None: calls.append(f"abort:{profile_id}")
+        async def finalize_profile_delete(self, profile_id: str) -> None: calls.append(f"finalize:{profile_id}")
+    class Dashboard:
+        async def get_profile(self, profile_id: str) -> object: calls.append(f"exists:{profile_id}"); return object()
+        async def delete_profile(self, profile_id: str) -> None: calls.append(f"db:{profile_id}")
+    monkeypatch.setattr(profiles_route, "get_dashboard", lambda: Dashboard())
+    monkeypatch.setattr(profiles_route, "get_container", lambda: SimpleNamespace(identity=IdentityMutation(), profile_memory=Memory()))
+    await profiles_route.delete_profile("profile-1")
+    assert calls == ["exists:profile-1", "memory:profile-1", "prepare:profile-1", "db:profile-1", "finalize:profile-1"]
+
+
+async def test_profile_memory_failure_preserves_identity_and_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class Memory:
+        async def delete_profile(self, _profile_id: str) -> None:
+            from smart_desk.modules.assistant.memory import ProfileMemoryError
+
+            raise ProfileMemoryError("profile_memory_delete_failed")
+
+    class IdentityMutation:
+        async def prepare_profile_delete(self, _profile_id: str) -> None:
+            calls.append("prepare")
+
+    class Dashboard:
+        async def get_profile(self, _profile_id: str) -> object:
+            calls.append("exists")
+            return object()
+
+        async def delete_profile(self, _profile_id: str) -> None:
+            calls.append("db")
+
+    monkeypatch.setattr(profiles_route, "get_dashboard", lambda: Dashboard())
+    monkeypatch.setattr(
+        profiles_route,
+        "get_container",
+        lambda: SimpleNamespace(identity=IdentityMutation(), profile_memory=Memory()),
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await profiles_route.delete_profile("profile-1")
+
+    assert raised.value.status_code == 503
+    assert calls == ["exists"]

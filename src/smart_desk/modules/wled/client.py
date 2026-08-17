@@ -6,6 +6,7 @@ import asyncio
 from datetime import UTC, datetime
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -25,19 +26,39 @@ LOGGER = logging.getLogger(__name__)
 
 class WledError(RuntimeError): pass
 class WledDisabledError(WledError): pass
-class WledNotStartedError(WledError): pass
-class WledUnavailableError(WledError): pass
-class WledProtocolError(WledError): pass
-class WledUnsupportedValueError(WledError): pass
+class WledNotStartedError(WledError):
+    pass
+
+
+class WledUnavailableError(WledError):
+    pass
+
+
+class WledProtocolError(WledError):
+    pass
+
+
+class WledUnsupportedValueError(WledError):
+    pass
+
+
+class WledSessionMismatchError(WledError):
+    pass
 
 
 class WledClient:
-    def __init__(self, settings: WledSettings) -> None:
+    def __init__(
+        self,
+        settings: WledSettings,
+        *,
+        session_validator: Callable[[str], Awaitable[bool]] | None = None,
+    ) -> None:
         self._settings = settings
         self._client: httpx.AsyncClient | None = None
         self._request_lock = asyncio.Lock()
         self._snapshot = WledSnapshot(WledStatus.UNKNOWN, None, None, None, None, None, None, None, None, None, None, None)
         self._capabilities: WledCapabilities | None = None
+        self._session_validator = session_validator
 
     async def start(self) -> None:
         if self._client is None:
@@ -74,10 +95,10 @@ class WledClient:
             self._snapshot = snapshot
             return snapshot
 
-    async def turn_off(self) -> WledSnapshot:
+    async def turn_off(self, *, expected_session_id: str | None = None) -> WledSnapshot:
         async with self._request_lock:
             try:
-                response = await self._post_state({"on": False, "v": True})
+                response = await self._post_state({"on": False, "v": True}, expected_session_id)
                 if response.get("on") is not False:
                     raise WledProtocolError("WLED가 전원 끄기를 확인하지 못했습니다.")
                 self._snapshot = self._snapshot_from_state(response)
@@ -86,12 +107,12 @@ class WledClient:
                 self._record_failure(error)
                 raise
 
-    async def turn_on(self) -> WledSnapshot:
+    async def turn_on(self, *, expected_session_id: str | None = None) -> WledSnapshot:
         """현재 밝기와 segment 설정을 유지하면서 master 전원을 켠다."""
 
         async with self._request_lock:
             try:
-                response = await self._post_state({"on": True, "v": True})
+                response = await self._post_state({"on": True, "v": True}, expected_session_id)
                 if response.get("on") is not True:
                     raise WledProtocolError("WLED가 전원 켜기를 확인하지 못했습니다.")
                 self._snapshot = self._snapshot_from_state(response)
@@ -100,14 +121,14 @@ class WledClient:
                 self._record_failure(error)
                 raise
 
-    async def set_brightness(self, brightness: int) -> WledSnapshot:
+    async def set_brightness(self, brightness: int, *, expected_session_id: str | None = None) -> WledSnapshot:
         """WLED master 밝기만 바꾸며 전원과 segment 설정은 유지한다."""
 
         if isinstance(brightness, bool) or not isinstance(brightness, int) or not 0 <= brightness <= 255:
             raise WledProtocolError("밝기는 0에서 255 사이의 정수여야 합니다.")
         async with self._request_lock:
             try:
-                response = await self._post_state({"bri": brightness, "v": True})
+                response = await self._post_state({"bri": brightness, "v": True}, expected_session_id)
                 if response.get("bri") != brightness:
                     raise WledProtocolError("WLED가 요청한 밝기를 확인하지 못했습니다.")
                 self._snapshot = self._snapshot_from_state(response)
@@ -117,17 +138,17 @@ class WledClient:
                 self._record_failure(error)
                 raise
 
-    async def set_solid(self, color: str) -> WledSnapshot:
+    async def set_solid(self, color: str, *, expected_session_id: str | None = None) -> WledSnapshot:
         normalized = self._normalize_color(color)
         async with self._request_lock:
             try:
                 state = await self._get_json("/json/state")
                 segments = self._valid_segments(state)
                 if state["on"] is False:
-                    await self._post_state({"on": True, "v": True})
+                    await self._post_state({"on": True, "v": True}, expected_session_id)
                 rgb = self._rgb(normalized)
                 expected = {segment["id"]: {"fx": 0, "pal": 0, "col": rgb} for segment in segments}
-                response = await self._post_state({"seg": [{"id": item_id, "fx": 0, "pal": 0, "col": [rgb]} for item_id in expected], "v": True})
+                response = await self._post_state({"seg": [{"id": item_id, "fx": 0, "pal": 0, "col": [rgb]} for item_id in expected], "v": True}, expected_session_id)
                 self._verify_response(response, expected)
                 self._snapshot = self._snapshot_from_state(response)
                 self._log_applied("SOLID", segment_count=len(segments))
@@ -136,14 +157,14 @@ class WledClient:
                 self._record_failure(error)
                 raise
 
-    async def set_effect(self, effect_id: int, *, palette_id: int = 0, speed: int = 128, intensity: int = 128, color: str | None = None) -> WledSnapshot:
+    async def set_effect(self, effect_id: int, *, palette_id: int = 0, speed: int = 128, intensity: int = 128, color: str | None = None, expected_session_id: str | None = None) -> WledSnapshot:
         async with self._request_lock:
             try:
                 await self._validate_effect(effect_id, palette_id)
                 state = await self._get_json("/json/state")
                 segments = self._valid_segments(state)
                 if state["on"] is False:
-                    await self._post_state({"on": True, "v": True})
+                    await self._post_state({"on": True, "v": True}, expected_session_id)
                 normalized = self._normalize_color(color) if color is not None else None
                 rgb = self._rgb(normalized) if normalized else None
                 expected = {segment["id"]: {"fx": effect_id, "pal": palette_id, "sx": speed, "ix": intensity, **({"col": rgb} if rgb else {})} for segment in segments}
@@ -152,7 +173,7 @@ class WledClient:
                     command = {"id": item_id, **{key: value for key, value in values.items() if key != "col"}}
                     if "col" in values: command["col"] = [values["col"]]
                     command_segments.append(command)
-                response = await self._post_state({"seg": command_segments, "v": True})
+                response = await self._post_state({"seg": command_segments, "v": True}, expected_session_id)
                 self._verify_response(response, expected)
                 self._snapshot = self._snapshot_from_state(response)
                 self._log_applied("EFFECT", effect_id=effect_id, palette_id=palette_id, segment_count=len(segments))
@@ -181,7 +202,14 @@ class WledClient:
         except httpx.HTTPError as error:
             raise WledUnavailableError("WLED 장치에 연결할 수 없습니다.") from error
 
-    async def _post_state(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _post_state(
+        self, payload: dict[str, Any], expected_session_id: str | None = None
+    ) -> dict[str, Any]:
+        if expected_session_id is not None:
+            if self._session_validator is None or not await self._session_validator(
+                expected_session_id
+            ):
+                raise WledSessionMismatchError("SESSION_MISMATCH")
         try:
             response = await self._require_client().post("/json/state", json=payload)
             return self._response_object(response)

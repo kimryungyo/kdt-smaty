@@ -275,11 +275,30 @@ def test_voice_is_disabled_by_default_without_api_key() -> None:
     assert settings.voice.wakeword_consecutive_frames == 1
     assert settings.voice.wakeword_inference_interval_frames == 5
     assert settings.voice.followup_timeout_seconds == 4.0
+    assert settings.voice.session_history_item_cap == 24
+
+
+@pytest.mark.parametrize("item_cap", [0, -1, 201])
+def test_voice_session_history_item_cap_must_be_positive_and_bounded(item_cap: int) -> None:
+    with pytest.raises(ValidationError):
+        Settings(voice={"session_history_item_cap": item_cap}, _env_file=None)
 
 
 def test_enabled_voice_requires_api_key() -> None:
     with pytest.raises(ValidationError, match="OpenAI API key"):
         Settings(voice={"enabled": True}, _env_file=None)
+
+
+def test_profile_memory_is_disabled_by_default_and_requires_openai_key() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.profile_memory.enabled is False
+    assert settings.profile_memory.data_path == Path("data/mem0")
+    assert settings.profile_memory.history_db_path == Path("data/mem0/history.db")
+    assert settings.profile_memory.search_limit == 5
+
+    with pytest.raises(ValidationError, match="OpenAI API key"):
+        Settings(profile_memory={"enabled": True}, _env_file=None)
 
 
 def test_voice_debug_requires_voice_and_distinct_port() -> None:

@@ -115,21 +115,21 @@ broker는 이번 범위에 추가하지 않는다.
   서버 재시작에서 폐기한다.
 - [ ] 긴 책상 사용에서 raw history가 무제한 증가하지 않도록 item/token 제한 또는 compaction을
   설정화한다.
-- [ ] `profile:<profile_id>` namespace를 사용하는 memory service 경계를 구현한다.
-- [ ] Mem0 OSS를 `fin-main` process에 library로 포함하고 `data/mem0`를 명시적인 영속 경로로
+- [x] `profile:<profile_id>` namespace를 사용하는 memory service 경계를 구현한다.
+- [x] Mem0 OSS를 `fin-main` process에 library로 포함하고 `data/mem0`를 명시적인 영속 경로로
   사용한다. Docker 전환 후에는 같은 container의 `/app/data/mem0` volume으로 연결한다.
-- [ ] 검색·저장할 정보, 최대 결과 수, timeout과 실패 fallback을 정한다.
+- [x] 검색·저장할 정보, 최대 결과 수, timeout과 실패 fallback을 정한다.
 - [ ] turn 완료 시 같은 session인지 다시 확인한 뒤에만 사용자 기억을 저장한다.
-- [ ] profile 삭제 전에 장기 기억 전체 삭제를 완료하고 실패 시 profile DB를 보존한다.
+- [x] profile 삭제 전에 장기 기억 전체 삭제를 완료하고 실패 시 profile DB를 보존한다.
 - [ ] transcript, 사용자 ID와 기억 내용의 로그·보존·민감정보 범위를 문서화한다.
 
 ### Dashboard 응답
 
 - [ ] 음성 문장과 화면용 상세 응답을 하나의 Assistant 결과로 생성한다.
 - [ ] 현재 session의 최신 turn 하나를 반환하는 `/api/assistant/latest`와 Dashboard polling을 구현한다.
-- [ ] 늦게 완료된 과거 turn이 새 turn 화면을 덮어쓰지 않도록 `turnId`·sequence를 사용한다.
+- [x] 늦게 완료된 과거 turn이 새 turn 화면을 덮어쓰지 않도록 `turnId`·sequence를 사용한다.
 - [ ] 진행 안내·tool 상태·최종 응답을 같은 `turnId`의 phase로 발행한다.
-- [ ] session 교대·종료 시 이전 turn의 Dashboard 상세 응답을 즉시 숨긴다.
+- [x] session 교대·종료 시 이전 turn의 Dashboard 상세 응답을 즉시 숨긴다.
 - [ ] tool 실행 중·성공·부분 실패를 음성과 화면에서 모순 없이 표현한다.
 
 ### tool 정책

@@ -241,6 +241,42 @@ def build_container(settings: Settings) -> AppContainer:
     )
     face_embeddings = FaceEmbeddingRepository(database)
     current_user = CurrentUserSessionService()
+    from smart_desk.modules.assistant.memory import ProfileMemoryService
+    from smart_desk.modules.assistant.context import CurrentUserSessionManager
+    from smart_desk.modules.assistant.turns import AssistantTurnStore
+    memory_config: dict[str, object] = {
+        "vector_store": {
+            "provider": "qdrant",
+            "config": {
+                "collection_name": "smart_desk_profile_memory",
+                "path": str(settings.profile_memory.data_path / "qdrant"),
+            },
+        },
+        "history_db_path": str(settings.profile_memory.history_db_path),
+    }
+    if settings.profile_memory.enabled:
+        api_key = settings.openai.api_key
+        assert api_key is not None  # Settings validates this dependency at startup.
+        llm_config = {
+            "api_key": api_key.get_secret_value(),
+            "model": settings.openai.response_model,
+        }
+        embedder_config = {
+            "api_key": api_key.get_secret_value(),
+            "model": "text-embedding-3-small",
+        }
+        memory_config["llm"] = {"provider": "openai", "config": llm_config}
+        memory_config["embedder"] = {"provider": "openai", "config": embedder_config}
+    container.profile_memory = ProfileMemoryService(
+        enabled=settings.profile_memory.enabled,
+        config=memory_config,
+        search_limit=settings.profile_memory.search_limit,
+        timeout_seconds=settings.profile_memory.timeout_seconds,
+    )
+    container.assistant_context = CurrentUserSessionManager(
+        current_user, item_cap=settings.voice.session_history_item_cap
+    )
+    container.assistant_turns = AssistantTurnStore(current_user)
     identity = FaceIdentityService(vision=vision, repository=face_embeddings,
                                    current_user=current_user,
                                    extractor=UnavailableFaceEmbeddingExtractor())
@@ -249,8 +285,12 @@ def build_container(settings: Settings) -> AppContainer:
     container.identity = identity
     container.register(ResourceRegistration(name="face-identity", resource=identity,
                                             startup_order=70, shutdown_order=70))
+    container.register(ResourceRegistration(name="assistant-context", resource=container.assistant_context,
+                                            startup_order=75, shutdown_order=75))
+    container.register(ResourceRegistration(name="assistant-turns", resource=container.assistant_turns,
+                                            startup_order=76, shutdown_order=76))
     if settings.wled.enabled:
-        wled = WledClient(settings.wled)
+        wled = WledClient(settings.wled, session_validator=current_user.is_current)
         container.wled = wled
         container.register(
             ResourceRegistration(

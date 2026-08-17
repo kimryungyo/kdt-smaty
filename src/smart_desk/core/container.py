@@ -31,6 +31,9 @@ if TYPE_CHECKING:
     from smart_desk.modules.voice.debug import VoiceDebugServer
     from smart_desk.modules.wled.client import WledClient
     from smart_desk.modules.automation.service import AutomationService
+    from smart_desk.modules.assistant.memory import ProfileMemoryService
+    from smart_desk.modules.assistant.context import CurrentUserSessionManager
+    from smart_desk.modules.assistant.turns import AssistantTurnStore
     from smart_desk.storage import SQLiteDatabase
 
 
@@ -82,6 +85,9 @@ class AppContainer:
     current_user: CurrentUserSessionService | None = None
     identity: FaceIdentityService | None = None
     automation: AutomationService | None = None
+    profile_memory: ProfileMemoryService | None = None
+    assistant_context: CurrentUserSessionManager | None = None
+    assistant_turns: AssistantTurnStore | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
     def register(self, registration: ResourceRegistration) -> None:

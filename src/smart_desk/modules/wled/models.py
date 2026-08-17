@@ -65,7 +65,12 @@ class WledApiModel(BaseModel):
     model_config = ConfigDict(alias_generator=_camel, populate_by_name=True, extra="forbid")
 
 
-class SolidControlRequest(WledApiModel):
+class SessionBoundWledRequest(WledApiModel):
+    """Optional because global/sessionless HTTP control remains supported."""
+    expected_session_id: str | None = Field(default=None, min_length=1)
+
+
+class SolidControlRequest(SessionBoundWledRequest):
     action: Literal["SOLID"]
     color: str
 
@@ -78,7 +83,7 @@ class SolidControlRequest(WledApiModel):
         return normalized
 
 
-class EffectControlRequest(WledApiModel):
+class EffectControlRequest(SessionBoundWledRequest):
     action: Literal["EFFECT"]
     effect_id: int = Field(ge=1)
     palette_id: int = Field(default=0, ge=0)
@@ -92,7 +97,7 @@ class EffectControlRequest(WledApiModel):
         return SolidControlRequest(action="SOLID", color=value).color if value is not None else None
 
 
-class BrightnessControlRequest(WledApiModel):
+class BrightnessControlRequest(SessionBoundWledRequest):
     action: Literal["BRIGHTNESS"]
     brightness: int = Field(ge=0, le=255)
 
@@ -104,7 +109,7 @@ class BrightnessControlRequest(WledApiModel):
         return value
 
 
-class OffControlRequest(WledApiModel):
+class OffControlRequest(SessionBoundWledRequest):
     action: Literal["OFF"]
 
 

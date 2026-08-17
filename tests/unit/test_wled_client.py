@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import TypeAdapter, ValidationError
 
+from smart_desk.api.routes import wled as wled_route
 from smart_desk.config.settings import WledSettings
-from smart_desk.modules.wled.client import WledClient, WledProtocolError
+from smart_desk.modules.wled.client import (
+    WledClient,
+    WledProtocolError,
+    WledSessionMismatchError,
+)
 from smart_desk.modules.wled.models import ControlRequest, WledMode
 
 
@@ -90,3 +97,74 @@ async def test_mismatched_post_response_is_not_reported_as_success() -> None:
     with pytest.raises(WledProtocolError): await client.set_solid("FF3000")
     assert client.get_snapshot().status == "ERROR"
     await client.stop()
+
+
+@pytest.mark.asyncio
+async def test_expected_session_is_revalidated_before_every_wled_post() -> None:
+    calls: list[dict] = []
+    valid = iter([True, False])
+
+    async def validate(_session_id: str) -> bool:
+        return next(valid)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=_state(on=False))
+        calls.append(__import__("json").loads(request.content))
+        return httpx.Response(200, json=_state(on=True))
+
+    client = WledClient(WledSettings(), session_validator=validate)
+    await client.start()
+    await client._client.aclose()  # noqa: SLF001
+    client._client = httpx.AsyncClient(  # noqa: SLF001
+        base_url="http://wled.test", transport=httpx.MockTransport(handler)
+    )
+
+    with pytest.raises(WledSessionMismatchError):
+        await client.set_solid("FF3000", expected_session_id="session-a")
+
+    assert calls == [{"on": True, "v": True}]
+    await client.stop()
+
+
+@pytest.mark.asyncio
+async def test_expected_session_without_validator_fails_closed() -> None:
+    client = WledClient(WledSettings())
+    await client.start()
+    with pytest.raises(WledSessionMismatchError):
+        await client.set_brightness(10, expected_session_id="session-a")
+    await client.stop()
+
+
+def test_wled_route_rejects_stale_expected_session_before_client_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CurrentUser:
+        async def snapshot(self) -> object:
+            return type("Snapshot", (), {"session_id": "session-current"})()
+
+    class Client:
+        async def set_brightness(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("stale route must not call the WLED client")
+
+    app = FastAPI()
+    app.include_router(wled_route.router)
+    monkeypatch.setattr(wled_route, "get_wled", lambda: Client())
+    monkeypatch.setattr(
+        wled_route,
+        "get_container",
+        lambda: type("Container", (), {"current_user": CurrentUser()})(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/wled/control",
+            json={
+                "action": "BRIGHTNESS",
+                "brightness": 50,
+                "expectedSessionId": "session-stale",
+            },
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "SESSION_MISMATCH"

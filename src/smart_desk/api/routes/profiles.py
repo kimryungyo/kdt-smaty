@@ -17,6 +17,7 @@ from smart_desk.modules.profiles.repository import (
     ProfileRepositoryError,
 )
 from smart_desk.storage import StorageError
+from smart_desk.modules.assistant.memory import ProfileMemoryError
 
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
@@ -59,10 +60,18 @@ async def update_profile(profile_id: str, update: ProfileUpdate) -> Profile:
 
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_profile(profile_id: str) -> Response:
-    # Confirm 404 before invalidating identity.  Identity is optional in isolated
-    # profile route composition, but operational failures must remain visible.
     await _run(lambda: get_dashboard().get_profile(profile_id))
-    identity = get_container().identity
+    container = get_container()
+    memory = container.profile_memory
+    if memory is not None:
+        try:
+            await memory.delete_profile(profile_id)
+        except ProfileMemoryError as error:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "프로필 기억을 삭제할 수 없습니다.",
+            ) from error
+    identity = container.identity
     if identity is not None:
         try:
             await identity.prepare_profile_delete(profile_id)

@@ -26,6 +26,7 @@ smart-desk-media-publish = "smart_desk.media_publish:main"
 voice = [
     "openai-agents[voice]>=0.21,<0.22",
     "openai>=3,<4",
+    "mem0ai>=2,<3",
     "sounddevice>=0.5.5,<0.6",
     "livekit-wakeword==0.2.1",
     "soxr>=1.1,<2",

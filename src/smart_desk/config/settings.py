@@ -472,6 +472,16 @@ class OpenAiSettings(BaseModel):
         return value
 
 
+class ProfileMemorySettings(BaseModel):
+    """Optional, in-process Mem0 storage settings."""
+
+    enabled: bool = False
+    data_path: Path = Path("data/mem0")
+    history_db_path: Path = Path("data/mem0/history.db")
+    search_limit: int = Field(default=5, ge=1, le=20)
+    timeout_seconds: float = Field(default=2.0, gt=0, le=10, allow_inf_nan=False)
+
+
 class VoiceSettings(BaseModel):
     """로컬 microphone, Wake Word와 speaker 동작 설정을 보관한다."""
 
@@ -539,6 +549,7 @@ class VoiceSettings(BaseModel):
     )
     input_queue_frames: int = Field(default=64, ge=8, le=256)
     session_max_turns: int = Field(default=12, ge=1, le=50)
+    session_history_item_cap: int = Field(default=24, ge=1, le=200)
 
     acknowledgement_effect_path: Path = Path(
         "assets/voice/effects/acknowledgement.wav"
@@ -616,6 +627,7 @@ class Settings(BaseSettings):
     dashboard: DashboardSettings = DashboardSettings()
     wled: WledSettings = WledSettings()
     openai: OpenAiSettings = OpenAiSettings()
+    profile_memory: ProfileMemorySettings = ProfileMemorySettings()
     voice: VoiceSettings = VoiceSettings()
     voice_debug: VoiceDebugSettings = VoiceDebugSettings()
 
@@ -623,8 +635,8 @@ class Settings(BaseSettings):
     def require_voice_api_key(self) -> Settings:
         """Voice가 활성화되면 OpenAI API key를 필수로 요구한다."""
 
-        if self.voice.enabled and self.openai.api_key is None:
-            raise ValueError("Voice가 활성화되면 OpenAI API key가 필요합니다.")
+        if (self.voice.enabled or self.profile_memory.enabled) and self.openai.api_key is None:
+            raise ValueError("Voice 또는 profile memory가 활성화되면 OpenAI API key가 필요합니다.")
         if self.voice_debug.enabled and not self.voice.enabled:
             raise ValueError("Voice debug를 활성화하려면 Voice가 활성화되어야 합니다.")
         if self.voice_debug.enabled and self.voice_debug.port == self.server.port:
