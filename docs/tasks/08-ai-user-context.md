@@ -84,11 +84,11 @@ broker는 이번 범위에 추가하지 않는다.
   불변 `AgentsVoiceConfig` 한 조립 경계에서 명시한다. runtime 입력은 24kHz mono PCM16
   `AsyncIterable`을 `StreamedAudioInput`에 직접 공급하며, 실행별 순번이 있는
   lifecycle/transcript/audio/error event만 외부로 낸다.
-- [ ] 첫 구현은 단일 Agent + `Runner` + 필요한 local function tool만 사용하고, handoff나
+- [x] 첫 구현은 단일 Agent + `Runner` + 필요한 local function tool만 사용하고, handoff나
   다중 Agent orchestration을 추가하지 않는다.
 - [x] microphone은 24kHz mono PCM16으로 한 번 capture하고, Wake Word 입력만 stateful
   resampler로 16kHz로 변환해 원본 24kHz chunk를 VoicePipeline에 전달한다.
-- [ ] final transcript 전에 Desk·WLED 같은 부작용 tool을 실행하지 않고, SDK hosted/function
+- [x] final transcript 전에 Desk·WLED 같은 부작용 tool을 실행하지 않고, SDK hosted/function
   tool이 기존 public domain service만 호출하게 한다.
 - [ ] 긴 tool 전 진행 안내와 최종 응답을 같은 Agent run·`turnId`에서 streaming TTS로
   재생하고 TTS 자체를 function tool로 만들지 않는다.

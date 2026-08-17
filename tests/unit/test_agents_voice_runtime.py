@@ -14,6 +14,35 @@ from smart_desk.modules.assistant.agents_runtime import (
 )
 
 
+class Context:
+    def __init__(self, *, personalized: bool = True, valid: list[bool] | None = None) -> None:
+        self.turn_context = type("Turn", (), {"personalized": personalized, "profile_id": "profile-a", "session": "sdk-session"})()
+        self.sessions = ContextSessions(valid or [True, True, True])
+        self.memory = type("Memory", (), {"search": self._search, "remember": self._remember})()
+        self.explicit_memories = ["explicit fact"]
+        self.phases: list[str] = []
+        self.searches: list[tuple[str, str]] = []
+        self.remembered: list[tuple[str, str, bool]] = []
+        self.followup_requested = False
+
+    async def _search(self, profile_id: str, transcript: str) -> list[dict[str, str]]:
+        self.searches.append((profile_id, transcript))
+        return [{"memory": "likes tea"}]
+
+    async def _remember(self, profile_id: str, fact: str, *, explicit: bool) -> None:
+        self.remembered.append((profile_id, fact, explicit))
+
+    async def processing_started(self) -> None: self.phases.append("PROCESSING")
+    async def tool_started(self) -> None: self.phases.append("TOOL")
+    async def finish(self, status: object, *, error_code: str | None = None) -> None:
+        self.phases.append(f"FINAL:{status}")
+
+class ContextSessions:
+    def __init__(self, values: list[bool]) -> None: self._values = iter(values)
+    def register_run(self, _task: object) -> None: pass
+    async def is_valid(self, _context: object) -> bool: return next(self._values, False)
+
+
 class Event:
     def __init__(self, type: str, **values: object) -> None:
         self.type = type
@@ -158,9 +187,9 @@ async def test_workflow_sends_only_final_transcript_to_callback_and_streams_runn
         def to_input_list(self) -> list[object]:
             return ["history"]
 
-    def run_streamed(agent: object, history: list[object]) -> RunResult:
+    def run_streamed(agent: object, history: object) -> RunResult:
         assert agent == "agent"
-        assert history == [{"role": "user", "content": "책상을 올려줘"}]
+        assert history == "책상을 올려줘"
         return RunResult()
 
     async def stream_text(_: RunResult) -> AsyncIterator[str]:
@@ -176,7 +205,7 @@ async def test_workflow_sends_only_final_transcript_to_callback_and_streams_runn
 
     assert [text async for text in workflow.run("책상을 올려줘")] == ["네, ", "확인하겠습니다."]
     assert received == ["책상을 올려줘"]
-    assert workflow._input_history == ["history"]
+    assert not hasattr(workflow, "_input_history")
 
 
 async def test_runtime_merges_final_transcript_before_matching_audio_with_sequence() -> None:
@@ -272,12 +301,133 @@ async def test_runtime_cancel_cleans_final_transcript_side_channel() -> None:
     assert workflow._runtime_final_transcript_sink is None
 
 
-def test_runtime_build_exposes_fixed_sdk_assembly() -> None:
-    runtime = AgentsVoiceRuntime.build()
-    pipeline = runtime._pipeline  # noqa: SLF001 - assembly boundary assertion
-    assert pipeline._stt_model_name == "gpt-4o-transcribe"  # noqa: SLF001
-    assert pipeline._tts_model_name == "tts-1"  # noqa: SLF001
-    assert pipeline.config.stt_settings.turn_detection == {
-        "type": "server_vad", "threshold": 0.5,
-        "prefix_padding_ms": 300, "silence_duration_ms": 600,
-    }
+async def test_runtime_build_exposes_fixed_sdk_assembly() -> None:
+    runtime = AgentsVoiceRuntime.build(api_key="test-key")
+    try:
+        pipeline = runtime._pipeline  # noqa: SLF001 - assembly boundary assertion
+        assert pipeline._stt_model_name == "gpt-4o-transcribe"  # noqa: SLF001
+        assert pipeline._tts_model_name == "tts-1"  # noqa: SLF001
+        assert pipeline.config.stt_settings.turn_detection == {
+            "type": "server_vad", "threshold": 0.5,
+            "prefix_padding_ms": 300, "silence_duration_ms": 600,
+        }
+        assert pipeline.config.tts_settings.voice == "nova"
+    finally:
+        await runtime.stop()
+
+
+async def test_workflow_passes_sdk_context_and_session_searches_personalized_and_writes_explicit_only() -> None:
+    context = Context()
+    captured: dict[str, object] = {}
+
+    def run_streamed(_agent: object, prompt: str, *, context: object, session: object) -> object:
+        captured.update(prompt=prompt, context=context, session=session)
+        return object()
+
+    async def no_text(_: object) -> AsyncIterator[str]:
+        if False:
+            yield ""
+
+    workflow = SmartDeskVoiceWorkflow("agent", run_streamed, no_text, context_factory=lambda: _context(context))
+    await workflow.prepare_run()
+    assert [item async for item in workflow.run("raw transcript")] == []
+    assert captured["context"] is context and captured["session"] == "sdk-session"
+    assert context.searches == [("profile-a", "raw transcript")]
+    assert "likes tea" in captured["prompt"]
+    assert context.remembered == [("profile-a", "explicit fact", True)]
+    assert all("raw transcript" != fact for _, fact, _ in context.remembered)
+
+
+async def _context(value: Context) -> Context:
+    return value
+
+
+async def test_workflow_search_failure_degrades_and_session_change_prevents_memory_write() -> None:
+    context = Context(valid=[True, False])
+
+    async def broken_search(*_: object) -> list[object]: raise RuntimeError("backend secret")
+    context.memory.search = broken_search
+
+    async def no_text(_: object) -> AsyncIterator[str]:
+        if False:
+            yield ""
+
+    workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), no_text, context_factory=lambda: _context(context))
+    await workflow.prepare_run()
+    assert [item async for item in workflow.run("raw transcript")] == []
+    assert context.remembered == []
+
+
+async def test_workflow_never_searches_or_writes_for_nonpersonalized_context() -> None:
+    context = Context(personalized=False)
+    workflow = SmartDeskVoiceWorkflow(
+        "agent", lambda *_args, **_kwargs: object(), _empty_text,
+        context_factory=lambda: _context(context),
+    )
+    await workflow.prepare_run()
+    assert [item async for item in workflow.run("general question")] == []
+    assert context.searches == [] and context.remembered == []
+
+
+async def test_runtime_context_failure_is_safe_and_next_run_is_allowed() -> None:
+    calls = 0
+
+    async def factory() -> Context:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("do not expose")
+        return Context()
+
+    workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), _empty_text, context_factory=factory)
+    inputs: list[Input] = []
+    runtime = AgentsVoiceRuntime(Pipeline(Result([])), lambda: inputs.append(Input()) or inputs[-1], workflow=workflow)
+    first = [event async for event in runtime.run_audio(chunks(b"\0\0"))]
+    second = [event async for event in runtime.run_audio(chunks(b"\0\0"))]
+    assert [(event.type, event.error_code) for event in first] == [(VoiceRuntimeEventType.ERROR, "voice_pipeline_failed")]
+    assert second == []
+    assert runtime._run_in_progress is False and workflow._active_context is None  # noqa: SLF001
+    assert inputs[0].items == [None]
+
+
+async def _empty_text(_: object) -> AsyncIterator[str]:
+    if False:
+        yield ""
+
+
+async def test_turn_ended_finalizes_after_tts_and_exposes_current_followup_only() -> None:
+    context = Context()
+    context.followup_requested = True
+
+    class EndingPipeline(WorkflowPipeline):
+        async def run(self, _: Input) -> Result:
+            async def stream() -> AsyncIterator[object]:
+                async for _text in self.workflow.run(self.transcript):
+                    pass
+                yield Event("voice_stream_event_lifecycle", event="turn_started")
+                yield Event("voice_stream_event_audio", data=np.array([7], dtype=np.int16))
+                yield Event("voice_stream_event_lifecycle", event="turn_ended")
+
+            self.result.stream = stream  # type: ignore[method-assign]
+            return self.result
+
+    async def tool_text(_: object) -> AsyncIterator[str]:
+        await context.tool_started()
+        if False:
+            yield ""
+
+    workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), tool_text, context_factory=lambda: _context(context))
+    events = [event async for event in AgentsVoiceRuntime(EndingPipeline(workflow, "final"), Input, workflow=workflow).run_audio(chunks(b"\0\0"))]
+    assert events[-1].followup_requested is True
+    assert context.phases == ["PROCESSING", "TOOL", "FINAL:SUCCEEDED"]
+
+
+async def test_runtime_error_after_a_turn_marks_failed_not_succeeded() -> None:
+    context = Context()
+    workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), _empty_text, context_factory=lambda: _context(context))
+    pipeline = Pipeline(Result([Event("voice_stream_event_lifecycle", event="turn_started"), Event("voice_stream_event_error")]))
+    events = [event async for event in AgentsVoiceRuntime(pipeline, Input, workflow=workflow).run_audio(chunks(b"\0\0"))]
+    assert [(event.type, event.error_code) for event in events] == [
+        (VoiceRuntimeEventType.LIFECYCLE, None), (VoiceRuntimeEventType.ERROR, "voice_pipeline_failed")
+    ]
+    assert context.phases == ["FINAL:FAILED"]

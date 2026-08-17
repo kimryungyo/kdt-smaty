@@ -22,6 +22,7 @@ SDK 대화 session과 Mem0 adapter의 기준이다. [task 01 상태·워크플�
 | Agent model | `gpt-5.6-terra`, `reasoning.effort="low"` |
 | STT model | `gpt-4o-transcribe` |
 | TTS model | `tts-1` |
+| TTS voice | `nova` |
 | microphone | 24kHz mono PCM16으로 한 번만 capture |
 | Wake Word | 기존 local detector 유지, 24kHz 입력을 SoXR로 16kHz 변환 |
 | 발화 종료 | `server_vad`를 명시적으로 사용 |
