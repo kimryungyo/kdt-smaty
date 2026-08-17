@@ -12,6 +12,7 @@ from smart_desk.api.routes.profiles import router as profiles_router
 from smart_desk.api.routes.wled import router as wled_router
 from smart_desk.api.routes.vision import router as vision_router
 from smart_desk.api.routes.identity import router as identity_router
+from smart_desk.api.routes.automation import router as automation_router, desk_router
 
 
 api_router = APIRouter()
@@ -23,3 +24,5 @@ api_router.include_router(activity_modes_router)
 api_router.include_router(wled_router)
 api_router.include_router(vision_router)
 api_router.include_router(identity_router)
+api_router.include_router(automation_router)
+api_router.include_router(desk_router)

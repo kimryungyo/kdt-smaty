@@ -7,6 +7,8 @@ from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, Response, status
 
+from smart_desk.core.container import get_container
+from smart_desk.modules.automation.service import AutomationConflictError
 from smart_desk.modules.profiles import get_activity_modes
 from smart_desk.modules.profiles.activity_modes import (
     ActivityModeConflictError,
@@ -36,7 +38,7 @@ async def _run(operation: Callable[[], Awaitable[Result]]) -> Result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except ActivityModeOwnershipError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    except ActivityModeConflictError as error:
+    except (ActivityModeConflictError, AutomationConflictError) as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except (ActivityModeRepositoryError, StorageError) as error:
         raise HTTPException(
@@ -72,5 +74,9 @@ async def update_activity_mode(
 
 @activity_modes_router.delete("/{mode_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_activity_mode(mode_id: str) -> Response:
-    await _run(lambda: get_activity_modes().delete_mode(mode_id))
+    automation = get_container().automation
+    if automation is not None:
+        await _run(lambda: automation.delete_activity_mode(mode_id))
+    else:
+        await _run(lambda: get_activity_modes().delete_mode(mode_id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

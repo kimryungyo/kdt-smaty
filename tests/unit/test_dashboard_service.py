@@ -51,6 +51,20 @@ class FakeProfiles:
         return []
 
 
+class FakeAutomation:
+    def __init__(self) -> None:
+        self.calls: list[object] = []
+
+    async def hold(self, direction: Direction) -> None:
+        self.calls.append(("hold", direction))
+
+    async def set_target(self, target: float) -> None:
+        self.calls.append(("target", target))
+
+    async def stop_motion(self, reason: str) -> None:
+        self.calls.append(("stop", reason))
+
+
 async def test_status_mapping_and_desk_commands_are_delegated_once() -> None:
     desk = FakeDesk()
     service = DashboardService(desk, FakeProfiles())  # type: ignore[arg-type]
@@ -77,3 +91,20 @@ async def test_status_mapping_and_desk_commands_are_delegated_once() -> None:
         ("target", 101.5),
         ("stop", "대시보드에서 목표 이동을 취소했습니다."),
     ]
+
+
+async def test_dashboard_commands_use_automation_public_boundary_when_assembled() -> None:
+    desk = FakeDesk()
+    automation = FakeAutomation()
+    service = DashboardService(desk, FakeProfiles(), automation)
+
+    await service.hold(Direction.UP)
+    await service.set_target(101.5)
+    await service.stop_motion("user stop")
+
+    assert automation.calls == [
+        ("hold", Direction.UP),
+        ("target", 101.5),
+        ("stop", "user stop"),
+    ]
+    assert desk.calls == []

@@ -6,6 +6,15 @@ from httpx import ASGITransport, AsyncClient
 import pytest
 
 from smart_desk.application import create_application
+from smart_desk.modules.automation.models import (
+    AutomationSnapshot,
+    AutomationState,
+    ControlMode,
+)
+from smart_desk.modules.automation.service import (
+    AutomationConflictError,
+    AutomationNotFoundError,
+)
 from smart_desk.config.settings import DashboardSettings, Settings, StorageSettings
 from smart_desk.core.container import AppContainer
 from smart_desk.core.runtime import ApplicationStatus, RuntimeState
@@ -60,6 +69,105 @@ class FakeDesk:
 
     async def set_target(self, _target: float) -> None:
         self.commands.append("set_target")
+
+
+class ApiAutomation:
+    """Small public-port fake for HTTP serialization and error mapping."""
+
+    def __init__(self) -> None:
+        self.snapshot = AutomationSnapshot(
+            None, None, None, AutomationState.WAITING_USER, None, None, None,
+            None, None, (), None, None, 0, 0, "STARTUP", "SYSTEM",
+            datetime(2026, 8, 8, tzinfo=UTC), datetime(2026, 8, 8, tzinfo=UTC),
+        )
+        self.active_mode = True
+
+    def get_snapshot(self) -> AutomationSnapshot:
+        return self.snapshot
+
+    async def set_control_mode(self, _mode: ControlMode, expected_session_id: str) -> None:
+        if expected_session_id != "current-session":
+            raise AutomationConflictError("SESSION_MISMATCH")
+        if _mode is ControlMode.AUTO:
+            raise RuntimeError("desk unavailable")
+
+    async def set_activity_mode(self, key: str, expected_session_id: str) -> None:
+        if expected_session_id != "current-session" or key == "anonymous":
+            raise AutomationConflictError("SESSION_MISMATCH")
+        if key == "missing":
+            raise AutomationNotFoundError("mode missing")
+        if key == "storage":
+            raise RuntimeError("storage unavailable")
+
+    async def delete_activity_mode(self, _mode_id: str) -> None:
+        if self.active_mode:
+            raise AutomationConflictError("ACTIVE_ACTIVITY_MODE")
+
+
+async def test_automation_api_uses_camel_case_and_preserves_error_meanings(tmp_path) -> None:
+    settings = Settings(
+        environment="test",
+        storage=StorageSettings(database_path=tmp_path / "desk.db"),
+        dashboard=DashboardSettings(serve_frontend=False),
+        _env_file=None,
+    )
+    database = SQLiteDatabase(settings.storage.database_path)
+    profiles = ProfileRepository(database)
+    activity_modes = ActivityModeRepository(database)
+    desk = FakeDesk()
+    automation = ApiAutomation()
+    container = AppContainer(
+        settings=settings,
+        runtime=RuntimeState(),
+        task_manager=TaskManager(),
+        database=database,
+        profiles=profiles,
+        activity_modes=activity_modes,
+        dashboard=DashboardService(desk, profiles, automation),
+        mqtt=object(),
+        height_monitor=object(),
+        relay=object(),
+        desk=desk,
+        automation=automation,  # type: ignore[arg-type]
+    )
+    application = create_application(settings=settings, container=container)
+
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        status_response = await client.get("/api/automation/status")
+        assert status_response.status_code == 200
+        assert status_response.json()["sessionId"] is None
+        assert "session_id" not in status_response.json()
+
+        assert (await client.put("/api/desk/control-mode", json={
+            "controlMode": "MANUAL", "expectedSessionId": "current-session",
+        })).status_code == 200
+        assert (await client.put("/api/desk/control-mode", json={
+            "controlMode": "MANUAL", "expectedSessionId": "stale",
+        })).status_code == 409
+        assert (await client.put("/api/desk/control-mode", json={
+            "controlMode": "AUTO", "expectedSessionId": "current-session",
+        })).status_code == 503
+        assert (await client.put("/api/desk/control-mode", json={
+            "controlMode": "MANUAL", "expectedSessionId": "current-session", "extra": True,
+        })).status_code == 422
+
+        assert (await client.put("/api/desk/activity-mode", json={
+            "activityModeKey": "anonymous", "expectedSessionId": "current-session",
+        })).status_code == 409
+        assert (await client.put("/api/desk/activity-mode", json={
+            "activityModeKey": "missing", "expectedSessionId": "current-session",
+        })).status_code == 404
+        assert (await client.put("/api/desk/activity-mode", json={
+            "activityModeKey": "storage", "expectedSessionId": "current-session",
+        })).status_code == 503
+        assert (await client.put("/api/desk/activity-mode", json={
+            "activityModeKey": "default", "expectedSessionId": "stale",
+        })).status_code == 409
+
+        assert (await client.delete("/api/activity-modes/active-custom")).status_code == 409
+        automation.active_mode = False
+        assert (await client.delete("/api/activity-modes/active-custom")).status_code == 204
 
 
 @pytest.mark.parametrize(

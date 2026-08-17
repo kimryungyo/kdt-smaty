@@ -23,6 +23,7 @@ from smart_desk.modules.vision import NoopVisionDetector, VisionService
 from smart_desk.modules.identity import FaceIdentityService, UnavailableFaceEmbeddingExtractor
 from smart_desk.modules.identity.repository import FaceEmbeddingRepository
 from smart_desk.modules.identity.session import CurrentUserSessionService
+from smart_desk.modules.automation.service import AutomationService
 from smart_desk.storage import SQLiteDatabase
 
 
@@ -60,7 +61,6 @@ def build_container(settings: Settings) -> AppContainer:
         settings.desk,
         task_manager,
     )
-    dashboard = DashboardService(desk, profiles)
     mqtt.register_handler(
         ESP32_STATUS_TOPIC,
         relay.handle_status,
@@ -73,7 +73,7 @@ def build_container(settings: Settings) -> AppContainer:
         database=database,
         profiles=profiles,
         activity_modes=activity_modes,
-        dashboard=dashboard,
+        dashboard=DashboardService(desk, profiles),
         mqtt=mqtt,
         height_monitor=height_monitor,
         relay=relay,
@@ -260,6 +260,15 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=60,
             )
         )
+    automation = AutomationService(
+        current_user=current_user, vision=vision, activity_modes=activity_modes,
+        desk=desk, settings=settings.automation, wled=container.wled,
+        target_tolerance_cm=settings.desk.target_tolerance_cm,
+    )
+    container.automation = automation
+    container.dashboard = DashboardService(desk, profiles, automation)
+    container.register(ResourceRegistration(name="desk-automation", resource=automation,
+                                            startup_order=80, shutdown_order=80))
     if settings.voice.enabled:
         try:
             from smart_desk.modules.assistant.openai import OpenAiGateway

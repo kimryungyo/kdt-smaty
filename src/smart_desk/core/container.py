@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.voice.service import VoiceService
     from smart_desk.modules.voice.debug import VoiceDebugServer
     from smart_desk.modules.wled.client import WledClient
+    from smart_desk.modules.automation.service import AutomationService
     from smart_desk.storage import SQLiteDatabase
 
 
@@ -80,6 +81,7 @@ class AppContainer:
     face_embeddings: FaceEmbeddingRepository | None = None
     current_user: CurrentUserSessionService | None = None
     identity: FaceIdentityService | None = None
+    automation: AutomationService | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
     def register(self, registration: ResourceRegistration) -> None:

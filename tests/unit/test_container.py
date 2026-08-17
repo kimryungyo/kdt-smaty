@@ -59,12 +59,13 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
         "desk-controller",
         "vision",
         "face-identity",
+        "desk-automation",
     ]
     assert [registration.startup_order for registration in container.resources] == [
-        5, 10, 20, 30, 60, 70,
+        5, 10, 20, 30, 60, 70, 80,
     ]
     assert [registration.shutdown_order for registration in container.resources] == [
-        5, 10, 20, 30, 60, 70,
+        5, 10, 20, 30, 60, 70, 80,
     ]
 
     qos, handler = container.mqtt._handlers[ESP32_STATUS_TOPIC]  # noqa: SLF001
@@ -91,6 +92,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         "desk-controller",
         "vision",
         "face-identity",
+        "desk-automation",
     ]
     assert disabled.user_camera_publisher is None
     assert disabled.workspace_camera_publisher is None
@@ -107,6 +109,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         "rtsp-frame-source-user",
         "vision",
         "face-identity",
+        "desk-automation",
     ]
     assert split.user_camera_publisher is None
     assert split.workspace_camera_publisher is not None
@@ -128,11 +131,11 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
         )
     )
 
-    assert [registration.startup_order for registration in enabled.resources][-8:] == [
-        40, 41, 42, 50, 51, 52, 60, 70
+    assert [registration.startup_order for registration in enabled.resources][-9:] == [
+        40, 41, 42, 50, 51, 52, 60, 70, 80
     ]
-    assert [registration.shutdown_order for registration in enabled.resources][-8:] == [
-        40, 41, 42, 50, 51, 52, 60, 70
+    assert [registration.shutdown_order for registration in enabled.resources][-9:] == [
+        40, 41, 42, 50, 51, 52, 60, 70, 80
     ]
     assert [
         registration.name
@@ -141,7 +144,8 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             key=lambda registration: registration.shutdown_order,
             reverse=True,
         )
-    ][:8] == [
+    ][:9] == [
+        "desk-automation",
         "face-identity",
         "vision",
         "rtsp-frame-source-workspace",

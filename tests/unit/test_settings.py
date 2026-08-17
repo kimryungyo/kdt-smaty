@@ -15,6 +15,16 @@ def test_nested_environment_variable_is_loaded(monkeypatch: pytest.MonkeyPatch) 
     assert settings.server.port == 9191
 
 
+def test_automatic_movement_execution_defaults_off_and_reads_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Settings(_env_file=None).automation.execute_automatic_movements is False
+
+    monkeypatch.setenv("SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS", "true")
+
+    assert Settings(_env_file=None).automation.execute_automatic_movements is True
+
+
 def test_mqtt_environment_variables_are_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SMART_DESK_MQTT__CLIENT_ID", "test-mqtt-client")
     monkeypatch.setenv("SMART_DESK_MQTT__OPERATION_TIMEOUT_SECONDS", "3.5")

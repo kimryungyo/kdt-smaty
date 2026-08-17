@@ -376,6 +376,15 @@ class VisionSettings(BaseModel):
         return self
 
 
+class AutomationSettings(BaseModel):
+    """자동 목표의 실제 Desk 실행 여부만 제어한다.
+
+    시간과 높이는 제품 안전 계약의 고정값이라 환경 설정으로 노출하지 않는다.
+    """
+
+    execute_automatic_movements: bool = False
+
+
 class StorageSettings(BaseModel):
     """로컬 영속 데이터 저장 경로를 보관한다."""
 
@@ -602,6 +611,7 @@ class Settings(BaseSettings):
     desk: DeskSettings = DeskSettings()
     media: MediaSettings = MediaSettings()
     vision: VisionSettings = VisionSettings()
+    automation: AutomationSettings = AutomationSettings()
     storage: StorageSettings = StorageSettings()
     dashboard: DashboardSettings = DashboardSettings()
     wled: WledSettings = WledSettings()
