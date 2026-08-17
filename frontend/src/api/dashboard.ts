@@ -132,6 +132,12 @@ export type VisionStatus = { cameras: Record<string, { status: "OFFLINE" | "ONLI
 export type AutomationStatus = { sessionId: string | null; controlMode: "AUTO" | "MANUAL" | null; activityMode: ActivityMode | null; state: string; heightPolicy: string | null; postureCandidate: string | null; candidateSince: string | null; targetHeightCm: number | null; intentSource: string | null; blockedReasonCodes: string[]; initialMoveDueAt: string | null; parkDueAt: string | null; generation: number; revision: number; lastTransitionReason: string; lastTransitionSource: string; lastTransitionAt: string; updatedAt: string };
 export type Enrollment = { enrollmentId: string; profileId: string; state: "WAITING_FACE" | "CAPTURING" | "PROCESSING" | "SUCCEEDED" | "CANCELLED" | "FAILED"; requiredSamples: number; acceptedSamples: number; startedAt: string; changedAt: string; failureCode: string | null };
 
+export type TiltStatus = "UNAVAILABLE" | "ONLINE" | "MOVING" | "ERROR";
+export type TiltSnapshot = {
+  status: TiltStatus; level: number | null; targetLevel: number | null;
+  minLevel: number; maxLevel: number; detail: string; lastError: string | null; updatedAt: string;
+};
+
 export const getCurrentUser = (signal?: AbortSignal) => request<CurrentUser>("/api/current-user", { signal });
 export const getVisionStatus = (signal?: AbortSignal) => request<VisionStatus>("/api/vision/status", { signal });
 export const getAutomationStatus = (signal?: AbortSignal) => request<AutomationStatus>("/api/automation/status", { signal });
@@ -141,3 +147,7 @@ export const startFaceEnrollment = (profileId: string) => request<Enrollment>(`/
 export const getFaceEnrollment = (enrollmentId: string, signal?: AbortSignal) => request<Enrollment>(`/api/face-enrollments/${encodeURIComponent(enrollmentId)}`, { signal });
 export const cancelFaceEnrollment = (enrollmentId: string) => request<void>(`/api/face-enrollments/${encodeURIComponent(enrollmentId)}`, { method: "DELETE" });
 export const deleteFace = (profileId: string) => request<void>(`/api/profiles/${encodeURIComponent(profileId)}/face`, { method: "DELETE" });
+export const getTiltStatus = (signal?: AbortSignal) => request<TiltSnapshot>("/api/tilt/status", { signal });
+export const setTiltTarget = (level: number) => request<TiltSnapshot>("/api/tilt/target", {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ level }),
+});
