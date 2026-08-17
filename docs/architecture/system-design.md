@@ -30,25 +30,25 @@ service     service                       │              │
    └──────► VisionStateService ◄── FaceRecognizer / PostureDetector
                                       ▲
                                       │
-                             FramePreprocessor ◄── RtspFrameSource
+                             FramePreprocessor ◄── WebRtcFrameSource
 ```
 
 각 상자는 같은 프로세스의 객체다. 객체 사이의 호출은 메모리 안에서 직접 이뤄진다. 운영
 ESP32는 서버와 Wi-Fi/MQTT로 통신하고, Arduino 높이 리더만 별도 USB serial을 사용하며 WLED는
 HTTP를 사용한다. MQTT→USB-serial bridge는 운영 구성에 없다.
 
-영상 입력은 FastAPI lifespan이 카메라별 FFmpeg 자식 process와 RTSP reader를
+영상 입력은 FastAPI lifespan이 카메라별 WHIP publisher와 WHEP reader를
 시작해 다음 경로로 준비한다.
 
 ```text
-USB webcam ─ CameraPublisher ─ FFmpeg child ─ RTSP ─ host MediaMTX
-                                                      ├─ WebRTC/HLS ─ Browser(후속 작업)
-                                                      └─ RTSP ─ RtspFrameSource ─ Vision
+USB webcam ─ WebRtcCameraPublisher ─ WHIP ─ host MediaMTX
+                                              ├─ WebRTC ─ Browser
+                                              └─ WHEP ─ WebRtcFrameSource ─ Vision
 ```
 
-`CameraPublisher`가 `Popen`으로 실행한 FFmpeg가 물리 카메라를 단독으로 열고
-카메라별 RTSP 경로에 영상을 발행한다. `RtspFrameSource`는 `/dev/video*`를 직접
-열거나 MediaMTX에 프레임을 업로드하지 않고 RTSP를 읽어 최신 프레임 하나만
+`WebRtcCameraPublisher`가 PyAV로 물리 카메라를 단독으로 열고 카메라별 WHIP
+endpoint에 영상을 발행한다. `WebRtcFrameSource`는 `/dev/video*`를 직접
+열거나 MediaMTX에 프레임을 업로드하지 않고 WHEP를 읽어 최신 프레임 하나만
 보관한다. 호스트에서 이미 실행 중인 MediaMTX만 애플리케이션 밖의 선행
 인프라이며 FastAPI는 이를 시작하거나 종료하지 않는다.
 
@@ -86,7 +86,7 @@ physical devices and files
 | --- | --- | --- |
 | 최신 센서 높이와 수신 시각 | `DeskHeightMonitor` | `get_snapshot()` |
 | 목표, 이동 방향, 제어 상태 | `DeskController` | 명령 메서드, `get_snapshot()` |
-| 카메라 최신 프레임 | `RtspFrameSource` | `get_latest_frame()` |
+| 카메라 최신 프레임 | `WebRtcFrameSource` | `get_latest_frame()` |
 | 전처리 프레임 | `FramePreprocessor` | `get_latest_frame()` |
 | 얼굴·자세·재실 결과 | 각 detector와 `VisionStateService` | `get_snapshot()` |
 | 프로필과 영속 설정 | `ProfileRepository` | 조회·저장 메서드 |
@@ -99,9 +99,9 @@ physical devices and files
 
 - 프로세스 간 Python 객체 공유
 - 브라우저의 MQTT 직접 연결
-- Python에서 물리 웹캠을 직접 여는 동시에 FFmpeg도 같은 장치를 여는 구조
+- 여러 publisher가 같은 물리 웹캠을 동시에 여는 구조
 - Python `MediaMtxUploader` 또는 프레임 업로드 API
-- FFmpeg와 MediaMTX를 위한 Docker·Compose 구성
+- MediaMTX를 위한 Docker·Compose 재구성
 - publisher manager, factory, registry와 별도 process supervisor
 - Dashboard나 Vision에서의 릴레이 직접 제어
 - MQTT→USB-serial bridge와 ESP32 serial 운영 fallback

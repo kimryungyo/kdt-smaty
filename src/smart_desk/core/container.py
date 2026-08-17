@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.desk.controller import DeskController
     from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
     from smart_desk.modules.desk.relay import RelayClient
-    from smart_desk.modules.media import CameraPublisher, RtspFrameSource
+    from smart_desk.modules.media import WebRtcCameraPublisher, WebRtcFrameSource
     from smart_desk.modules.vision.service import VisionService
     from smart_desk.modules.identity.service import FaceIdentityService
     from smart_desk.modules.identity.repository import FaceEmbeddingRepository
@@ -72,12 +72,12 @@ class AppContainer:
     voice: VoiceService | None = None
     voice_debug: VoiceDebugServer | None = None
     wled: WledClient | None = None
-    user_camera_publisher: CameraPublisher | None = None
-    workspace_camera_publisher: CameraPublisher | None = None
-    posture_camera_publisher: CameraPublisher | None = None
-    user_frame_source: RtspFrameSource | None = None
-    workspace_frame_source: RtspFrameSource | None = None
-    posture_frame_source: RtspFrameSource | None = None
+    user_camera_publisher: WebRtcCameraPublisher | None = None
+    workspace_camera_publisher: WebRtcCameraPublisher | None = None
+    posture_camera_publisher: WebRtcCameraPublisher | None = None
+    user_frame_source: WebRtcFrameSource | None = None
+    workspace_frame_source: WebRtcFrameSource | None = None
+    posture_frame_source: WebRtcFrameSource | None = None
     vision: VisionService | None = None
     face_embeddings: FaceEmbeddingRepository | None = None
     current_user: CurrentUserSessionService | None = None

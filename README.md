@@ -4,8 +4,8 @@ SMART DESK를 단일 FastAPI 프로세스와 `asyncio` 기반으로 재구성하
 설정, singleton container, task 관리와 애플리케이션 수명주기 위에 로컬 EMQX와
 연결하는 비동기 MQTT 기반, Arduino 높이·ESP32 relay DeskIO 어댑터와 목표·수동
 책상 제어기를 구현했다. FIN ESP32-C3 relay firmware는 clean build까지 완료했지만
-upload와 실물 검증은 아직 수행하지 않았다. 영상은 카메라별 FFmpeg publisher가
-기존 호스트 MediaMTX에 발행하고 Python은 RTSP에서 최신 frame 하나를 읽는다.
+upload와 실물 검증은 아직 수행하지 않았다. 영상은 카메라별 WebRTC publisher가
+기존 호스트 MediaMTX에 WHIP로 발행하고 Python은 WHEP에서 최신 frame 하나를 읽는다.
 
 현재 운영 transport는 서버와 ESP32가 EMQX를 통해 직접 통신하는 Wi-Fi/MQTT 경로다.
 MQTT→USB-serial bridge는 실행하거나 배포하지 않는다. Arduino 높이 리더의 USB serial과
@@ -72,13 +72,13 @@ workspace camera의 문제집·문서·화면 분석과 그 분석을 Assistant 
 카메라는 현재 다음 구조를 사용한다.
 
 ```text
-물리 camera → CameraPublisher/FFmpeg → MediaMTX → RtspFrameSource
-                                                        ↓
+물리 camera → WebRtcCameraPublisher/WHIP → MediaMTX → WHEP/WebRtcFrameSource
+                                                               ↓
                                            (image, captured_at) 최신값
 ```
 
 향후 AI camera context는 요청마다 MediaMTX에 새로 연결하거나 물리 camera를 다시 여는
-방식보다 기존 `RtspFrameSource.get_latest_frame()`을 재사용하는 것이 현재 구조에
+방식보다 기존 `WebRtcFrameSource.get_latest_frame()`을 재사용하는 것이 현재 구조에
 적합하다. freshness 기준, crop·변환, AI 전송 방식과 MCP 사용 여부는 후속 설계에서
 결정한다.
 
@@ -240,10 +240,10 @@ curl http://127.0.0.1:9090/health/ready
 
 ## 카메라 실행 전제
 
-카메라 publish와 RTSP frame 수신은 카메라별로 독립적으로 활성화한다. 모든 역할은
-기본적으로 비활성화되어 있어 장치나 FFmpeg 없이 개발·테스트할 수 있다. 실제 실행
-전에는 호스트에서 MediaMTX가 실행 중이고 `user-cam`, `workspace-cam`, `posture-cam`
-RTSP path publish를 허용해야 한다. FastAPI는 MediaMTX를 설치·시작·종료하지 않는다.
+카메라 WHIP publish와 WHEP frame 수신은 카메라별로 독립적으로 활성화한다. 모든 역할은
+기본적으로 비활성화되어 있어 장치 없이 개발·테스트할 수 있다. 실제 실행 전에는
+호스트에서 MediaMTX WebRTC listener `:8889`가 실행 중이어야 한다. FastAPI는 MediaMTX를
+설치·시작·종료하지 않는다.
 
 현재 호스트에서 확인한 역할과 기본 capture 설정은 다음과 같다. ABKO 장치는 제품명과
 달리 V4L2에서 `2560x1440`이 아닌 `2592x1944`를 최대 해상도로 광고하므로 실제 광고값을
@@ -261,14 +261,12 @@ RTSP path publish를 허용해야 한다. FastAPI는 MediaMTX를 설치·시작�
 publish만 등록되어 있고 server-side receiver는 없다. 업무 영역 AI 분석과 receiver 연결은
 별도 작업에서 다룬다.
 `posture` 하단 Vision은 선택 ONNX 모델을 설정하면 full-frame 자세/인원수 adapter와
-snapshot을 실행할 수 있지만, 실제 RTSP camera, ROI와 threshold/CPU 보정은 완료되지 않았다.
+snapshot을 실행할 수 있지만, 실제 `/bottom-cam/whep`, ROI와 threshold/CPU 보정은 완료되지 않았다.
 
 ```bash
-command -v ffmpeg
-ffmpeg -version
 ls -l /dev/v4l/by-id/
 ffmpeg -hide_banner -f v4l2 -list_formats all -i /dev/v4l/by-id/<camera-device>
-ss -ltn | rg ':8554\b'
+ss -ltn | rg ':8889\b'
 ```
 
 현재 topology에서 user는 publish+receive, workspace는 publish-only, posture는 external
@@ -292,7 +290,7 @@ publish가 활성화된 카메라는 FFmpeg 자식 process를 시작하며 장�
 
 원격 개발 컴퓨터에서 전체 Desk 서버를 실행하지 않고 `fin`의 publisher 전용 진입점을
 사용할 수 있다. 원격 컴퓨터의 `.env`에서 해당 카메라의 `PUBLISH_ENABLED=true`,
-`PUBLISH_URL=rtsp://<MediaMTX-host>:8554/<path>`와 로컬 장치 경로를 설정한다.
+`PUBLISH_URL=http://<MediaMTX-host>:8889/<path>/whip`와 로컬 장치 경로를 설정한다.
 
 ```bash
 .venv/bin/python -m smart_desk.media_publish --camera workspace

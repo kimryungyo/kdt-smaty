@@ -171,32 +171,32 @@ class DeskController:
 
 ## 영상 컴포넌트
 
-### `CameraPublisher`
+### `WebRtcCameraPublisher`
 
-물리 카메라 하나를 FFmpeg 자식 process 하나로 열어 호스트 MediaMTX의 고정 RTSP
-경로에 발행한다. 사용자·책상 전체·자세 카메라는 각자의 publish 설정이 활성화됐을
+물리 카메라 하나를 PyAV로 열어 호스트 MediaMTX의 고정 WHIP endpoint에 발행한다.
+사용자·책상 전체·자세 카메라는 각자의 publish 설정이 활성화됐을
 때만 같은 클래스를 하나씩 생성한다.
 
 ```python
-class CameraPublisher:
+class WebRtcCameraPublisher:
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     def is_running(self) -> bool: ...
 ```
 
-`start()`는 인자 목록과 `shell=False`로 `Popen`을 실행한다. `stop()`은 자신이 만든
-process에만 `terminate`, 제한 시간 `wait`, 필요 시 `kill`을 적용한다. 여러
-publisher를 감싸는 manager, factory와 별도 supervisor는 두지 않는다.
+`start()`는 background peer lifecycle을 시작하고 MediaMTX 또는 장치가 준비되지 않았으면
+bounded backoff로 재연결한다. `stop()`은 peer와 카메라 track을 닫고 WHIP session을
+DELETE한다. 여러 publisher를 감싸는 별도 supervisor는 두지 않는다.
 
-### `RtspFrameSource`
+### `WebRtcFrameSource`
 
 MediaMTX의 카메라 경로 하나에 연결해 재연결과 최신 프레임 수집을 담당한다.
-물리 웹캠은 `CameraPublisher`가 실행한 FFmpeg만 열며 `RtspFrameSource`는
+물리 웹캠은 `WebRtcCameraPublisher`만 열며 `WebRtcFrameSource`는
 `/dev/video*`를 직접 열지 않는다. 최신 프레임은 이미지와 `time.monotonic()`
 캡처 시각의 튜플로 보관한다.
 
 ```python
-class RtspFrameSource:
+class WebRtcFrameSource:
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     def get_latest_frame(self) -> tuple[np.ndarray, float] | None: ...
@@ -207,8 +207,8 @@ class RtspFrameSource:
 | 필드 또는 메서드 | 역할 |
 | --- | --- |
 | `latest_frame` | 가장 최근 이미지와 캡처 시각이다. 이전 프레임은 보관하지 않는다. |
-| `start()` | RTSP 읽기 작업을 시작한다. MediaMTX 또는 publisher 연결이 끊기면 정해진 정책으로 재연결한다. |
-| `stop()` | RTSP 읽기 thread를 중지하고 스트림 연결을 해제한다. publisher와 MediaMTX는 종료하지 않는다. |
+| `start()` | WHEP 읽기 작업을 시작한다. MediaMTX 또는 publisher 연결이 끊기면 정해진 정책으로 재연결한다. |
+| `stop()` | WebRTC peer와 WHEP session을 닫는다. publisher와 MediaMTX는 종료하지 않는다. |
 | `get_latest_frame()` | 최신 이미지와 캡처 시각을 반환한다. 아직 프레임이 없거나 단절되면 `None`이다. |
 | `is_connected()` | 현재 reader 연결 여부를 반환한다. |
 | `get_last_error()` | 마지막 연결·read 오류 문자열 또는 `None`을 반환한다. |
@@ -218,10 +218,10 @@ class RtspFrameSource:
 이미지를 수정하지 않는다. `FrameSnapshot`, `CameraSnapshot`과 `FrameSource` Protocol은
 실제 소비 요구가 생길 때까지 만들지 않는다.
 
-### FFmpeg와 MediaMTX
+### WebRTC와 MediaMTX
 
-FFmpeg는 `CameraPublisher`가 관리하는 FastAPI 자식 process이고, MediaMTX는 이미
-호스트에서 실행 중인 외부 인프라다. FastAPI lifecycle은 자신의 FFmpeg만
+`WebRtcCameraPublisher`와 `WebRtcFrameSource`는 aiortc peer이고, MediaMTX는 이미
+호스트에서 실행 중인 외부 인프라다. FastAPI lifecycle은 자신의 peer만
 시작·종료하고 MediaMTX는 건드리지 않는다. 초기 구현에는 Docker·Compose,
 `MediaMtxUploader`, MediaMTX client 또는 Python 프레임 업로드 메서드를 추가하지
 않는다.

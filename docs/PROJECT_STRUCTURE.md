@@ -158,13 +158,12 @@ bytes line과 연결 snapshot을 제공한다.
 
 | 경로 | 역할 |
 | --- | --- |
-| `src/smart_desk/modules/media/__init__.py` | `CameraPublisher`, `RtspFrameSource`와 최신 frame 타입 alias를 공개한다. |
-| `src/smart_desk/modules/media/publisher.py` | 카메라 하나의 FFmpeg `Popen` 실행과 종료를 관리한다. |
-| `src/smart_desk/modules/media/frame_source.py` | MediaMTX RTSP 하나를 thread에서 읽어 최신 프레임 하나만 보관한다. |
+| `src/smart_desk/modules/media/__init__.py` | `WebRtcCameraPublisher`, `WebRtcFrameSource`와 최신 frame 타입 alias를 공개한다. |
+| `src/smart_desk/modules/media/webrtc.py` | MediaMTX WHIP 송출과 WHEP 최신 프레임 수신을 관리한다. |
 
 카메라별 publish와 receive 설정에 따라 필요한 클래스만 생성한다. publisher manager,
 source factory, snapshot DTO와 별도 supervisor는 만들지 않는다. 원격 개발 컴퓨터는
-최상위 `media_publish.py` 진입점에서 같은 `CameraPublisher`를 재사용한다.
+최상위 `media_publish.py` 진입점에서 같은 `WebRtcCameraPublisher`를 재사용한다.
 
 ### `modules/desk/`
 
@@ -354,7 +353,7 @@ src/smart_desk/modules/
 ├── mqtt/          EMQX 연결, 발행·구독과 토픽 (구현 완료)
 ├── serial/        Arduino 시리얼 라인 수신 (구현 완료)
 ├── desk/          높이 해석·ESP32 명령과 목표·수동 제어 (구현 완료)
-├── media/         FFmpeg 카메라 발행과 RTSP 최신 프레임 (구현 완료)
+├── media/         WHIP 카메라 발행과 WHEP 최신 프레임 (구현 완료)
 ├── assistant/     Agents VoicePipeline runtime, user session·memory·tools
 ├── voice/         Wake Word·녹음·재생과 follow-up 상태 머신 (구현 완료)
 ├── vision/        전처리, 얼굴·자세·재실 판정
@@ -363,9 +362,9 @@ src/smart_desk/modules/
 └── wled/          선택적 LED 장치 연동
 ```
 
-기존 호스트 MediaMTX는 저장소에서 관리하지 않는다. 카메라별 `CameraPublisher`와
-`RtspFrameSource`는 `modules/media/`에 두고 활성화된 역할만 FastAPI lifespan에서
-시작·종료한다. 원격 publisher 전용 프로세스도 자신이 시작한 FFmpeg만 종료한다.
+기존 호스트 MediaMTX는 저장소에서 관리하지 않는다. 카메라별 `WebRtcCameraPublisher`와
+`WebRtcFrameSource`는 `modules/media/`에 두고 활성화된 역할만 FastAPI lifespan에서
+시작·종료한다. 원격 publisher 전용 프로세스도 자신이 시작한 WebRTC peer만 종료한다.
 Python에는 MediaMTX 업로더나 관리 client를 만들지 않는다.
 
 기능 클래스의 필드와 메서드는 [컴포넌트 설계](architecture/component-design.md),

@@ -11,24 +11,23 @@ from typing import Literal
 
 from smart_desk.config.settings import CameraMediaSettings, Settings, get_settings
 from smart_desk.core.logging import configure_logging
-from smart_desk.modules.media import CameraPublisher
+from smart_desk.modules.media import WebRtcCameraPublisher
 
 
 LOGGER = logging.getLogger(__name__)
-CameraName = Literal["user", "posture", "workspace"]
-CAMERA_NAMES: tuple[CameraName, ...] = ("user", "posture", "workspace")
+CameraName = Literal["user", "workspace"]
+CAMERA_NAMES: tuple[CameraName, ...] = ("user", "workspace")
 PROCESS_CHECK_INTERVAL_SECONDS = 0.5
 
 
 def build_publishers(
     settings: Settings,
     requested_names: Sequence[CameraName] = (),
-) -> dict[CameraName, CameraPublisher]:
+) -> dict[CameraName, WebRtcCameraPublisher]:
     """요청 범위 안에서 publish가 활성화된 카메라를 생성한다."""
 
     configurations: dict[CameraName, CameraMediaSettings] = {
         "user": settings.media.user,
-        "posture": settings.media.posture,
         "workspace": settings.media.workspace,
     }
     selected_names = tuple(dict.fromkeys(requested_names)) or CAMERA_NAMES
@@ -43,20 +42,20 @@ def build_publishers(
             f"publish가 비활성화된 카메라를 요청했습니다: {disabled}"
         )
 
-    publishers: dict[CameraName, CameraPublisher] = {}
+    publishers: dict[CameraName, WebRtcCameraPublisher] = {}
     for name in selected_names:
         camera = configurations[name]
         if not camera.publish_enabled:
             continue
-        publishers[name] = CameraPublisher(
+        publishers[name] = WebRtcCameraPublisher(
             name=name,
             device=camera.device,
-            rtsp_url=camera.publish_url,
-            ffmpeg_path=settings.media.ffmpeg_path,
+            whip_url=camera.publish_url,
             input_format=camera.input_format,
             width=camera.width,
             height=camera.height,
             fps=camera.fps,
+            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
 
     if not publishers:
@@ -74,7 +73,7 @@ async def run_publishers(
 
     configure_logging(settings.log_level)
     publishers = build_publishers(settings, requested_names)
-    started: list[tuple[CameraName, CameraPublisher]] = []
+    started: list[tuple[CameraName, WebRtcCameraPublisher]] = []
     resolved_stop_event = stop_event or asyncio.Event()
     if stop_event is None:
         _install_signal_handlers(resolved_stop_event)
@@ -98,7 +97,7 @@ async def run_publishers(
 
 async def _wait_until_stopped(
     stop_event: asyncio.Event,
-    publishers: Sequence[tuple[CameraName, CameraPublisher]],
+    publishers: Sequence[tuple[CameraName, WebRtcCameraPublisher]],
 ) -> None:
     while not stop_event.is_set():
         stopped_names = [name for name, publisher in publishers if not publisher.is_running()]

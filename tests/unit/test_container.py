@@ -183,8 +183,8 @@ def test_build_container_registers_media_roles_independently() -> None:
         "mqtt",
         "desk-height-monitor",
         "desk-controller",
-        "camera-publisher-workspace",
-        "rtsp-frame-source-user",
+        "webrtc-camera-publisher-workspace",
+        "webrtc-frame-source-user",
         "vision",
         "face-identity",
         "assistant-context",
@@ -204,18 +204,18 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
         Settings(
             media={
                 "user": {"publish_enabled": True, "receive_enabled": True},
-                "posture": {"publish_enabled": True, "receive_enabled": True},
+                "posture": {"receive_enabled": True},
                 "workspace": {"publish_enabled": True, "receive_enabled": True},
             },
             _env_file=None,
         )
     )
 
-    assert [registration.startup_order for registration in enabled.resources][-11:] == [
-        40, 41, 42, 50, 51, 52, 60, 70, 75, 76, 80
+    assert [registration.startup_order for registration in enabled.resources][-10:] == [
+        40, 42, 50, 51, 52, 60, 70, 75, 76, 80
     ]
-    assert [registration.shutdown_order for registration in enabled.resources][-11:] == [
-        40, 41, 42, 50, 51, 52, 60, 70, 75, 76, 80
+    assert [registration.shutdown_order for registration in enabled.resources][-10:] == [
+        40, 42, 50, 51, 52, 60, 70, 75, 76, 80
     ]
     assert [
         registration.name
@@ -224,18 +224,17 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             key=lambda registration: registration.shutdown_order,
             reverse=True,
         )
-    ][:11] == [
+    ][:10] == [
         "desk-automation",
         "assistant-turns",
         "assistant-context",
         "face-identity",
         "vision",
-        "rtsp-frame-source-workspace",
-        "rtsp-frame-source-posture",
-        "rtsp-frame-source-user",
-        "camera-publisher-workspace",
-        "camera-publisher-posture",
-        "camera-publisher-user",
+        "webrtc-frame-source-workspace",
+        "webrtc-frame-source-posture",
+        "webrtc-frame-source-user",
+        "webrtc-camera-publisher-workspace",
+        "webrtc-camera-publisher-user",
     ]
 
 

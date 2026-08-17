@@ -7,8 +7,8 @@
 ## 시작과 background 처리
 
 ```text
-CameraPublisher.start()
-  → RtspFrameSource.start()
+WebRtcCameraPublisher.start() → MediaMTX WHIP
+  → WebRtcFrameSource.start() → MediaMTX WHEP
   → frame 전처리
   → PresenceDetector / shared FaceDetector / PostureDetector
   → fresh face box를 FaceRecognizer가 재사용

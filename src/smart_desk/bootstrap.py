@@ -14,7 +14,7 @@ from smart_desk.modules.desk.relay import RelayClient
 from smart_desk.modules.desk.segment import SegmentDecoder
 from smart_desk.modules.mqtt.client import MqttClient
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
-from smart_desk.modules.media import CameraPublisher, RtspFrameSource
+from smart_desk.modules.media import WebRtcCameraPublisher, WebRtcFrameSource
 from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
 from smart_desk.modules.serial.source import SerialLineSource
@@ -121,111 +121,105 @@ def build_container(settings: Settings) -> AppContainer:
         )
     )
     if settings.media.user.publish_enabled:
-        user_camera_publisher = CameraPublisher(
+        user_camera_publisher = WebRtcCameraPublisher(
             name="user",
             device=settings.media.user.device,
-            rtsp_url=settings.media.user.publish_url,
-            ffmpeg_path=settings.media.ffmpeg_path,
+            whip_url=settings.media.user.publish_url,
             input_format=settings.media.user.input_format,
             width=settings.media.user.width,
             height=settings.media.user.height,
             fps=settings.media.user.fps,
+            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
         container.user_camera_publisher = user_camera_publisher
         container.register(
             ResourceRegistration(
-                name="camera-publisher-user",
+                name="webrtc-camera-publisher-user",
                 resource=user_camera_publisher,
                 startup_order=40,
                 shutdown_order=40,
             )
         )
     if settings.media.posture.publish_enabled:
-        posture_camera_publisher = CameraPublisher(
+        posture_camera_publisher = WebRtcCameraPublisher(
             name="posture",
             device=settings.media.posture.device,
-            rtsp_url=settings.media.posture.publish_url,
-            ffmpeg_path=settings.media.ffmpeg_path,
+            whip_url=settings.media.posture.publish_url,
             input_format=settings.media.posture.input_format,
             width=settings.media.posture.width,
             height=settings.media.posture.height,
             fps=settings.media.posture.fps,
+            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
         container.posture_camera_publisher = posture_camera_publisher
         container.register(
             ResourceRegistration(
-                name="camera-publisher-posture",
+                name="webrtc-camera-publisher-posture",
                 resource=posture_camera_publisher,
                 startup_order=41,
                 shutdown_order=41,
             )
         )
     if settings.media.workspace.publish_enabled:
-        workspace_camera_publisher = CameraPublisher(
+        workspace_camera_publisher = WebRtcCameraPublisher(
             name="workspace",
             device=settings.media.workspace.device,
-            rtsp_url=settings.media.workspace.publish_url,
-            ffmpeg_path=settings.media.ffmpeg_path,
+            whip_url=settings.media.workspace.publish_url,
             input_format=settings.media.workspace.input_format,
             width=settings.media.workspace.width,
             height=settings.media.workspace.height,
             fps=settings.media.workspace.fps,
+            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
         container.workspace_camera_publisher = workspace_camera_publisher
         container.register(
             ResourceRegistration(
-                name="camera-publisher-workspace",
+                name="webrtc-camera-publisher-workspace",
                 resource=workspace_camera_publisher,
                 startup_order=42,
                 shutdown_order=42,
             )
         )
     if settings.media.user.receive_enabled:
-        user_frame_source = RtspFrameSource(
+        user_frame_source = WebRtcFrameSource(
             name="user",
-            rtsp_url=settings.media.user.receive_url,
-            reconnect_interval_seconds=(
-                settings.media.rtsp_reconnect_interval_seconds
-            ),
+            whep_url=settings.media.user.receive_url,
+            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
         container.user_frame_source = user_frame_source
         container.register(
             ResourceRegistration(
-                name="rtsp-frame-source-user",
+                name="webrtc-frame-source-user",
                 resource=user_frame_source,
                 startup_order=50,
                 shutdown_order=50,
             )
         )
     if settings.media.posture.receive_enabled:
-        posture_frame_source = RtspFrameSource(
+        posture_frame_source = WebRtcFrameSource(
             name="posture",
-            rtsp_url=settings.media.posture.receive_url,
-            reconnect_interval_seconds=(
-                settings.media.rtsp_reconnect_interval_seconds
-            ),
+            whep_url=settings.media.posture.receive_url,
+            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
         container.posture_frame_source = posture_frame_source
         container.register(
             ResourceRegistration(
-                name="rtsp-frame-source-posture",
+                name="webrtc-frame-source-posture",
                 resource=posture_frame_source,
                 startup_order=51,
                 shutdown_order=51,
             )
         )
     if settings.media.workspace.receive_enabled:
-        workspace_frame_source = RtspFrameSource(
+        workspace_frame_source = WebRtcFrameSource(
             name="workspace",
-            rtsp_url=settings.media.workspace.receive_url,
-            reconnect_interval_seconds=(
-                settings.media.rtsp_reconnect_interval_seconds
-            ),
+            whep_url=settings.media.workspace.receive_url,
+            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
         container.workspace_frame_source = workspace_frame_source
         container.register(
             ResourceRegistration(
-                name="rtsp-frame-source-workspace",
+                name="webrtc-frame-source-workspace",
                 resource=workspace_frame_source,
                 startup_order=52,
                 shutdown_order=52,

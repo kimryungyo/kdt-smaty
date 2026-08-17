@@ -63,11 +63,9 @@ opt-in 단계다.
   핵심 서비스 클래스는 필요한 객체를 생성자로 전달받는다.
 - 클래스는 장치 I/O, 최신 상태 보관, 정책 판단을 분리한다.
 - Vision 추론처럼 이벤트 루프를 오래 점유하는 작업은 thread executor에서 실행한다.
-- 물리 웹캠은 카메라별 `CameraPublisher`가 `Popen`으로 실행한 FFmpeg만 열어
-  MediaMTX에 RTSP로 발행한다. `RtspFrameSource`는 스트림만 읽으며 별도
-  업로더를 만들지 않는다.
-- EMQX와 MediaMTX는 외부 인프라이고, FFmpeg publisher는 FastAPI lifespan이
-  시작·종료하는 자식 process다.
+- 물리 웹캠은 카메라별 `WebRtcCameraPublisher`가 PyAV로 한 번만 열어 MediaMTX의
+  WHIP endpoint에 발행한다. `WebRtcFrameSource`는 WHEP로 최신 프레임만 읽는다.
+- EMQX와 MediaMTX는 외부 인프라이고, WebRTC peer는 FastAPI lifespan이 시작·종료한다.
 - `DeskController`만 릴레이 명령을 결정하고, ESP32의 독립 안전 제한은 유지한다.
 - 운영 ESP32 transport는 Wi-Fi/MQTT이고 Arduino 높이만 별도 USB serial이다. serial bridge는
   배포·readiness·복구 범위에 포함하지 않는다.

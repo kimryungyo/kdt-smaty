@@ -54,7 +54,7 @@
 ```text
 FastAPI lifespan
   ├─ SQLite / MQTT / Desk
-  ├─ CameraPublisher / RtspFrameSource
+  ├─ WebRtcCameraPublisher / WebRtcFrameSource
   ├─ 얼굴 식별 / 재실 / 자세 / CurrentUser
   ├─ AutomationService
   └─ WLED / Agents Voice runtime / Voice

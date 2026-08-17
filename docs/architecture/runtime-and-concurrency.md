@@ -108,8 +108,8 @@ FastAPI lifespan에서 컨테이너를 시작하고 종료한다. 개별 장기 
 
 ```text
 사전 인프라: EMQX → 호스트 MediaMTX
-애플리케이션 시작: 설정 → SQLite 검증 → MQTT runner 시작(offline 재시도 가능) → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → 카메라별 FFmpeg → RTSP 최신 프레임 입력 → Vision → API 제공
-애플리케이션 종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → RTSP reader 종료 → FFmpeg 종료 → MQTT/시리얼 해제 → SQLite 종료
+애플리케이션 시작: 설정 → SQLite 검증 → MQTT runner 시작(offline 재시도 가능) → 높이 센서 → 릴레이 상태 확인 → Desk 제어 → WHIP publisher → WHEP 최신 프레임 입력 → Vision → API 제공
+애플리케이션 종료: 새 요청 차단 → 자동화 중지 → Desk STOP → 작업 취소/대기 → WHEP reader 종료 → WHIP publisher 종료 → MQTT/시리얼 해제 → SQLite 종료
 ```
 
 초기화 실패 시 HTTP 서버만 남긴 채 제어 루프를 계속 실행하지 않는다. 특히
@@ -141,19 +141,18 @@ service가 준비되면 응답하고, 실제 이동은 명령 지점에서 fresh
 | --- | --- | --- |
 | MQTT 수신 | async 네트워크 루프 | 서비스/장치 상태 |
 | 높이 수신 | async 시리얼 또는 전용 thread | `HeightSnapshot` |
-| 카메라 발행 | 카메라별 FFmpeg `Popen` 자식 process | 실행 여부 |
-| RTSP 프레임 수신 | 카메라별 전용 thread | 최신 `(image, captured_at)` 또는 `None` |
+| 카메라 발행 | 카메라별 aiortc WHIP peer | 연결 여부 |
+| WHEP 프레임 수신 | 카메라별 aiortc peer/task | 최신 `(image, captured_at)` 또는 `None` |
 | 전처리 | async 주기 작업 | 전처리 프레임 |
 | YOLO·얼굴 추론 | `asyncio.to_thread()` 또는 executor | detector 결과 |
 | Desk 제어 | async 주기 작업 | `DeskSnapshot` |
 | AI 음성 | `voice-main` async task + PortAudio callback | `VoiceSnapshot` |
 | 자동화 | 상태 변경 이벤트 또는 짧은 주기 작업 | 자동화 상태 |
 
-OpenCV RTSP `read()`와 YOLO 추론을 이벤트 루프에서 직접 실행하면 HTTP 요청과
-STOP 처리가 늦어질 수 있다. RTSP 읽기는 카메라별 전용 thread, 추론은 executor로
-넘기고 제어 루프는 짧게 끝나도록 유지한다. 물리 웹캠은 `CameraPublisher`가 실행한
-FFmpeg가 소유한다. `RtspFrameSource.stop()`은 RTSP만 해제하고 lifecycle이 그 뒤
-publisher를 종료해 물리 장치를 해제한다.
+WHEP decode와 YOLO 추론이 HTTP 요청과 STOP 처리를 늦추지 않게 peer 수신은 독립 task,
+추론은 executor에서 수행한다. 물리 웹캠은 `WebRtcCameraPublisher`가 소유한다.
+`WebRtcFrameSource.stop()`은 WHEP peer를 닫고 lifecycle이 그 뒤 publisher를 종료해
+물리 장치를 해제한다.
 
 ## 공유 상태 규칙
 

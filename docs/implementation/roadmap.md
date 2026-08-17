@@ -38,13 +38,12 @@ Python·fake 검증과 firmware clean build는 완료했다. relay 분리 board 
 
 ## 3단계: 영상 인프라와 Vision 파이프라인
 
-- 기존 호스트 MediaMTX를 사용하고 FastAPI가 카메라별 FFmpeg publisher를
-  `Popen` 자식 process로 실행한다.
-- 카메라별 `RtspFrameSource`가 최신 프레임 하나를 제공하는 기반은 구현돼 있다.
+- 기존 호스트 MediaMTX를 사용하고 FastAPI가 카메라별 WHIP publisher를 실행한다.
+- 카메라별 `WebRtcFrameSource`가 WHEP 최신 프레임 하나를 제공하는 기반은 구현돼 있다.
 - [Vision 관측 작업](../tasks/04-vision-observation.md)에서 `FramePreprocessor`와
   Vision 판정을 설계·구현한다.
 - 자세, 얼굴, 재실 detector와 `VisionStateService`를 연결한다.
-- RTSP 읽기와 추론이 FastAPI·Desk 제어 이벤트 루프를 막지 않는지 확인한다.
+- WHEP decode와 추론이 FastAPI·Desk 제어 이벤트 루프를 막지 않는지 확인한다.
 
 완료 조건: 최신 Vision 상태와 미리보기를 제공하고, 카메라/추론 오류를
 `UNKNOWN` 또는 오류 상태로 안전하게 표시한다.

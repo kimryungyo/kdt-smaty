@@ -1,4 +1,4 @@
-"""두 RTSP 최신 frame을 결합하는 fail-closed Vision service."""
+"""두 WebRTC 최신 frame을 결합하는 fail-closed Vision service."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 import threading
 import time
-from typing import Callable
+from typing import Callable, Protocol
 
 import numpy as np
 
 from smart_desk.config.settings import VisionSettings
-from smart_desk.modules.media.frame_source import LatestFrame, RtspFrameSource
+from smart_desk.modules.media import LatestFrame
 from smart_desk.modules.vision.detector import VisionDetector
 from smart_desk.modules.vision.models import (
     AssociationResponse,
@@ -32,6 +32,14 @@ from smart_desk.modules.vision.models import (
 )
 
 
+class FrameSource(Protocol):
+    """Vision이 요구하는 transport-neutral 최신 frame 계약이다."""
+
+    def get_latest_frame(self) -> LatestFrame | None: ...
+    def is_connected(self) -> bool: ...
+    def get_last_error(self) -> str | None: ...
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -42,8 +50,8 @@ class VisionService:
     def __init__(
         self,
         *,
-        upper_source: RtspFrameSource | None,
-        lower_source: RtspFrameSource | None,
+        upper_source: FrameSource | None,
+        lower_source: FrameSource | None,
         detector: VisionDetector,
         settings: VisionSettings,
         monotonic: Callable[[], float] = time.monotonic,
@@ -192,7 +200,7 @@ class VisionService:
             return None
         return observation
 
-    def _new_frame(self, source: RtspFrameSource | None, previous: float | None) -> LatestFrame | None:
+    def _new_frame(self, source: FrameSource | None, previous: float | None) -> LatestFrame | None:
         if source is None:
             return None
         frame = source.get_latest_frame()
@@ -229,7 +237,7 @@ class VisionService:
             return str(result).strip() or type(result).__name__
         return "invalid detector result"
 
-    def _empty_observation(self, source: RtspFrameSource | None) -> CameraObservation:
+    def _empty_observation(self, source: FrameSource | None) -> CameraObservation:
         return CameraObservation(source is not None and source.is_connected(), None, None, None, source.get_last_error() if source else "source not configured")
 
     def _has_distinct_combined_pair(self) -> bool:
@@ -280,7 +288,7 @@ class VisionService:
             reason_codes = (BlockCode.PRESENCE_NOT_SINGLE,) if self._stable_presence is not PresenceStatus.PRESENT_SINGLE else (BlockCode.POSTURE_UNKNOWN,)
         return VisionSnapshot(upper, lower, raw_presence, self._stable_presence, raw_posture, self._stable_posture, self._candidate_wall(self._presence_candidate), self._candidate_wall(self._posture_candidate), usable, tuple(reason_codes))
 
-    def _current_camera(self, source: RtspFrameSource | None, observation: CameraObservation) -> CameraObservation:
+    def _current_camera(self, source: FrameSource | None, observation: CameraObservation) -> CameraObservation:
         if source is None:
             return CameraObservation(False, None, None, None, "source not configured")
         return CameraObservation(

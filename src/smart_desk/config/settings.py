@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from smart_desk.config.constants import (
@@ -254,7 +254,7 @@ class DeskSettings(BaseModel):
 
 
 class CameraMediaSettings(BaseModel):
-    """카메라 한 대의 독립적인 송출과 RTSP 수신 설정을 보관한다."""
+    """카메라 한 대의 독립적인 WHIP 송출과 WHEP 수신 설정을 보관한다."""
 
     publish_enabled: bool = False
     receive_enabled: bool = False
@@ -278,12 +278,21 @@ class CameraMediaSettings(BaseModel):
 
     @field_validator("publish_url", "receive_url")
     @classmethod
-    def require_rtsp_url(cls, value: str) -> str:
-        """현재 CameraPublisher와 RtspFrameSource가 지원하는 RTSP만 허용한다."""
+    def require_webrtc_url(cls, value: str, info: ValidationInfo) -> str:
+        """URL 용도에 맞는 MediaMTX WHIP/WHEP endpoint만 허용한다."""
 
         parsed = urlsplit(value)
-        if parsed.scheme != "rtsp" or not parsed.netloc:
-            raise ValueError("카메라 media URL은 유효한 rtsp:// 주소여야 합니다.")
+        expected_suffix = "/whip" if info.field_name == "publish_url" else "/whep"
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.query
+            or parsed.fragment
+            or not parsed.path.rstrip("/").endswith(expected_suffix)
+        ):
+            raise ValueError(
+                f"카메라 {info.field_name}은 유효한 http(s)://...{expected_suffix} 주소여야 합니다."
+            )
         return value
 
     @field_validator("width", "height", "fps", mode="before")
@@ -302,8 +311,8 @@ class UserCameraMediaSettings(CameraMediaSettings):
     device: str = (
         "/dev/v4l/by-id/usb-Alcorlink_Corp._USB_2.0_Camera-video-index0"
     )
-    publish_url: str = "rtsp://127.0.0.1:8554/user-cam"
-    receive_url: str = "rtsp://127.0.0.1:8554/user-cam"
+    publish_url: str = "http://127.0.0.1:8889/user-cam/whip"
+    receive_url: str = "http://127.0.0.1:8889/user-cam/whep"
     width: int = Field(default=1920, gt=0, le=8192)
     height: int = Field(default=1080, gt=0, le=8192)
 
@@ -315,8 +324,8 @@ class WorkspaceCameraMediaSettings(CameraMediaSettings):
         "/dev/v4l/by-id/usb-SunplusIT_Inc_ABKO_APC930_QHD_WEBCAM_"
         "CY2M20201014V0-video-index0"
     )
-    publish_url: str = "rtsp://127.0.0.1:8554/workspace-cam"
-    receive_url: str = "rtsp://127.0.0.1:8554/workspace-cam"
+    publish_url: str = "http://127.0.0.1:8889/workspace-cam/whip"
+    receive_url: str = "http://127.0.0.1:8889/workspace-cam/whep"
     width: int = Field(default=2592, gt=0, le=8192)
     height: int = Field(default=1944, gt=0, le=8192)
 
@@ -325,15 +334,14 @@ class PostureCameraMediaSettings(CameraMediaSettings):
     """자세 카메라의 기본 장치와 MediaMTX 경로를 정의한다."""
 
     device: str = "/dev/posture-cam"
-    publish_url: str = "rtsp://127.0.0.1:8554/posture-cam"
-    receive_url: str = "rtsp://127.0.0.1:8554/posture-cam"
+    publish_url: str = "http://127.0.0.1:8889/posture-cam/whip"
+    receive_url: str = "http://127.0.0.1:8889/bottom-cam/whep"
 
 
 class MediaSettings(BaseModel):
     """카메라별 송출과 수신 lifecycle 설정을 보관한다."""
 
-    ffmpeg_path: str = "ffmpeg"
-    rtsp_reconnect_interval_seconds: float = Field(
+    reconnect_interval_seconds: float = Field(
         default=1.0,
         gt=0,
         le=30,
@@ -346,15 +354,6 @@ class MediaSettings(BaseModel):
     posture: PostureCameraMediaSettings = Field(
         default_factory=PostureCameraMediaSettings
     )
-
-    @field_validator("ffmpeg_path")
-    @classmethod
-    def normalize_ffmpeg_path(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("FFmpeg 경로는 비어 있을 수 없습니다.")
-        return normalized
-
 
 class VisionSettings(BaseModel):
     """최신 frame 기반 Vision 관측의 보수적인 초기 실행값이다.
