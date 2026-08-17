@@ -14,10 +14,11 @@ Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을
 
 - wake word, 녹음, Assistant 호출, playback과 WLED function tool 기반이 구현돼 있다.
 - 운영 Voice는 Agents SDK `VoicePipeline`과 `AgentsVoiceRuntime.run_audio` 하나로 실행한다.
-- Voice는 아직 서버 current user session을 입력으로 받지 않는다.
-- profile별 장기 기억 service와 저장 정책은 설계 문서 수준이다.
-- Dashboard에 Assistant turn이나 화면용 상세 응답을 전달하는 API가 없다.
-- WLED tool은 있지만 Desk 사용자 명령 tool은 자동화 경계에 연결되지 않았다.
+- Voice runtime은 turn 시작 시 서버 current user session을 캡처해 context와 Assistant turn에 쓴다.
+- profile별 장기 기억 service와 explicit-only 저장 정책이 구현돼 있다.
+- `GET /api/assistant/latest`은 현재 session의 최신 Assistant turn 하나를 반환한다.
+- Assistant final은 streaming으로 모은 답변만 요약(최대 200자)·상세로 기록하며 raw transcript는 turn에 기록하지 않는다.
+- WLED와 Desk 사용자 명령 tool은 각각 public service와 `AutomationService` 경계에 연결돼 있다.
 
 ## 사용자 귀속 원칙
 
@@ -57,7 +58,7 @@ polling 응답으로 서버가 소유할 최소 turn 상태를 정의한다.
 | `profileId` | 개인화에 사용한 profile 또는 `null` |
 | `phase` | progress 안내, tool 실행, final 응답 등 turn 내부 단계 |
 | `sequence` | 늦거나 역순인 audio·화면 event 폐기 근거 |
-| 상태 | listening, processing, responding, succeeded, failed 등 |
+| 상태 | `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED` |
 | 화면 응답 | 제목·요약·상세 내용 또는 구조화된 결과 |
 | 시각 | 시작·갱신·완료와 freshness |
 | 오류 | 사용자에게 노출 가능한 실패 코드와 안내 |
@@ -124,10 +125,10 @@ broker는 이번 범위에 추가하지 않는다.
 
 ### Dashboard 응답
 
-- [ ] 음성 문장과 화면용 상세 응답을 하나의 Assistant 결과로 생성한다.
-- [ ] 현재 session의 최신 turn 하나를 반환하는 `/api/assistant/latest`와 Dashboard polling을 구현한다.
+- [x] streaming Assistant 답변을 같은 turn의 FINAL 요약(최대 200자)과 필요 시 상세 응답으로 기록하며 raw transcript는 기록하지 않는다.
+- [x] 현재 session의 최신 turn 하나를 반환하는 `/api/assistant/latest`를 구현한다. Dashboard polling UI 연결은 별도 범위다.
 - [x] 늦게 완료된 과거 turn이 새 turn 화면을 덮어쓰지 않도록 `turnId`·sequence를 사용한다.
-- [ ] 진행 안내·tool 상태·최종 응답을 같은 `turnId`의 phase로 발행한다.
+- [x] LISTENING → PROCESSING → 0개 이상의 TOOL → FINAL 순서로 같은 `turnId` phase를 발행한다.
 - [x] session 교대·종료 시 이전 turn의 Dashboard 상세 응답을 즉시 숨긴다.
 - [ ] tool 실행 중·성공·부분 실패를 음성과 화면에서 모순 없이 표현한다.
 

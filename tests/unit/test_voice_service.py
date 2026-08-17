@@ -162,6 +162,18 @@ async def test_no_speech_recovers_without_visible_provider_failure() -> None:
     await voice.stop()
 
 
+async def test_final_transcript_without_turn_ended_fails_closed() -> None:
+    voice, audio, playback, runtime = service([
+        VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"),
+    ])
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    assert playback.audio == [b"\x01\x00"]
+    assert runtime.outcomes == [("FAILED", "voice_pipeline_failed")]
+    await voice.stop()
+
+
 async def test_runtime_error_fails_and_playback_failure_never_hangs_under_queue_pressure() -> None:
     events = [VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT)] + [VoiceRuntimeEvent(index + 2, VoiceRuntimeEventType.AUDIO, audio=b"\0\0") for index in range(8)]
     voice, audio, _, runtime = service(events, playback=Playback(fail_after=0))

@@ -10,7 +10,7 @@ from agents.tool_context import ToolContext
 
 from smart_desk.modules.assistant.agents_tools import SmartDeskAgentContext, build_smart_desk_tools
 from smart_desk.modules.assistant.context import CurrentUserSessionManager
-from smart_desk.modules.assistant.turns import AssistantTurnStore
+from smart_desk.modules.assistant.turns import AssistantTurnStore, TurnStatus
 from smart_desk.modules.identity.models import SessionKind
 from smart_desk.modules.identity.session import CurrentUserSessionService
 
@@ -80,6 +80,23 @@ async def test_mutation_tools_pass_expected_session_and_wled_effect() -> None:
     assert (await _invoke(context, "set_wled_effect", effect_id=2, palette_id=3))["ok"] is True
     assert automation.calls[0][2]["expected_session_id"] == "session-a"
     assert wled.calls[0] == ("set_effect", (2,), {"expected_session_id": "session-a", "palette_id": 3, "speed": 128, "intensity": 128, "color": None})
+
+
+async def test_successful_final_turn_contains_only_compact_assistant_response() -> None:
+    context, _users, _automation, _wled, _memory, turns = await _context()
+    transcript = "사용자가 말한 민감한 원문"
+    response = "  " + "답변 " * 80 + "  "
+
+    context.append_assistant_response(response)
+    await context.finish(TurnStatus.SUCCEEDED)
+    latest = await turns.latest()
+
+    assert latest is not None
+    assert latest.summary == response.strip()[:200]
+    assert latest.detail == response.strip()
+    assert transcript not in (latest.summary or "")
+    assert transcript not in (latest.detail or "")
+    assert latest.phase.value == "FINAL" and latest.status is TurnStatus.SUCCEEDED
 
 
 async def test_stop_survives_invalidation_but_every_other_mutation_is_blocked() -> None:

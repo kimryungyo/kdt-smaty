@@ -31,6 +31,7 @@ class SmartDeskAgentContext:
     wled: WledClient | None = None
     followup_requested: bool = False
     explicit_memories: list[str] = field(default_factory=list)
+    assistant_response: str = ""
 
     async def valid_mutation(self) -> bool:
         return self.turn_context.session_id is not None and await self.sessions.is_valid(self.turn_context)
@@ -49,16 +50,28 @@ class SmartDeskAgentContext:
             self.turn_id, sequence=self.turn_sequence, phase=TurnPhase.PROCESSING
         )
 
+    def append_assistant_response(self, text: str) -> None:
+        """Keep only the streamed assistant answer for this turn's final screen."""
+        self.assistant_response += text
+
     async def finish(self, status: Any, *, error_code: str | None = None) -> None:
         """Record a terminal transition; a cleared/stale turn is a harmless no-op."""
         from smart_desk.modules.assistant.turns import TurnPhase
 
         self.turn_sequence += 1
+        summary: str | None = None
+        detail: str | None = None
+        if status.value == "SUCCEEDED":
+            response = self.assistant_response.strip()
+            summary = response[:200]
+            detail = response if len(response) > len(summary) else None
         await self.turns.update(
             self.turn_id,
             sequence=self.turn_sequence,
             phase=TurnPhase.FINAL,
             status=status,
+            summary=summary,
+            detail=detail,
             error_code=error_code,
         )
 

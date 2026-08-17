@@ -24,6 +24,7 @@ class Context:
         self.searches: list[tuple[str, str]] = []
         self.remembered: list[tuple[str, str, bool]] = []
         self.followup_requested = False
+        self.assistant_response = ""
 
     async def _search(self, profile_id: str, transcript: str) -> list[dict[str, str]]:
         self.searches.append((profile_id, transcript))
@@ -34,6 +35,7 @@ class Context:
 
     async def processing_started(self) -> None: self.phases.append("PROCESSING")
     async def tool_started(self) -> None: self.phases.append("TOOL")
+    def append_assistant_response(self, text: str) -> None: self.assistant_response += text
     async def finish(self, status: object, *, error_code: str | None = None) -> None:
         self.phases.append(f"FINAL:{status}")
 
@@ -325,13 +327,13 @@ async def test_workflow_passes_sdk_context_and_session_searches_personalized_and
         return object()
 
     async def no_text(_: object) -> AsyncIterator[str]:
-        if False:
-            yield ""
+        yield "화면에 보일 답변"
 
     workflow = SmartDeskVoiceWorkflow("agent", run_streamed, no_text, context_factory=lambda: _context(context))
     await workflow.prepare_run()
-    assert [item async for item in workflow.run("raw transcript")] == []
+    assert [item async for item in workflow.run("raw transcript")] == ["화면에 보일 답변"]
     assert captured["context"] is context and captured["session"] == "sdk-session"
+    assert context.assistant_response == "화면에 보일 답변"
     assert context.searches == [("profile-a", "raw transcript")]
     assert "likes tea" in captured["prompt"]
     assert context.remembered == [("profile-a", "explicit fact", True)]
@@ -453,3 +455,36 @@ async def test_runtime_error_after_a_turn_marks_failed_not_succeeded() -> None:
         (VoiceRuntimeEventType.LIFECYCLE, None), (VoiceRuntimeEventType.ERROR, "voice_pipeline_failed")
     ]
     assert context.phases == ["FINAL:FAILED"]
+
+
+async def test_runtime_exhaustion_after_final_transcript_marks_turn_failed() -> None:
+    context = Context()
+    workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), _empty_text, context_factory=lambda: _context(context))
+    pipeline = WorkflowPipeline(workflow, "확정된 문장")
+
+    events = [event async for event in AgentsVoiceRuntime(pipeline, Input, workflow=workflow).run_audio(chunks(b"\0\0"))]
+
+    assert [event.type for event in events] == [VoiceRuntimeEventType.LIFECYCLE, VoiceRuntimeEventType.TRANSCRIPT, VoiceRuntimeEventType.AUDIO]
+    assert context.phases == ["PROCESSING", "FINAL:FAILED"]
+
+
+async def test_finalize_turn_retries_after_context_finish_failure_and_is_idempotent() -> None:
+    class FailingContext:
+        def __init__(self) -> None: self.calls = 0
+
+        async def finish(self, _status: object, *, error_code: str | None = None) -> None:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("store unavailable")
+
+    runtime = AgentsVoiceRuntime(Pipeline(Result([])), Input)
+    context = FailingContext()
+    runtime._turn_context = context  # noqa: SLF001 - terminal retry contract
+
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        await runtime.finalize_turn("FAILED", error_code="voice_pipeline_failed")
+    await runtime.finalize_turn("FAILED", error_code="voice_pipeline_failed")
+    await runtime.finalize_turn("FAILED", error_code="voice_pipeline_failed")
+    assert context.calls == 2
