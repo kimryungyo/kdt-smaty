@@ -3,9 +3,6 @@
 Agents SDK 교체의 model, VoicePipeline, session adapter와 Mem0 배포 기준은
 [Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)을 따른다.
 
-Agents SDK 교체의 model, VoicePipeline, session adapter와 Mem0 배포 기준은
-[Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)을 따른다.
-
 ## 사용자 결과
 
 Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을 사용한다. 익명 session은
@@ -43,7 +40,7 @@ Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을
 ## 삭제와 화면 노출 정책
 
 - 장기 기억은 기존 설계대로 등록 사용자, `explicit_only`, raw transcript 비저장을 유지한다.
-- profile 삭제는 `profile:<profile_id>` 장기 기억 전체 삭제를 먼저 완료한 뒤 얼굴·preset과
+- profile 삭제는 `profile:<profile_id>` 장기 기억 전체 삭제를 먼저 완료한 뒤 얼굴·작업 모드와
   profile row를 삭제한다. 기억 삭제 실패 시 profile DB는 유지하고 `503`으로 재시도를
   안내한다.
 - current `sessionId`가 다른 값으로 바뀌거나 `null`이 되면 Dashboard에서 직전 session의 AI
@@ -52,7 +49,7 @@ Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을
 
 ## Assistant turn 모델
 
-구체적인 전송 방식 전에 서버가 소유할 최소 turn 상태를 정의한다.
+polling 응답으로 서버가 소유할 최소 turn 상태를 정의한다.
 
 | 필드 | 목적 |
 | --- | --- |
@@ -66,9 +63,9 @@ Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을
 | 시각 | 시작·갱신·완료와 freshness |
 | 오류 | 사용자에게 노출 가능한 실패 코드와 안내 |
 
-Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재 단일 서버에 가장 작은
-구조를 선택한다. 여러 과거 대화를 관리하는 chat 제품을 만들지 않고 최신 turn과 필요한
-짧은 이력만 제공한다.
+Dashboard 전송은 `GET /api/assistant/latest` polling으로 확정한다. 서버는 현재 session에
+표시할 최신 turn 하나 또는 `null`만 반환한다. SSE, WebSocket, 전체 대화 이력과 별도 event
+broker는 이번 범위에 추가하지 않는다.
 
 검색 전 진행 안내, tool 실행과 검색 후 최종 응답은 별도 대화가 아니라 같은 `turnId`의
 연속 phase다. Voice와 Dashboard는 이 단위로 취소·완료를 판단하고, 사용자 session이 바뀌면
@@ -82,6 +79,8 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
   조합을 고정하고 x86·Raspberry Pi에서 import를 검증한다.
 - [ ] `AgentsVoiceRuntime`과 프로젝트용 Agent workflow를 만들고 model·STT·TTS·VAD 설정을
   한 조립 경계에서 명시한다.
+- [ ] 첫 구현은 단일 Agent + `Runner` + 필요한 local function tool만 사용하고, handoff나
+  다중 Agent orchestration을 추가하지 않는다.
 - [ ] microphone은 24kHz mono PCM16으로 한 번 capture하고, Wake Word 입력만 stateful
   resampler로 16kHz로 변환해 원본 24kHz chunk를 VoicePipeline에 전달한다.
 - [ ] final transcript 전에 Desk·WLED 같은 부작용 tool을 실행하지 않고, SDK hosted/function
@@ -122,7 +121,7 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 ### Dashboard 응답
 
 - [ ] 음성 문장과 화면용 상세 응답을 하나의 Assistant 결과로 생성한다.
-- [ ] 최신 turn snapshot 또는 event API와 Dashboard 표시를 구현한다.
+- [ ] 현재 session의 최신 turn 하나를 반환하는 `/api/assistant/latest`와 Dashboard polling을 구현한다.
 - [ ] 늦게 완료된 과거 turn이 새 turn 화면을 덮어쓰지 않도록 `turnId`·sequence를 사용한다.
 - [ ] 진행 안내·tool 상태·최종 응답을 같은 `turnId`의 phase로 발행한다.
 - [ ] session 교대·종료 시 이전 turn의 Dashboard 상세 응답을 즉시 숨긴다.
@@ -133,6 +132,9 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 - [ ] WLED tool은 WLED public service만 호출하고 내부 client 상태를 우회하지 않게 유지한다.
 - [ ] Desk tool은 Agents SDK function tool로 구현하되 `AutomationService`의 session·mode·안전
   검증을 반드시 통한다.
+- [ ] 작업 모드 선택 tool은 `activityModeKey`와 turn 시작 `expectedSessionId`로
+  `AutomationService`를 호출하며 AUTO/MANUAL 보존 규칙을 그대로 따른다.
+- [ ] WLED 수동 변경 tool은 저장된 작업 모드를 수정하지 않고 현재 session override만 만든다.
 - [ ] tool 호출이 사용자 교대와 경합하면 model의 tool call 생성 시점이 아니라 실제
   `AutomationService` 호출 직전에 캡처한 session ID를 서버에서 재검증한다.
 - [ ] STOP 성격의 안전 명령과 개인화 명령의 권한·문맥 차이를 유지한다.
@@ -162,7 +164,9 @@ Dashboard 전송은 polling, SSE 또는 다른 단순 방식을 비교해 현재
 - 진행 안내, tool 상태와 최종 응답이 같은 `turnId`·순서로 보이고 취소 후 늦은 phase는
   재생·표시되지 않는다.
 - session 없음·다중 상태의 임시 turn이 기존 SDK session과 Mem0를 읽거나 쓰지 않는다.
-- 장기 기억 삭제 실패 시 profile·얼굴·preset DB가 삭제되지 않고 재시도할 수 있다.
+- 장기 기억 삭제 실패 시 profile·얼굴·작업 모드 DB가 삭제되지 않고 재시도할 수 있다.
+- latest polling이 현재 session의 turn만 반환하고, 낮은 sequence와 이전 session turn을
+  Dashboard가 적용하지 않는다.
 - 같은 turn의 음성·화면 응답과 tool 결과가 일관된 성공·오류를 나타낸다.
 - memory 또는 Dashboard delivery 장애가 Voice 기본 응답과 안전 STOP 처리를 막지 않는다.
 

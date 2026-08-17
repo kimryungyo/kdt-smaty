@@ -2,7 +2,7 @@
 
 ## 상태
 
-**완료** — 2026-08-16
+**완료** — 2026-08-17 작업 모드·서비스 정책 보완
 
 이 문서는 후속 Vision, 얼굴 식별, 사용자 session, 자동화, Dashboard와 Voice 구현이 따를
 상태·전이·명령 계약을 확정한다. 구체적인 모델과 실측 threshold 보정은 후속 task에서 하되,
@@ -33,15 +33,16 @@ Voice 구현의 문서 우선순위는 범위로 나눈다.
 | 재실 | `PRESENT_SINGLE`, `VACANT`, `MULTIPLE`, `UNKNOWN` | Vision |
 | 자세 | `SITTING`, `STANDING`, `UNKNOWN` | Vision |
 | 사용자 session | 없음, `REGISTERED`, `ANONYMOUS` | CurrentUserSessionService |
-| 제어 mode | session의 `AUTO`, `MANUAL` 또는 mode 없음 | AutomationService |
+| 제어 방식 | session의 `controlMode=AUTO`, `MANUAL` 또는 없음 | AutomationService |
+| 작업 모드 | 등록 session의 기본·custom `activityMode` 또는 없음 | AutomationService |
 | 자동화 | `WAITING_USER`, `OBSERVING`, `READY`, `MOVING`, `MANUAL`, `BLOCKED`, `PARK_WAITING`, `PARKING` | AutomationService |
 
 `UNKNOWN_FACE`는 고품질 얼굴이 현재 등록 template과 일치하지 않는 관측이며,
 `NO_FACE`는 fresh frame에 얼굴이 보이지 않는 관측이다. 얼굴 품질 부족, model 오류와 stale
 frame을 `UNKNOWN_FACE`로 승격하지 않는다.
 
-`ANONYMOUS`는 오류나 공용 profile이 아니다. `profileId=null`과 기본 높이 정책을 가진
-정상적인 process-memory session이다. 익명 profile row, 공용 preset row와 장기 기억
+`ANONYMOUS`는 오류나 공용 profile이 아니다. `profileId=null`, `activityMode=null`과 기본
+높이 정책을 가진 정상적인 process-memory session이다. 익명 profile row, 공용 mode row와 장기 기억
 namespace는 만들지 않는다.
 
 Voice에서 사용하는 session이라는 말은 다음 세 수명을 구분한다.
@@ -119,7 +120,8 @@ ROI, 허용 frame 시각 차이와 detector threshold의 실제 수치는 카메
 session 없음
   + PRESENT_SINGLE·자세 3초 안정화
   + MATCHED(A) 안정화
-  → 새 sessionId, REGISTERED(A), AUTO
+  → 새 sessionId, REGISTERED(A), controlMode=AUTO, activityMode=기본
+  → A 기본 LED 적용
   → 2초 최초 이동 지연
   → 조건 유지 시 A의 자세 높이 목표
 ```
@@ -133,7 +135,7 @@ session 없음
 session 없음
   + PRESENT_SINGLE·자세 3초 안정화
   + 등록 사용자 미확정
-  → 새 sessionId, ANONYMOUS, AUTO
+  → 새 sessionId, ANONYMOUS, controlMode=AUTO, activityMode 없음
   → 2초 최초 이동 지연
   → SITTING이면 75cm, STANDING이면 110cm
 ```
@@ -145,7 +147,7 @@ session 없음
 ## session 연속성과 얼굴 관측
 
 fresh한 `PRESENT_SINGLE`이 끊기지 않는 동안 얼굴이 계속 보이지 않아도 현재 session,
-profile 귀속과 mode를 유지한다. v1에는 주기적 얼굴 재확인 timeout을 두지 않으며 등록
+profile 귀속, control mode와 activity mode를 유지한다. v1에는 주기적 얼굴 재확인 timeout을 두지 않으며 등록
 session의 AUTO 자세 제어와 Agent 대화 session도 계속 사용할 수 있다. 단, 아래의
 `MULTIPLE`·count 불일치 정책에서는 보존만 하고 개인화에 접근하지 않는다.
 
@@ -160,20 +162,20 @@ session의 AUTO 자세 제어와 Agent 대화 session도 계속 사용할 수 �
 익명 session 중 A 얼굴이 안정적으로 확인되면 profile만 제자리에서 바꾸지 않고 새
 `REGISTERED` session ID를 발급한다.
 
-- 익명 mode가 `AUTO`이면 현재 fresh 자세를 이어 받아 A의 profile 높이로 즉시 목표를
-  교체한다. `initialAutoMoveDelaySeconds`를 다시 적용하지 않는다.
+- 익명 control mode가 `AUTO`이면 A의 기본 작업 모드를 활성화하고 현재 fresh 자세를 이어
+  받아 기본 모드 높이로 즉시 목표를 교체한다. `initialAutoMoveDelaySeconds`를 다시 적용하지 않는다.
 - 기존 익명 AUTO 목표가 진행 중이면 `DeskController.set_target()`의 기존 안전 전환대로
   STOP 확인 후 현재 높이에서 새 목표와 방향을 계산한다.
-- 익명 mode가 `MANUAL`이면 새 등록 session도 `MANUAL`로 시작하고 진행 중인 명시적 수동
-  의도를 AUTO가 덮어쓰지 않는다.
-- 익명 session ID, custom preset 권한과 Agents SDK 대화 history는 새 등록 session에
+- 익명 control mode가 `MANUAL`이면 새 등록 session도 `MANUAL`을 보존하고 A의 기본 작업
+  모드와 LED만 적용한다. 진행 중인 명시적 수동 의도를 AUTO가 덮어쓰지 않는다.
+- 익명 session ID, 작업 모드 권한과 Agents SDK 대화 history는 새 등록 session에
   상속하지 않는다.
 
 ### 등록 사용자 A에서 B로
 
 B의 한 frame 후보만으로 전환하지 않는다. B가 안정화되면 A의 AUTO generation과 진행
-AUTO 이동을 STOP하고 A session을 종료한 뒤 새 B session을 `AUTO`로 시작한다. A의 mode,
-자세 후보, 목표와 preset은 상속하지 않으며 B 자세를 처음부터 안정화한다.
+AUTO 이동을 STOP하고 A session을 종료한 뒤 새 B session을 `AUTO`와 B 기본 작업 모드로
+시작한다. A의 두 mode, 자세 후보와 목표는 상속하지 않으며 B 자세를 처음부터 안정화한다.
 
 ### 등록 사용자 A에서 익명 사용자로
 
@@ -185,7 +187,7 @@ A 얼굴이 안 보이거나 품질이 낮다는 이유로 전환하지 않는�
 
 ### 다중 사용자와 count 불일치
 
-`MULTIPLE`, 카메라 count 불일치 또는 관측 연속성 단절에서는 현재 session과 mode를
+`MULTIPLE`, 카메라 count 불일치 또는 관측 연속성 단절에서는 현재 session과 두 mode를
 유지하되 AUTO generation과 진행 AUTO 이동을 즉시 STOP하고 자세 후보를 초기화한다.
 Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
 
@@ -196,20 +198,25 @@ Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
   않는다. 일반 비개인화 질문은 해당 Wake Word·follow-up 묶음에만 유효한 임시 session으로
   처리한다.
 
-## mode와 명시적 수동 제어
+## 제어 방식, 작업 모드와 명시적 수동 제어
 
-- 모든 등록·익명 새 session은 `AUTO`로 시작한다. 단, 익명 `MANUAL`에서 동일 사용자의
+- 모든 등록·익명 새 session은 `controlMode=AUTO`로 시작한다. 단, 익명 `MANUAL`에서 동일 사용자의
   등록 identity만 확정되는 전환은 명시적 수동 의도를 보존한다.
-- session 안에서 HOLD, 직접 목표와 현재 session preset을 실행하면 먼저 `MANUAL`로
-  전환하고 AUTO generation을 무효화한다.
-- 사용자 STOP은 활성 session을 `MANUAL`로 만들지만 Vision·장치 안전 STOP은 기존 mode를
-  보존한다. session 종료 STOP은 mode를 제거한다.
+- 등록 session은 profile의 기본 작업 모드를 active snapshot으로 선택하고 기본 LED를 적용한다.
+  익명 session은 activity mode가 없고 75/110cm 기본 높이를 사용한다.
+- HOLD와 직접 목표는 먼저 `MANUAL`로 전환하고 AUTO generation을 무효화하되 active 작업
+  모드는 유지한다.
+- 사용자 STOP은 활성 session을 `MANUAL`로 만들지만 Vision·장치 안전 STOP은 기존 control
+  mode를 보존한다. session 종료 STOP은 두 mode를 제거한다.
 - 시간 경과로 `MANUAL → AUTO` 전환하지 않는다.
 - 명시적 AUTO 재활성화는 같은 session에서 사용자가 `MANUAL`에서 `AUTO`를 다시 선택하는
   명령이다. 진행 이동 STOP, 자세 후보 초기화 후 fresh 자세를 5초 다시 안정화한다.
 - session이 없어도 Dashboard HOLD, 직접 높이와 STOP을 허용한다. 이 명령은 session이나
   mode를 새로 만들지 않는다.
-- 익명 session은 기본 75/110cm 자세 preset을 사용하지만 custom preset은 갖지 않는다.
+- 작업 모드 전환은 control mode를 바꾸지 않는다. AUTO에서는 fresh 자세로 새 mode 높이를
+  안전하게 재평가하고, MANUAL에서는 LED만 적용하며 책상을 움직이지 않는다.
+- 수동 LED 변경은 session override이며 저장 mode를 바꾸지 않는다. 다음 작업 모드 전환이나
+  다음 session 시작에서 저장 색상을 다시 적용한다.
 
 Vision 불확실성은 AUTO만 차단한다. height sensor stale, MQTT/relay 미준비, 제어 범위와
 ESP32 안전 오류는 AUTO와 수동 이동을 모두 차단한다. STOP은 어느 경우에도 접수한다.
@@ -225,7 +232,8 @@ ESP32 안전 오류는 AUTO와 수동 이동을 모두 차단한다. STOP은 어
 - 서버 종료·재시작
 
 `VACANT` 종료 순서는 AUTO generation 무효화, 진행 AUTO 이동 STOP, 자세 후보 초기화,
-mode와 session 제거, park 후보 시작이다.
+두 mode와 session 제거, WLED OFF best-effort 요청, park 후보 시작이다. WLED 실패는 STOP과
+session 종료를 rollback하지 않는다.
 
 session 종료 뒤 두 카메라의 fresh한 `VACANT`가 30초 동안 계속되고 새 session·활성 수동
 의도가 없으며 장치가 준비된 경우에만 75cm `PARK` 목표를 만든다. 다음 사건은 park 대기 또는 진행
@@ -246,11 +254,13 @@ fresh한 `VACANT` 30초를 새로 관측해야 한다.
   session과 후보를 종료한다.
 - 성공·실패·취소와 무관하게 background 식별을 새로 통과해야 다음 session이 생긴다.
 - 얼굴 등록 성공 자체는 profile을 현재 사용자로 만들지 않는다.
-- 일반 profile·preset 설정 CRUD는 현재 session, mode와 책상을 움직이지 않는다.
+- 일반 profile·작업 모드 설정 CRUD는 현재 session, active snapshot, LED와 책상을 움직이지 않는다.
+- active 작업 모드 설정값은 다음 선택 또는 다음 session부터 반영하고 active custom mode
+  삭제는 `409`로 거절한다.
 - 활성 profile 삭제는 새 명령 차단, AUTO generation 무효화, STOP 시도, session 종료 후
-  `profile:<profile_id>` 장기 기억 전체 삭제를 먼저 완료하고 얼굴·preset과 profile row를
+  `profile:<profile_id>` 장기 기억 전체 삭제를 먼저 완료하고 얼굴·작업 모드와 profile row를
   삭제한다. 기억 삭제가 실패하면 profile DB를 유지하고 `503`으로 재시도를 안내한다.
-- 서버 시작 시 저장 profile은 복원하지만 현재 session, 후보, mode와 자동 intent는
+- 서버 시작 시 저장 profile은 복원하지만 현재 session, 후보, 두 mode와 자동 intent는
   복원하지 않는다.
 
 current `sessionId`가 바뀌거나 없어지면 Dashboard는 이전 session의 AI 상세 응답을 즉시
@@ -285,21 +295,21 @@ session 없음 또는 `MULTIPLE`·count 불일치 중 허용하는 일반 질문
 
 | 명령 | `expectedSessionId` | 이유 |
 | --- | --- | --- |
-| `AUTO`/`MANUAL` mode 변경 | 필수 | 다른 session mode 변경 방지 |
-| 자세별·custom preset 적용 | 필수 | 현재 session 높이와 소유권 검증 |
+| `AUTO`/`MANUAL` control mode 변경 | 필수 | 다른 session 제어 방식 변경 방지 |
+| activity mode 변경 | 필수 | 현재 session과 profile 소유권 검증 |
 | Agents SDK Desk function tool | 필수 | turn 시작 capture와 실제 실행 직전 재검증 |
 | HOLD | 불필요 | 신원 독립 명시적 수동 명령 |
 | 직접 높이 | 불필요 | 신원 독립 명시적 수동 명령 |
 | STOP/CANCEL | 검사하지 않음 | 안전 명령 우선 |
 
-동일 session ID라도 preset key와 profile 소유권은 서버에서 다시 조회한다. 여러 Dashboard,
+동일 session ID라도 activity mode key와 profile 소유권은 서버에서 다시 조회한다. 여러 Dashboard,
 background 자세 전이, 사용자 전환과 park는 같은 command lock과 generation으로 직렬화한다.
 
 공개 오류 의미는 다음과 같다.
 
 | HTTP | 의미 |
 | ---: | --- |
-| `404` | profile, preset 또는 enrollment 없음 |
+| `404` | profile, activity mode 또는 enrollment 없음 |
 | `409` | session 불일치, 현재 session 없음, 자동화 전제 불충족 또는 동시 등록 충돌 |
 | `422` | schema, 범위 또는 입력값 오류 |
 | `503` | camera, Vision, height, MQTT, relay 또는 profile 삭제에 필요한 memory 미준비 |
@@ -310,21 +320,23 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 
 ## 대표 결정표
 
-| 사건 | 현재 session | mode | AUTO/park | 진행 이동 | Dashboard |
+| 사건 | 현재 session | control/activity mode | AUTO/park | 진행 이동 | Dashboard |
 | --- | --- | --- | --- | --- | --- |
-| 한 명·자세 3초, 얼굴 미확정 | 새 익명 | AUTO | 2초 후 75/110 | 조건 유지 시 시작 | 게스트·기본 높이 |
-| 한 명·자세 3초, A 확정 | 새 A 등록 | AUTO | 2초 후 profile 높이 | 조건 유지 시 시작 | A·profile 높이 |
+| 한 명·자세 3초, 얼굴 미확정 | 새 익명 | AUTO / 없음 | 2초 후 75/110 | 조건 유지 시 시작 | 게스트·기본 높이 |
+| 한 명·자세 3초, A 확정 | 새 A 등록 | AUTO / 기본 | 2초 후 기본 mode 높이 | 조건 유지 시 시작 | A·기본 작업 모드 |
 | A 얼굴만 가려짐, 단일 재실 지속 | A 유지 | 유지 | 계속 허용 | 유지 | A 유지 |
-| 익명 중 A 얼굴 확정 | 새 A 등록 | AUTO 또는 보존 MANUAL | AUTO면 즉시 profile 목표 | 안전 목표 교체 | A로 전환 |
-| A 중 B 얼굴 안정 확인 | 새 B 등록 | 새 AUTO | B 자세 재안정화 | A AUTO STOP | B로 전환 |
-| A 중 고품질 미등록 얼굴 3초 | 새 익명 | 새 AUTO | 기본 자세 재안정화 | A AUTO STOP | 게스트로 전환 |
+| 익명 중 A 얼굴 확정 | 새 A 등록 | AUTO/MANUAL 보존 / 기본 | AUTO면 즉시 기본 mode 목표 | 안전 목표 교체 | A로 전환 |
+| A 중 B 얼굴 안정 확인 | 새 B 등록 | 새 AUTO / B 기본 | B 자세 재안정화 | A AUTO STOP | B로 전환 |
+| A 중 고품질 미등록 얼굴 3초 | 새 익명 | 새 AUTO / 없음 | 기본 자세 재안정화 | A AUTO STOP | 게스트로 전환 |
+| AUTO에서 작업 모드 변경 | 유지 | AUTO / 새 mode | fresh 자세로 새 목표 평가 | 필요 시 안전 교체 | 새 mode·LED |
+| MANUAL에서 작업 모드 변경 | 유지 | MANUAL / 새 mode | 없음 | 이동 없음 | 새 mode·LED |
 | `MULTIPLE`/count 불일치 | 기존 session 유지 | 유지 | BLOCKED | AUTO만 STOP | 자동 일시 중지 |
 | 자세 또는 관련 frame stale | 기존 session 유지 | 유지 | BLOCKED | AUTO만 STOP | 원인 표시 |
 | 안정 `VACANT` | 없음 | 없음 | PARK_WAITING | AUTO STOP | 사용자 없음 |
 | fresh `VACANT` 30초 | 없음 | 없음 | 75cm PARK | 조건 유지 시 시작 | 주차 이동 표시 |
 | park 중 사람 후보 | session 후보 | 없음 | park 취소 | PARK STOP | 사용자 확인 중 |
 | session 없는 HOLD/직접 목표 | 없음 | 없음 | 자동화 없음 | 수동 허용 | 수동 상태 |
-| 오래된 A session preset을 B에게 요청 | B 유지 | 유지 | 변경 없음 | 변경 없음 | `409` 후 새로고침 |
+| 오래된 A session mode를 B에게 요청 | B 유지 | 유지 | 변경 없음 | 변경 없음 | `409` 후 새로고침 |
 | 얼굴 등록 시작 | 없음 | 없음 | BLOCKED | AUTO STOP | 등록 진행 표시 |
 | 서버 재시작·관측 없음 | 없음 | 없음 | WAITING_USER | STOP | 준비 중 |
 
@@ -348,10 +360,12 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 - 안정 VACANT 전에 session을 끝내지 않고 fresh VACANT 30초 전에는 park하지 않는다.
 - park 중 사람 후보·수동 명령·장치 오류가 generation을 무효화하고 STOP한다.
 - 서버 재시작 직후 stale VACANT와 retained height만으로 session이나 park 목표를 만들지 않는다.
-- 이전 session ID의 mode·preset·Voice tool을 `409`로 거절하고 HOLD·직접 높이·STOP은
+- 이전 session ID의 control/activity mode·Voice tool을 `409`로 거절하고 HOLD·직접 높이·STOP은
   session 없이 처리한다.
 - 얼굴 등록·재등록·삭제 중 이전 session과 identity 결과로 AUTO 이동하지 않는다.
-- 익명 session은 custom preset과 profile 장기 기억을 읽거나 저장하지 않는다.
+- 익명 session은 activity mode와 profile 장기 기억을 읽거나 저장하지 않는다.
+- 등록 session 시작·작업 모드 전환·수동 override·session 종료의 LED 적용 순서를 검증하고,
+  WLED 실패가 작업 모드나 Desk 상태를 rollback하지 않는다.
 - session 교대·종료 시 이전 AI 상세 응답을 즉시 숨기고 늦은 turn이 다시 나타나지 않는다.
 - session 교대·종료는 이전 Agent run, 미실행 부작용 tool, TTS와 follow-up을 취소하고 SDK
   대화 session을 폐기한다.
@@ -374,7 +388,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 
 ## 완료 근거
 
-- [x] 신원·재실·자세·session·mode·자동화를 별도 축으로 확정했다.
+- [x] 신원·재실·자세·session·control mode·activity mode·자동화를 별도 축으로 확정했다.
 - [x] 등록·익명 session 시작, 유지, 전환과 종료 규칙을 확정했다.
 - [x] 두 카메라 singleton 결합과 fail-closed 범위를 확정했다.
 - [x] AUTO와 수동 제어의 Vision·장치 차단 범위를 분리했다.

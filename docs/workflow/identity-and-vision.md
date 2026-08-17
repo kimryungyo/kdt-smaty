@@ -10,7 +10,8 @@
 CameraPublisher.start()
   → RtspFrameSource.start()
   → frame 전처리
-  → PresenceDetector / FaceRecognizer / PostureDetector
+  → PresenceDetector / shared FaceDetector / PostureDetector
+  → fresh face box를 FaceRecognizer가 재사용
   → VisionStateService
   → CurrentUserSessionService
 ```
@@ -66,7 +67,7 @@ session snapshot은 최소한 다음 필드를 가진다.
 | `startedAt` | session 시작 시각 |
 | `changedAt` | 마지막 session 변경 시각 |
 
-session이 없으면 위 객체 전체가 `null`이다. mode와 자동화 상태는 별도
+session이 없으면 위 객체 전체가 `null`이다. control/activity mode와 자동화 상태는 별도
 `AutomationSnapshot`이 같은 session ID에 연결한다.
 
 ### session 시작
@@ -79,7 +80,9 @@ session이 없으면 위 객체 전체가 `null`이다. mode와 자동화 상태
 - 익명 session을 위해 가짜 profile이나 공용 얼굴 row를 만들지 않음
 
 얼굴이 전혀 보이지 않아도 익명 session을 시작할 수 있다. 등록·익명 session은 모두
-`AUTO`로 시작하며 최초 자동 목표는 session 생성 후 2초 동안 조건이 유지돼야 한다.
+`controlMode=AUTO`로 시작한다. 등록은 profile의 기본 작업 모드와 LED를 적용하고 익명은
+activity mode 없이 75/110cm 높이 정책을 사용한다. 최초 자동 목표는 session 생성 후 2초
+동안 조건이 유지돼야 한다.
 
 ### 얼굴이 보이지 않을 때
 
@@ -89,8 +92,8 @@ false negative는 사용자 변경 근거가 아니다.
 
 ### 사용자 전환
 
-- 익명 중 A가 안정적으로 식별되면 새 등록 session ID를 발급한다. 익명 AUTO이면 현재
-  자세로 A의 profile 목표를 안전하게 교체하고, 익명 MANUAL이면 MANUAL을 보존한다.
+- 익명 중 A가 안정적으로 식별되면 새 등록 session ID와 A의 기본 작업 모드를 적용한다. 익명
+  AUTO이면 현재 자세로 기본 mode 목표를 안전하게 교체하고, 익명 MANUAL이면 MANUAL을 보존하고 LED만 적용한다.
 - A 중 B가 안정적으로 식별되면 A AUTO를 STOP하고 A session을 종료한 뒤 B 새 AUTO
   session과 자세 안정화를 시작한다.
 - A 중 고품질 `UNKNOWN_FACE`가 3초 안정화되면 A AUTO와 session을 종료하고 새 익명 AUTO
@@ -102,14 +105,15 @@ false negative는 사용자 변경 근거가 아니다.
 ### session 종료
 
 안정화된 `VACANT`, 다른 사용자 전환, 얼굴 등록·재등록·삭제 시작, 활성 profile 삭제와
-서버 종료·재시작에서 session을 종료한다. 서버 시작 시 저장 profile은 남지만 과거 session,
-후보와 mode는 복원하지 않는다.
+서버 종료·재시작에서 session을 종료한다. 종료·교대 시 WLED OFF를 best-effort로 요청하되
+실패가 STOP과 session 전이를 rollback하지 않는다. 서버 시작 시 저장 profile은 남지만 과거
+session, 후보와 두 mode는 복원하지 않는다.
 
 ## 얼굴 식별
 
 ```text
 최신 상단 frame
-  → freshness와 얼굴 수 검사
+  → shared FaceDetector의 fresh box와 얼굴 수 검사
   → 얼굴 정렬·품질 검사
   → FaceEmbeddingExtractor(executor)
   → 등록 embedding 비교
@@ -118,8 +122,10 @@ false negative는 사용자 변경 근거가 아니다.
   → CurrentUserSessionService 전이
 ```
 
-`FaceEmbeddingExtractor` model은 애플리케이션 시작 시 한 번 load하고 얼굴 등록과 식별이 같은
-인스턴스를 사용한다. model이 동시 호출을 지원하지 않으면 작은 내부 lock으로 직렬화한다.
+얼굴 detector는 재실 관측과 신원 식별이 같은 최신 결과를 공유하며 두 loop에서 중복 실행하지
+않는다. `FaceEmbeddingExtractor` model도 애플리케이션 시작 시 한 번 load하고 얼굴 등록과
+식별이 같은 인스턴스를 사용한다. model이 동시 호출을 지원하지 않으면 작은 내부 lock으로
+직렬화한다.
 
 ## 얼굴 등록
 
@@ -134,7 +140,7 @@ background enrollment
   → 한 명의 얼굴 확인
   → 서로 다른 시점의 품질 표본 수집
   → 임베딩 추출과 표본 일관성 검사
-  → profile ID에 원자적으로 저장
+  → 유효 embedding 3~5개를 profile ID에 개별 row로 원자 저장
 ```
 
 등록 상태는 다음과 같다.
@@ -145,7 +151,8 @@ IDLE → WAITING_FACE → CAPTURING → PROCESSING → SUCCEEDED
 ```
 
 snapshot에는 enrollment/profile ID, 상태, 필요·채택 표본 수, 시각과 `failureCode`만 노출한다.
-얼굴 이미지와 embedding vector는 반환하지 않는다. 등록 중 재실·자세는 계속 관측하지만 새
+얼굴 이미지와 embedding vector는 반환하지 않는다. 평균 vector 하나로 합치지 않으며 재등록은
+새 3~5개 집합이 완성된 뒤 기존 집합을 transaction으로 교체한다. 등록 중 재실·자세는 계속 관측하지만 새
 identity와 AUTO는 발행하지 않는다.
 
 등록 성공·실패·취소 자체는 현재 사용자를 설정하거나 이전 session을 복원하지 않는다. 일반

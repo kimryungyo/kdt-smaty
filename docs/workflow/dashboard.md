@@ -8,7 +8,7 @@ Dashboard는 profile 설정, 서버 상태 확인, 책상 수동 명령과 AI �
 ```text
 DASHBOARD `/`
   ├─ 서버 현재 사용자·자세·제어 상태 표시
-  ├─ 높이 preset·직접 제어
+  ├─ 제어 방식·작업 모드·직접 제어
   ├─ AI 상세 응답 표시
   └─ 우측 상단 설정 → PROFILE_LIST `/settings/profiles`
 
@@ -19,8 +19,8 @@ PROFILE_LIST `/settings/profiles`
                     → FACE_ENROLLMENT → PROFILE_LIST
 
 PROFILE_SETTINGS
-  ├─ 이름·자세별 높이·조명 수정
-  ├─ 사용자 높이 preset CRUD
+  ├─ 이름·기본 작업 모드 수정
+  ├─ 사용자 작업 모드 CRUD
   ├─ 얼굴 재등록·삭제
   └─ 저장 또는 취소 → PROFILE_LIST
 
@@ -49,9 +49,9 @@ WLED 색상에 사용된다.
 ## profile 목록
 
 1. `GET /api/profiles`로 설정 가능한 profile을 조회한다.
-2. 카드에는 이름, 앉은 높이, 선 높이와 얼굴 등록 여부를 표시한다.
+2. 카드에는 이름, 기본 모드의 앉기·서기 높이와 얼굴 등록 여부를 표시한다.
 3. 카드를 누르면 해당 profile 설정 화면을 연다.
-4. 이 동작은 현재 사용자나 제어 모드를 변경하지 않고 책상을 움직이지 않는다.
+4. 이 동작은 현재 사용자, 제어 방식이나 작업 모드를 변경하지 않고 책상을 움직이지 않는다.
 5. 현재 문구인 “프로필을 선택하면 저장된 높이로 책상이 자동으로 이동합니다”는
    “프로필을 선택해 설정을 확인하거나 수정합니다”로 변경한다.
 
@@ -68,12 +68,13 @@ WLED 색상에 사용된다.
 ### 2단계: 책상 설정
 
 1. 앉은 높이와 선 높이를 75~115cm에서 입력한다.
-2. 최신 높이가 `ONLINE`일 때만 “현재 높이 사용”으로 draft에 복사한다.
-3. 자세 전환 확인 시간은 모든 사용자가 5초로 고정이며 입력값으로 받거나 profile에 저장하지
+2. 기본 작업 모드에 적용할 LED 색상을 선택하며 색상 없음은 session 적용 시 OFF를 뜻한다.
+3. 최신 높이가 `ONLINE`일 때만 “현재 높이 사용”으로 draft에 복사한다.
+4. 자세 전환 확인 시간은 모든 사용자가 5초로 고정이며 입력값으로 받거나 profile에 저장하지
    않는다. 필요하면 읽기 전용 안내만 표시한다.
-4. 제어 모드는 profile에 저장하지 않으며 새 등록·익명 session은 항상 `AUTO`로 시작한다.
-5. 완료 시 기본 정보와 책상 설정을 한 profile 생성 요청으로 저장한다.
-6. 생성된 profile ID로 얼굴 등록 단계로 이동한다.
+5. 제어 방식은 profile에 저장하지 않으며 새 등록·익명 session은 항상 `AUTO`로 시작한다.
+6. 완료 시 기본 정보와 책상 설정을 한 profile 생성 요청으로 저장한다.
+7. 생성된 profile ID로 얼굴 등록 단계로 이동한다.
 
 ### 3단계: 얼굴 등록
 
@@ -94,19 +95,23 @@ WLED 색상에 사용된다.
 | --- | --- |
 | 사용자 | 등록·익명 `CurrentUserSnapshot`과 연결 profile |
 | 현재 자세 | 재실·자세·관측 시각과 freshness |
-| 제어 모드 | `AUTO`/`MANUAL`, 전환 시각과 이유 |
-| 높이 preset | 등록 사용자의 자세별·custom 목록 또는 익명 기본 75/110cm |
+| 제어 방식 | `AUTO`/`MANUAL`, 전환 시각과 이유 |
+| 작업 모드 | 등록 사용자의 기본·custom mode와 높이·LED; 익명은 없음 |
 | 자동화 | 안정화 진행, 목표와 차단 이유 |
 | 책상 | Desk·height·relay snapshot |
 | 조명 | WLED snapshot |
 | AI | 같은 Assistant `turnId`의 progress/tool/final phase와 화면용 상세 응답 |
 
-익명 session은 “인식 실패” 대신 “게스트”와 기본 75/110cm를 표시하고 custom preset과
-profile 설정은 제공하지 않는다. session이 없으면 사용자 전용 preset과 profile 값을 메인
-제어에 사용하지 않지만 HOLD·직접 높이·STOP은 제공한다. mode·preset 요청에는 화면이 읽은
+익명 session은 “인식 실패” 대신 “게스트”와 기본 75/110cm를 표시하고 custom 작업 모드와
+profile 설정은 제공하지 않는다. session이 없으면 사용자 전용 작업 모드와 profile 값을 메인
+제어에 사용하지 않지만 HOLD·직접 높이·STOP은 제공한다. control/activity mode 요청에는 화면이 읽은
 `expectedSessionId`를 자동으로 첨부하고 `409`이면 snapshot을 다시 읽는다. 사용자가 session
 ID를 직접 입력하지 않는다. “SYSTEM ONLINE” 한 값으로 모든 기능을 표현하지 않고 기능별
 상태를 표시한다.
+
+등록 session 시작 시 기본 작업 모드와 LED를 표시한다. 작업 모드를 바꾸면 AUTO에서는 fresh
+자세에 맞는 새 높이를 재평가하고, MANUAL에서는 LED만 적용하며 책상은 움직이지 않는다.
+수동 LED 변경은 현재 session override로 표시하고 저장된 작업 모드 값처럼 보이지 않게 한다.
 
 current `sessionId`가 바뀌거나 없어지면 이전 session의 AI 상세 응답을 즉시 숨긴다. 늦게
 완료된 이전 turn도 화면에 다시 나타나지 않게 turn의 session ID를 현재 snapshot과 비교한다.
@@ -117,10 +122,10 @@ current `sessionId`가 바뀌거나 없어지면 이전 session의 AI 상세 응
 
 - profile 설정을 열어도 현재 사용자는 바뀌지 않는다.
 - 얼굴 등록은 일반 profile PATCH와 분리해 재등록·삭제한다.
-- 사용자 preset은 profile 설정 화면에서 별도 CRUD로 관리한다.
+- 사용자 작업 모드는 profile 설정 화면에서 별도 CRUD로 관리한다.
 - 현재 사용자 profile을 삭제하면 서버가 먼저 자동화를 중지하고 책상을 STOP한 뒤 현재
   session을 제거한다. 신원 관측의 `UNKNOWN`과 session 없음은 서로 다른 상태다.
-- profile 삭제는 profile, 얼굴 임베딩, 사용자 preset과 장기 기억 전체 삭제를 확인받는다.
+- profile 삭제는 profile, 얼굴 임베딩, 사용자 작업 모드와 장기 기억 전체 삭제를 확인받는다.
   장기 기억 삭제에 실패하면 profile DB를 보존하고 재시도를 안내한다.
 
 ## Vision debug

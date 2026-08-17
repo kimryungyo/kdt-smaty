@@ -31,7 +31,9 @@ Voice가 활성화되면 media 뒤 lifecycle order 70에 aggregate `VoiceService
 `voice-main` 순서다. 종료에서는 새 입력을 막고 현재 turn과 speaker buffer를 취소한 뒤
 microphone, detector, speaker와 OpenAI client를 닫으므로 Desk STOP과 media 종료보다
 먼저 끝난다. Voice 장치 시작 실패는 service 내부 `ERROR`로 처리해 애플리케이션
-readiness를 내리지 않는다.
+readiness를 내리지 않는다. WLED와 Voice는 선택 기능이며 `enabled=false`는 정상
+`DISABLED`다. 활성화한 기능의 정적 구성 오류는 명시적으로 실패시키고 runtime 단절은 해당
+기능 snapshot으로 표현한다.
 
 ## 단기 프로젝트 실행 기준
 
@@ -114,6 +116,13 @@ SQLite의 동기 API는 각 operation마다 `asyncio.to_thread()`로 event loop 
 실행한다. 하나의 `asyncio.Lock`이 read/write와 종료를 직렬화하며, 호출 coroutine이
 취소돼도 worker의 commit 또는 rollback과 connection close가 끝날 때까지 lock을
 유지한다. connection은 operation마다 worker thread 안에서 열고 닫는다.
+
+운영 relay transport는 Wi-Fi/MQTT이며 serial bridge resource를 시작·종료 순서에 추가하지
+않는다. Arduino 높이 USB serial은 센서 입력이므로 별도 연결로 유지한다.
+
+전역 readiness는 모든 API의 공통 권한 검사가 아니다. profile CRUD와 상태 조회는 관련
+service가 준비되면 응답하고, 실제 이동은 명령 지점에서 fresh height, MQTT와 ESP32 relay
+상태를 각각 확인한다. WLED·Voice 장애는 해당 기능만 degraded다.
 
 ## 장기 실행 작업
 

@@ -28,21 +28,26 @@ Voice runtime의 확정 목표는 [Agents SDK 음성 파이프라인 전환 결�
 따른다. 사용자 session·물리 제어·STOP은 task 01 계약이 우선하고, model·STT·TTS·VAD,
 function tool과 SDK memory 구현은 Agents SDK 문서가 우선한다.
 
-## 진행 순서
+## Task 목록과 의존성
+
+번호는 책임 영역을 찾기 위한 식별자이며 이번 구현의 엄격한 직렬 순서가 아니다. 특히 legacy
+Voice를 새 lifecycle에 굳히지 않기 위해 task 08의 Agents SDK core를 task 02의 최종 Voice
+lifecycle 연결보다 먼저 수행한다.
 
 | 순서 | 작업 | 핵심 결과 | 상태 | 선행·비고 |
 | ---: | --- | --- | --- | --- |
 | 01 | [상태·워크플로우 계약 확정](01-workflow-contracts.md) | 구현 가능한 상태·전이·API 기준 | 완료 | - |
-| 02 | [필수 서비스 수명주기](02-required-services.md) | WLED·Agents Voice runtime 필수 시작 | 착수 가능 | 01 계약 준수 |
-| 03 | [프로필과 높이 프리셋](03-profile-and-presets.md) | profile 설정과 사용자 preset 저장 | 착수 가능 | 데이터 정책 확정 |
+| 02 | [서비스 수명주기와 준비 상태](02-required-services.md) | 시작·이동 필수 조건과 선택 기능 degraded 분리 | 착수 가능 | 08 Agents core 뒤 최종 연결 |
+| 03 | [프로필과 작업 모드](03-profile-and-presets.md) | 활동별 앉기·서기 높이와 LED 저장 | 착수 가능 | SQLite v2→v3 |
 | 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 착수 가능 | 실물 ROI·모델 보정만 장치 대기 |
 | 05 | [얼굴 식별과 사용자 세션](05-face-identity-session.md) | 얼굴 등록·식별과 서버 현재 사용자 | 대기 | 03·04 공개 계약 |
-| 06 | [책상 자동화](06-desk-automation.md) | `AUTO`/`MANUAL`과 자세 기반 이동 | 대기 | 03·05 |
+| 06 | [책상 자동화](06-desk-automation.md) | 제어 방식·작업 모드와 자세 기반 이동 | 대기 | 03·05 |
 | 07 | [Dashboard 워크플로우](07-dashboard-workflow.md) | 설정 대상과 현재 사용자 분리 | 대기 | 설정 화면은 03 뒤, 완료는 05·06 뒤 |
 | 08 | [Agents SDK 음성과 AI 사용자 문맥](08-ai-user-context.md) | VoicePipeline·session memory·Mem0·화면 응답 | 착수 가능 | Voice core는 즉시, 사용자·tool·화면 연결은 02·05·06·07 |
 | 09 | [통합·실물 검증](09-system-validation.md) | 장애·복구·실제 동작 증거 | 대기 | 02~08 기능 구현 |
 
-02는 다른 기능과 독립적으로 진행할 수 있다. 04는 실제 하단 카메라가 없어도 fake frame과
+실제 착수는 08의 Agents SDK core 교체를 먼저 하고 02에서 최종 Voice lifecycle을 연결한다.
+02의 readiness·Desk 분류 정리는 Agents core와 병행할 수 있다. 04는 실제 하단 카메라가 없어도 fake frame과
 detector adapter로 snapshot·freshness·안정화·API를 먼저 구현할 수 있고, ROI와 threshold
 보정만 장치 연결 뒤 완료한다. 03도 04와 병행할 수 있다. 05는
 profile 저장과 Vision 관측을 결합하며, 06은 이 사용자 세션을 기준으로 서버 제어 정책을
@@ -51,9 +56,10 @@ profile 저장과 Vision 관측을 결합하며, 06은 이 사용자 세션을 �
 사용자 session·기억·Desk tool·Dashboard 연결은 02·05·06·07의 공개 계약이 준비된 뒤 완성한다.
 
 키 필드는 제거하고 자세 전환 확인 시간은 전체 고정 5초로 사용한다. profile 삭제 시 장기
-기억까지 삭제하며, session 교대·종료 시 이전 AI 상세 응답은 즉시 숨긴다. preset 이름
-정규화, SQLite cascade 구현 방식, 얼굴 embedding 형식, detector threshold와
-Dashboard 전송 방식은 공개 동작을 바꾸지 않는 한 해당 task에서 기술 검증으로 결정한다.
+기억까지 삭제하며, session 교대·종료 시 이전 AI 상세 응답은 즉시 숨긴다. 작업 모드 이름
+정규화와 SQLite cascade 구현 방식, embedding 직렬화 형식, detector threshold는 해당 task에서
+기술 검증으로 결정한다. 얼굴 등록은 profile당 서로 다른 시점의 embedding 3~5개를 개별
+저장하고, Dashboard AI 응답은 최신 turn 하나를 polling한다.
 
 09는 마지막에 한 번만 수행하는 작업이 아니다. 각 단계에서 자동 검증을 누적하고, 실제
 장치가 필요한 항목만 최종 단계에서 제한적으로 실행한다.
@@ -62,10 +68,11 @@ Dashboard 전송 방식은 공개 동작을 바꾸지 않는 한 해당 task에�
 
 - MQTT, Arduino 높이 입력과 ESP32 relay 계약이 구현돼 있다.
 - `DeskController`가 목표 이동, HOLD, STOP과 기본 안전 정책을 소유한다.
-- SQLite version 1 profile CRUD와 React Dashboard 골조가 구현돼 있다.
+- SQLite version 2 profile CRUD·height cache와 React Dashboard 골조가 구현돼 있다.
 - user·workspace·posture 세 카메라 역할의 `CameraPublisher`와 최신 프레임
   `RtspFrameSource`가 구현돼 있다.
-- WLED와 Voice 기능 코드는 있지만 생성·시작 여부가 아직 `enabled` 설정에 의존한다.
+- WLED와 Voice는 선택 기능이며 `enabled=false`는 정상 `DISABLED`다. 활성화한 기능의 잘못된
+  정적 구성은 명시적으로 실패하고 runtime 단절은 기능별 degraded로 표시한다.
 - Voice는 아직 legacy 수동 STT→Responses/tool loop→TTS 경로이며 Agents SDK 전환은 목표
   문서와 별도 기능 브랜치에만 있다.
 - 얼굴·재실·자세 추론, 현재 사용자 세션과 `AutomationService`는 아직 없다.
@@ -90,14 +97,16 @@ task 상태는 다음 값 중 하나를 사용한다.
 
 ## 공통 구현 원칙
 
-- 서버가 사용자, Vision, mode와 자동화 상태를 소유한다.
+- 서버가 사용자, Vision, `controlMode`, `activityMode`와 자동화 상태를 소유한다.
 - Dashboard는 profile 설정 입력, 명령 전달과 서버 snapshot 표시를 담당한다.
 - Dashboard에서 연 profile은 현재 사용자가 아니며 얼굴 인식으로 편집 화면을 바꾸지 않는다.
 - Vision, 높이 센서, MQTT 또는 relay 상태가 불확실하면 자동 이동을 허용하지 않는다.
-- 등록 사용자가 확정되지 않아도 단일 재실이면 익명 session과 기본 75/110cm AUTO를 사용한다.
+- 등록 session은 기본 작업 모드, 익명 session은 작업 모드 없이 75/110cm AUTO를 사용한다.
 - 안정 VACANT 뒤 fresh 30초가 이어진 경우에만 75cm park를 허용한다.
 - 모든 책상 이동은 `DeskController`를 통한다. STOP은 사용자 식별이나 session 일치 여부로
   거절하지 않는다.
+- Arduino 높이와 Wi-Fi/MQTT ESP32 상태는 이동에 필수다. WLED·Voice 장애는 Desk·profile
+  기능을 막지 않는다.
 - Agent function tool은 기존 public domain service만 호출하며 SDK 타입이나 tool argument가
   물리 안전·session 검증을 우회하지 않는다.
 - 얼굴 원본과 crop은 기본 저장하지 않으며 얼굴 식별을 보안 인증으로 취급하지 않는다.

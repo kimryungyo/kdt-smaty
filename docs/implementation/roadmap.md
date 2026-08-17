@@ -31,6 +31,8 @@ Python·fake 검증과 firmware clean build는 완료했다. relay 분리 board 
 - `ProfileRepository`, `DashboardService`, FastAPI 라우트를 구현했다.
 - 상태 조회, 수동 제어, 목표 설정, 프로필 CRUD를 연결했다.
 - `/api` 계약과 계약 테스트는 [Dashboard HTTP API](../api-dashboard.md)에 확정했다.
+- 후속 profile 작업은 SQLite v3 `profile_modes`로 독서·공부 같은 작업 모드의 앉기·서기
+  높이와 LED를 저장한다. 기존 단일 높이 custom preset은 추가하지 않는다.
 
 완료 조건: 브라우저에서 실제 높이·Desk 상태를 보고 안전한 수동/목표 제어를 할 수 있다.
 
@@ -50,6 +52,7 @@ Python·fake 검증과 firmware clean build는 완료했다. relay 분리 board 
 ## 4단계: 자동화와 외부 표시
 
 - `AutomationService`로 Vision·프로필·Desk 상태를 조합한다.
+- `controlMode`와 `activityMode`를 분리하고 active 작업 모드로 높이·WLED를 적용한다.
 - 불확실·다중 사용자·오래된 Vision 상태에서 STOP하는 규칙을 구현한다.
 - WLED와 운영용 MQTT 상태 발행을 연결한다.
 

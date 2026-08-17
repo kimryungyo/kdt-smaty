@@ -33,6 +33,8 @@ SDK 대화 session과 Mem0 adapter의 기준이다. [task 01 상태·워크플�
 | Mem0 배포 | Main process와 같은 `fin-main` container에 library로 포함, 데이터만 volume으로 영속화 |
 | 기존 gateway | `OpenAiGateway`와 수동 Responses/tool loop 제거 |
 | 전환 방식 | 별도 feature branch를 rollback 경계로 사용하고 legacy/SDK 이중 실행 flag는 두지 않음 |
+| 초기 orchestration | 단일 Agent + Runner + 제한된 function tool, handoff·다중 Agent 제외 |
+| Dashboard 전달 | 현재 session의 최신 Assistant turn 하나를 HTTP polling |
 
 OpenAI 공식 문서 기준으로 `gpt-5.6-terra`는 성능과 비용 균형형 모델이고 low reasoning은
 latency가 중요한 작업의 선택지다. `gpt-4o-transcribe`는 기존 Whisper 계열보다 정확도와
@@ -178,6 +180,7 @@ hosted tool 또는 `function_tool`로 옮긴다. 도메인 서비스와 오류 �
 - Web 검색: SDK hosted web search
 - WLED: 기존 WLED public service를 감싼 function tool
 - Desk: 향후 `AutomationService` public API만 호출하는 function tool
+- 작업 모드: `AutomationService`의 activity mode command를 호출하는 function tool
 - Camera/crop/OCR: 해당 task가 구현될 때 function/hosted tool로 추가
 - 장기 기억: Agent에 Mem0 SDK를 직접 노출하지 않고 `MemoryService` 정책을 통함
 
@@ -185,6 +188,10 @@ hosted tool 또는 `function_tool`로 옮긴다. 도메인 서비스와 오류 �
 `AutomationService` public API를 실제 호출하기 직전에, turn 시작 시 캡처한 `sessionId`가
 여전히 현재 session인지 검증한다. 검증 성공 자체를 이후 실행 권한으로 오래 보관하지 않는다.
 STOP 성격의 안전 명령은 사용자 session과 무관하게 기존 안전 경계를 따른다.
+
+작업 모드 tool은 이름이나 key를 현재 등록 profile에서 다시 조회하고 turn 시작 `sessionId`를
+실행 직전에 검증한다. AUTO에서는 새 mode의 자세 높이를 재평가하고 MANUAL에서는 책상을
+움직이지 않는다. WLED 수동 변경은 저장 mode를 수정하지 않는 session override다.
 
 ## 6. 조건부 follow-up과 half-duplex
 
@@ -322,6 +329,10 @@ Mem0를 직접 운영해도 현재 기본안의 기억 추출과 embedding 요�
 | `VoiceService` | 유지·단순화 | hardware, state와 half-duplex 조정 |
 | `OpenAiTurnError` | 교체 | provider 중립 `VoiceTurnError` |
 | `AssistantReply.next_action` | 교체 | `request_followup` control tool |
+
+Dashboard AI 전달은 `GET /api/assistant/latest` polling으로 구현한다. 서버는 현재 session의
+최신 turn 하나만 보관·노출하고, SSE·WebSocket·전체 chat history 저장소는 추가하지 않는다.
+`turnId`, `sessionId`와 증가하는 `sequence`가 진행 안내·tool 상태·최종 결과의 순서를 지킨다.
 
 초기 dependency 기준은 다음 조합으로 lock과 전체 test를 다시 생성한다.
 

@@ -675,7 +675,7 @@ Dashboard 관리 UI와 연결 API는 이번 문서에서 설계하지 않는다.
 보장할 수 있도록 `MemoryService` 내부 계약은 기억 조회·수정·개별 삭제·전체 삭제를
 지원해야 한다.
 
-profile 삭제는 `profile:<profile_id>`의 전체 기억 삭제가 성공한 뒤에만 얼굴·preset과
+profile 삭제는 `profile:<profile_id>`의 전체 기억 삭제가 성공한 뒤에만 얼굴·작업 모드와
 profile DB row를 삭제한다. memory adapter 오류나 timeout이면 profile DB를 유지하고 기능별
 `503`을 반환해 재시도할 수 있게 한다. 삭제 도중 활성 session과 자동화는 task 01의 STOP·종료
 순서를 먼저 적용한다.

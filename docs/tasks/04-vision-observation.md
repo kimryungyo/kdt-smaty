@@ -6,8 +6,9 @@
 인원수, 재실과 앉음·섬 상태를 제공한다. 카메라나 모델이 불확실하면 오래된 결과 대신
 명확한 `UNKNOWN`과 차단 근거를 반환한다.
 
-이 작업은 얼굴로 profile을 식별하지 않는다. 사람과 자세의 관측 기반을 먼저 만들고,
-[얼굴 식별과 사용자 세션](05-face-identity-session.md)이 신원과 결합한다.
+이 작업은 얼굴로 profile을 식별하지 않는다. 다만 상단 재실 count에 필요한 얼굴 검출 결과는
+한 번만 만들고 공유한다. [얼굴 식별과 사용자 세션](05-face-identity-session.md)은 이 fresh
+얼굴 box를 받아 정렬·품질 검사·embedding·profile 비교를 수행한다.
 
 ## 현재 상태
 
@@ -61,6 +62,8 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 - [ ] 설정 기반 카메라 경로·방향·해상도·FPS와 책상 ROI 구조를 만들고 실물 연결 뒤 값을 확인한다.
 - [ ] 카메라별 처리 주기, frame 만료와 detector 결과 만료 설정을 정의한다.
 - [ ] 상단 몸체/얼굴과 하단 하체의 책상 ROI 및 singleton 결합을 구현한다.
+- [ ] 상단 얼굴 detector를 한 번 load·실행하고 fresh box/count snapshot을 task 05가 재사용할
+  수 있게 한다. task 05가 별도 얼굴 detector loop를 만들지 않게 한다.
 - [ ] 같은 frame을 중복 추론하지 않도록 frame sequence 또는 captured time을 추적한다.
 - [ ] resize, crop과 색공간 변환을 담당하는 최소 전처리 경계를 구현한다.
 
@@ -84,7 +87,7 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 
 ## 제외 범위
 
-- 얼굴 임베딩, 등록 profile 비교와 현재 사용자 session
+- 얼굴 정렬·품질 검사·임베딩, 등록 profile 비교와 현재 사용자 session
 - 카메라 간 범용 사람 Re-ID 또는 장기 trajectory 저장
 - 영상 녹화, raw frame DB 저장과 FastAPI JPEG polling API
 - 자세에 따른 실제 책상 이동
@@ -110,4 +113,4 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 - 재실·자세·인원수와 각 관측 freshness를 API로 독립 조회할 수 있다.
 - 불확실·다중·불일치·오래된 결과가 자동화 가능 상태로 표현되지 않는다.
 - Dashboard·STOP event loop와 frame memory가 추론 지연의 영향을 받지 않는다.
-- 얼굴 task가 source나 detector loop를 다시 만들지 않고 Vision 관측을 입력으로 사용할 수 있다.
+- 얼굴 task가 source나 얼굴 detector loop를 다시 만들지 않고 fresh 검출 결과를 입력으로 사용할 수 있다.

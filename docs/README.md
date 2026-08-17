@@ -43,6 +43,7 @@ health API에 더해 MQTT, Arduino 높이 입력, ESP32 relay, 목표·HOLD·STO
 | [Voice third-party](third-party/voice.md) | Voice dependency를 설치·배포할 때 | livekit-wakeword와 hi_smarty_ko provenance |
 | [React 대시보드](architecture/frontend.md) | UI를 개발·배포할 때 | Vite 개발 서버, FastAPI 운영 제공 |
 | [책상 제어와 안전](architecture/desk-safety.md) | 높이·릴레이 제어를 구현할 때 | 제어 상태, STOP 우선순위, 하드웨어 경계 |
+| [제어 방식과 작업 모드](workflow/desk-control.md) | 자동화·profile mode를 구현할 때 | AUTO/MANUAL과 활동별 높이·LED 적용 |
 | [계획 및 설계 가이드](guides/README.md) | 새 구조나 작업을 제안하기 전에 | 프로젝트 규모, 복잡도, 계획·검증·커밋 판단 기준 |
 | [구현 순서](implementation/roadmap.md) | 개발 계획을 세울 때 | 2~3개월 단계와 완료 조건 |
 | [Docker 배포·분산 Vision 인수인계](implementation/containerization-handoff.md) | Docker 상세 설계와 다중 호스트 배치를 시작할 때 | 역할별 이미지, Compose, Main–Vision 계약과 검증 기준 |
@@ -65,10 +66,18 @@ health API에 더해 MQTT, Arduino 높이 입력, ESP32 relay, 목표·HOLD·STO
 - EMQX와 MediaMTX는 외부 인프라이고, FFmpeg publisher는 FastAPI lifespan이
   시작·종료하는 자식 process다.
 - `DeskController`만 릴레이 명령을 결정하고, ESP32의 독립 안전 제한은 유지한다.
+- 운영 ESP32 transport는 Wi-Fi/MQTT이고 Arduino 높이만 별도 USB serial이다. serial bridge는
+  배포·readiness·복구 범위에 포함하지 않는다.
+- Arduino 높이와 ESP32 relay 상태는 이동에 필수다. WLED·Voice는 선택 기능이며 장애는 해당
+  기능만 degraded로 만든다.
+- `controlMode`와 `activityMode`를 분리하고, profile의 기본 높이·LED는 내장 기본 작업
+  모드로 유지하며 custom mode만 SQLite v3에 추가한다.
 - 현재 critical task 실패는 readiness를 내리는 데까지만 처리한다. 실제 ESP32
   STOP 보장은 Desk 제어 루프 구현 단계에서 추가한다.
 - Voice의 `voice-main`은 non-critical이며 audio 장치나 OpenAI turn 실패가 Desk,
   Dashboard, MQTT와 media readiness를 내리지 않는다.
+- 전역 readiness는 profile CRUD와 상태 조회의 공통 권한 검사가 아니다. 이동 명령은 실행
+  직전에 height·MQTT·relay와 필요한 Vision 상태를 각각 검사한다.
 
 ## 보존 전제
 

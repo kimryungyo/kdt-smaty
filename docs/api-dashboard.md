@@ -68,6 +68,11 @@ unmount는 best-effort `STOP`을 보내며, 이 요청도 유실되면 `DeskCont
 Desk 안전 상태에서 거부된 명령을 `409`, controller·SQLite가 준비되지 않았거나 storage
 오류인 경우를 `503`으로 반환한다. 예상하지 못한 오류는 FastAPI 기본 `500`으로 남긴다.
 
+profile CRUD와 상태 조회는 전역 application readiness를 일괄 검사하지 않는다. 현재
+`sittingHeightCm`, `standingHeightCm`, `ledColor`는 내장 `기본` 작업 모드로 사용하며 custom
+작업 모드·현재 session·자동화의 목표 API는 [워크플로우 API 계약](workflow/api-contracts.md)을
+따른다.
+
 ## WLED 전체 조명
 
 WLED는 선택 장치다. `GET /api/wled/status`는 비활성화 시에도 `200`과

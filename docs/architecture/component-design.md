@@ -298,9 +298,9 @@ speaker와 Wake Word 오류만 Voice `ERROR`이고 OpenAI turn 오류는 local e
 
 `SQLiteDatabase`는 프로젝트 루트 기준 `data/smart_desk.db` 경로, version migration,
 connection 설정과 transaction만 담당한다. SQLite 동기 작업은 `asyncio.to_thread()`로
-실행하고 프로세스 안의 read/write를 하나의 lock으로 직렬화한다. 현재 version 1에는
-`profiles` 테이블 하나만 있으며 손상·새 version·schema 불일치 DB를 자동 수선하거나
-초기화하지 않는다.
+실행하고 프로세스 안의 read/write를 하나의 lock으로 직렬화한다. 현재 schema version 2에는
+`profiles`와 `desk_height_cache`가 있으며, 작업 모드는 version 3 `profile_modes` migration으로
+추가한다. 손상·미래 version·schema 불일치 DB를 자동 수선하거나 초기화하지 않는다.
 
 `ProfileRepository`는 `profiles` SQL과 row/Pydantic 변환을 소유한다. 상위 서비스는
 SQLite connection이나 schema에 접근하지 않고 아래 공개 CRUD만 사용한다.
@@ -319,9 +319,10 @@ async def delete_profile(profile_id: str) -> None: ...
 
 | 클래스 | 책임 |
 | --- | --- |
-| `ProfileRepository` | 프로필·높이·LED 설정의 읽기와 영속 저장 |
+| `ProfileRepository` | 프로필 기본 작업 모드의 높이·LED 설정 읽기와 영속 저장 |
+| `ActivityModeRepository` | 사용자 작업 모드 CRUD와 profile 연관 삭제 |
 | `DashboardService` | FastAPI 요청에 맞는 유스케이스 호출과 상태 조합 |
-| `AutomationService` | Vision·프로필·Desk 상태를 읽고 목표 설정 또는 STOP 결정 |
+| `AutomationService` | Vision·프로필·active 작업 모드·Desk 상태를 읽고 목표 설정 또는 STOP 결정 |
 | `MqttClient` | 외부 MQTT 메시지 구독·발행과 연결 상태 관리 |
 | `AppContainer` | `bootstrap.py`가 만든 공유 객체를 한곳에 보관하는 singleton 접근점 |
 

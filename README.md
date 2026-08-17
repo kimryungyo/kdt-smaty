@@ -31,6 +31,8 @@ relay 분리 bench용 ESP32 serial 명령은 이 운영 transport와 별개의 �
   않게 한다.
 - AI가 음성 응답을 마치면 제한된 시간 동안 후속 질문을 기다려, 사용자가 Wake Word를
   반복하지 않고 같은 문맥으로 대화를 이어갈 수 있게 한다.
+- 사용자는 독서·공부 같은 작업 모드를 만들고 모드별 앉기 높이, 서기 높이와 LED 색상을
+  저장한다. `AUTO`/`MANUAL` 제어 방식과 작업 모드는 서로 독립적으로 동작한다.
 
 대표적인 최종 상호작용 목표는 다음과 같다. 이는 아직 구현 계약이나 component 설계가
 아니다.
@@ -62,9 +64,9 @@ Microphone → VoiceService → STT → AssistantService → TTS
                                              Speaker
 ```
 
-Dashboard AI 응답 전달 방식, 화면 response model, camera context, MCP tool과 이들을
-조정하는 orchestration은 아직 설계·구현하지 않는다. 사용자가 별도 설계를 확정한 뒤
-연결한다.
+Dashboard AI 응답은 현재 사용자 session의 최신 Assistant turn 하나를 HTTP polling으로
+전달한다. 화면 response 세부 모델, camera context와 MCP tool은 해당 기능을 구현할 때
+확정하되 SSE·WebSocket이나 범용 chat history 구조는 이번 범위에 추가하지 않는다.
 
 카메라는 현재 다음 구조를 사용한다.
 
@@ -88,7 +90,7 @@ MediaMTX를 경유하지 않는다.
 설계한다.
 
 후속 단계에서는 Mem0 오픈소스를 연결해 profile별 장기 기억을 제공한다. 최근 대화
-문맥은 기존 Assistant session이 담당하고, Mem0에는 사용자가 명시적으로 기억시킨
+문맥은 책상 `sessionId`에 연결된 Agents SDK 대화 session이 담당하고, Mem0에는 사용자가 명시적으로 기억시킨
 선호와 장기간 유효한 사실만 저장한다. raw 음성·camera 이미지·일시적인 행동 관측과
 전체 대화 transcript는 자동 저장하지 않는다. 기억 관리 UI는 Dashboard 후속 설계에서
 결정한다.

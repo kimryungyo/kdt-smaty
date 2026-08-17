@@ -2,9 +2,9 @@
 
 ## 사용자 결과
 
-메인 화면 `/`은 서버가 재실·얼굴로 확정한 등록·익명 session, 재실·자세, AUTO/MANUAL,
-자동화 차단 이유, 높이 제어·preset과 AI 응답을 표시한다. profile 생성·수정, 얼굴과 사용자
-preset 관리는 별도 설정 페이지에서 수행하며 설정 화면을 여는 행위는 현재 사용자나 책상을
+메인 화면 `/`은 서버가 재실·얼굴로 확정한 등록·익명 session, 재실·자세, 제어 방식,
+작업 모드, 자동화 차단 이유, 높이 제어와 AI 응답을 표시한다. profile 생성·수정, 얼굴과 사용자
+작업 모드 관리는 별도 설정 페이지에서 수행하며 설정 화면을 여는 행위는 현재 사용자나 책상을
 바꾸지 않는다.
 
 ## 현재 상태
@@ -13,7 +13,7 @@ preset 관리는 별도 설정 페이지에서 수행하며 설정 화면을 여
 - `selectedProfile`은 사용자 정보, 앉은·선 목표와 WLED profile 색상에 사용된다.
 - 서버의 현재 사용자·Vision·자동화 API가 없어 자세와 AUTO 표시는 placeholder다.
 - profile 생성은 기본 정보와 높이 2단계이며 사용처 없는 키 입력, profile과 무관한 5초
-  placeholder, 얼굴·사용자 preset 화면이 섞여 있다.
+  placeholder와 얼굴·작업 모드 미구현 영역이 섞여 있다.
 - 얼굴 인식에 따라 특정 profile 화면을 자동으로 여는 코드는 현재도 없다.
 
 ## 화면 상태 원칙
@@ -25,12 +25,12 @@ React 상태를 최소한 다음 의미로 구분한다.
 | `editingProfile` | 사용자가 설정 화면에서 열어 둔 profile |
 | profile draft | 아직 서버에 저장하지 않은 생성 입력 |
 | current user snapshot | 서버가 재실·얼굴로 결정한 등록·익명 read-only session |
-| automation snapshot | 서버가 소유한 mode·상태·차단 이유 |
+| automation snapshot | 서버가 소유한 control/activity mode·상태·차단 이유 |
 | desk/WLED/Voice snapshot | 기능별 장치 상태와 freshness |
 | Assistant turn snapshot | 서버가 정한 `turnId`·`sessionId`·phase·sequence와 화면 응답 |
 
 서버 현재 사용자가 바뀌어도 `editingProfile`이나 입력 draft를 자동으로 바꾸지 않는다. 반대로
-profile 설정 화면을 열거나 닫아도 서버 session과 mode가 바뀌지 않는다.
+profile 설정 화면을 열거나 닫아도 서버 session과 두 mode가 바뀌지 않는다.
 
 ## 화면 구조와 전면 개편 원칙
 
@@ -40,8 +40,8 @@ profile 설정 화면을 열거나 닫아도 서버 session과 mode가 바뀌지
 
 ```text
 메인 Dashboard `/`
-  ├─ 서버 현재 사용자·자세·mode·책상·조명·AI 상태
-  ├─ 현재 사용자 높이 preset, 직접 높이·HOLD·STOP
+  ├─ 서버 현재 사용자·자세·제어 방식·작업 모드·책상·조명·AI 상태
+  ├─ 작업 모드 선택, 직접 높이·HOLD·STOP
   └─ 우측 상단 설정 버튼 → `/settings/profiles`
 
 profile 관리 `/settings/profiles`
@@ -57,7 +57,7 @@ profile 생성 `/settings/profiles/new`
 
 profile 설정 `/settings/profiles/:profileId`
   → 기본 정보·책상 설정
-  → 사용자 preset CRUD
+  → 사용자 작업 모드 CRUD
   → 얼굴 재등록·삭제
 
 Vision debug `/debug/vision`
@@ -71,7 +71,7 @@ Vision debug `/debug/vision`
 
 ### API client와 상태 분리
 
-- [ ] profile·preset·얼굴 등록·현재 사용자·Vision·자동화 TypeScript 계약을 추가한다.
+- [ ] profile·activity mode·얼굴 등록·현재 사용자·Vision·자동화 TypeScript 계약을 추가한다.
 - [ ] 첫 profile 선택을 제거하고 `/`을 항상 메인 Dashboard로 표시한다.
 - [ ] 설정 route의 `editingProfile`과 서버 current user를 분리하고 `selectedProfile` 기반 제어를
   제거한다.
@@ -88,22 +88,25 @@ Vision debug `/debug/vision`
 - [ ] 사용자 키 입력·state와 자세 유지 시간 입력을 제거하고, 필요하면 “모든 사용자는 자세를
   5초 확인합니다”라는 읽기 전용 안내만 표시한다.
 - [ ] 최신 height가 ONLINE일 때만 “현재 높이 사용”을 draft에 복사한다.
-- [ ] 사용자 preset 생성·수정·삭제 UI와 자세 preset의 비편집 표시를 구현한다.
+- [ ] 기본 작업 모드의 비편집 이름과 custom 작업 모드 생성·수정·삭제 UI를 구현한다.
 - [ ] 얼굴 등록 진행, 취소·재시도·건너뛰기와 재등록·삭제를 연결한다.
-- [ ] profile 삭제 확인에는 연관 preset·얼굴·장기 기억 삭제와 활성 session 종료를 명시한다.
+- [ ] profile 삭제 확인에는 연관 작업 모드·얼굴·장기 기억 삭제와 활성 session 종료를 명시한다.
 
 ### 메인 Dashboard
 
 - [ ] 서버 current user와 연결 profile을 사용자 카드에 표시한다.
-- [ ] 익명 session을 오류가 아닌 “게스트”로 표시하고 기본 75/110cm 자세 preset을 제공한다.
+- [ ] 익명 session을 오류가 아닌 “게스트”로 표시하고 작업 모드 없이 기본 75/110cm를 제공한다.
 - [ ] 재실·자세·관측 age와 얼굴 재확인 필요·불확실 상태를 구분해 표시한다.
-- [ ] AUTO/MANUAL, 자세 안정화 진행과 차단 이유를 실제 snapshot으로 표시한다.
-- [ ] 현재 사용자 합성 preset과 mode 변경·직접 제어를 명령 API에 연결한다.
-- [ ] session이 없으면 개인 preset과 profile 값을 사용하지 않되 HOLD·직접 높이·STOP은 제공한다.
-- [ ] mode·preset 요청에는 화면이 읽은 `expectedSessionId`를 자동 첨부한다.
+- [ ] `controlMode`를 `제어 방식`, `activityMode`를 `작업 모드`로 구분해 표시한다.
+- [ ] 작업 모드 선택과 control mode 변경·직접 제어를 명령 API에 연결한다.
+- [ ] MANUAL 작업 모드 선택은 LED만 바뀌고 책상이 움직이지 않음을 명확히 표시한다.
+- [ ] 수동 LED 변경은 저장값이 아니라 현재 session override임을 표시한다.
+- [ ] session이 없으면 개인 작업 모드와 profile 값을 사용하지 않되 HOLD·직접 높이·STOP은 제공한다.
+- [ ] control/activity mode 요청에는 화면이 읽은 `expectedSessionId`를 자동 첨부한다.
 - [ ] WLED, Voice/AI, Vision, Desk의 기능별 연결 상태를 하나의 `SYSTEM ONLINE`과 분리한다.
 - [ ] current `sessionId`가 바뀌거나 없어지면 이전 AI 상세 응답을 즉시 화면에서 제거한다.
-- [ ] 진행 안내, tool 실행 상태와 최종 응답을 같은 `turnId` 안에서 순서대로 갱신하고 낮은
+- [ ] `/api/assistant/latest`를 polling해 진행 안내, tool 실행 상태와 최종 응답을 같은
+  `turnId` 안에서 순서대로 갱신하고 낮은
   sequence나 완료·취소된 turn의 늦은 event를 무시한다.
 - [ ] session 없음·다중 상태의 비개인화 turn은 개인 profile 이름이나 memory 사용 상태로
   표시하지 않는다.
@@ -112,7 +115,7 @@ Vision debug `/debug/vision`
 
 - [ ] 두 카메라 preview와 각 frame age·연결 상태를 표시한다.
 - [ ] raw detector, 안정화 재실·자세·신원과 현재 사용자 session 근거를 표시한다.
-- [ ] 얼굴 등록 session, mode 전환 이유와 자동화 차단 코드를 표시한다.
+- [ ] 얼굴 등록 session, control/activity mode 전환 이유와 자동화 차단 코드를 표시한다.
 - [ ] 얼굴 원본·crop 저장이나 embedding 노출 기능은 추가하지 않는다.
 
 ## 명령 UX 원칙
@@ -133,13 +136,13 @@ Vision debug `/debug/vision`
 
 ## 검증
 
-- profile 카드를 열고 수정해도 서버 current user, mode와 Desk 목표가 바뀌지 않는다.
+- profile 카드를 열고 수정해도 서버 current user, 두 mode와 Desk 목표가 바뀌지 않는다.
 - `/` 새로고침은 profile 선택 화면이 아니라 메인 Dashboard를 표시한다.
-- 설정 버튼으로 profile 설정을 열고 메인으로 돌아와도 session과 mode가 유지된다.
+- 설정 버튼으로 profile 설정을 열고 메인으로 돌아와도 session과 두 mode가 유지된다.
 - 서버 current user가 A→B로 바뀌어도 열려 있는 A 설정 form과 draft가 자동 변경되지 않는다.
 - 오래된 A session 명령이 B에게 적용되지 않고 `409` 후 화면이 새 상태를 표시한다.
-- session 없음·다중·count 불일치에서 개인 preset 실행이 비활성 또는 거절된다.
-- stale session preset은 `409` 후 current user·automation·preset snapshot을 다시 읽는다.
+- session 없음·다중·count 불일치에서 개인 작업 모드 실행이 비활성 또는 거절된다.
+- stale session activity mode는 `409` 후 current user·automation snapshot을 다시 읽는다.
 - 얼굴 등록 성공 후에도 화면이 profile을 현재 사용자로 강제 지정하지 않는다.
 - HOLD release, blur, page hide와 unmount에서 STOP 요청이 유지된다.
 - API 오류, polling 단절과 out-of-order 응답에서 stale 값이 현재 값처럼 표시되지 않는다.
@@ -153,6 +156,6 @@ Vision debug `/debug/vision`
 
 - profile 설정 대상과 서버 현재 사용자 상태가 코드·화면·문구에서 명확히 분리된다.
 - 메인 `/`과 별도 profile 설정 route가 분리되고 현재의 profile 선택 기반 화면 흐름이 제거된다.
-- profile 생성부터 얼굴 등록·preset 설정까지 Dashboard에서 끝까지 수행할 수 있다.
-- 현재 사용자 preset, AUTO/MANUAL과 자동화 상태가 실제 서버 계약으로 동작한다.
-- Dashboard를 닫거나 여러 개 열어도 서버의 얼굴 식별과 mode 소유권이 유지된다.
+- profile 생성부터 얼굴 등록·작업 모드 설정까지 Dashboard에서 끝까지 수행할 수 있다.
+- 현재 사용자 작업 모드, AUTO/MANUAL과 자동화 상태가 실제 서버 계약으로 동작한다.
+- Dashboard를 닫거나 여러 개 열어도 서버의 얼굴 식별과 두 mode 소유권이 유지된다.

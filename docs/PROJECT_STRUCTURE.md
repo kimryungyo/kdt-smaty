@@ -92,7 +92,7 @@ Desk나 Vision 같은 기능과 무관한 프로세스 공통 실행 기반이�
 | 경로 | 역할 |
 | --- | --- |
 | `src/smart_desk/storage/__init__.py` | `SQLiteDatabase`와 storage 오류를 공개한다. |
-| `src/smart_desk/storage/sqlite.py` | 프로젝트 루트 기준 경로, connection, transaction, version 1 migration과 schema 검증을 관리한다. |
+| `src/smart_desk/storage/sqlite.py` | 프로젝트 루트 기준 경로, connection, transaction, 현재 version 2 migration과 schema 검증을 관리한다. |
 
 각 operation은 worker thread에서 connection 하나를 열고 닫는다. SQL table 의미는
 repository가 소유하며 storage 계층에는 범용 repository나 connection pool을 두지 않는다.
@@ -338,7 +338,7 @@ frontend/src/
 | `docs/workflow/README.md` | Dashboard와 서버 기능 워크플로 문서의 탐색 진입점이다. |
 | `docs/workflow/dashboard.md` | profile 설정, 메인 Dashboard와 debug 화면 흐름을 정의한다. |
 | `docs/workflow/identity-and-vision.md` | 얼굴 등록·식별, 재실·자세와 서버 현재 사용자 결정을 정의한다. |
-| `docs/workflow/desk-control.md` | `AUTO`/`MANUAL`, 자세 자동화와 높이 preset 흐름을 정의한다. |
+| `docs/workflow/desk-control.md` | 제어 방식, 작업 모드, 자세 자동화와 LED 흐름을 정의한다. |
 | `docs/workflow/api-contracts.md` | 워크플로가 요구하는 HTTP endpoint와 오류 의미를 정의한다. |
 | `docs/workflow/implementation-plan.md` | 현재 구현 차이, 순서와 검증 항목을 관리한다. |
 | `docs/implementation/roadmap.md` | 2~3개월 구현 순서와 단계별 완료 조건을 정리한다. |

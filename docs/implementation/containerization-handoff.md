@@ -388,8 +388,9 @@ Compose `devices`로 실제 장치 node를 고정 컨테이너 경로에 mapping
 
 오디오 컨테이너화는 카메라보다 복잡하다. ALSA 직접 mapping, host PulseAudio/PipeWire
 socket 사용 여부와 실행 UID의 audio group을 실제 장치에서 검증한다. 첫 Compose 검증은
-장치 없는 degraded/fake Voice로 진행할 수 있지만 production profile은 audio mapping과
-Voice lifecycle을 필수로 검증한다.
+장치 없는 degraded/fake Voice로 진행할 수 있다. Voice를 활성화한 production profile에서는
+audio mapping과 Voice lifecycle을 반드시 검증하고, Voice 비활성 profile은 정상
+`DISABLED`로 구분한다.
 
 ## 네트워크와 보안
 

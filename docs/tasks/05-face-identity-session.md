@@ -21,7 +21,8 @@
 
 ```text
 user-camera latest frame
-  → 얼굴 검출·정렬·품질 검사
+  → task 04의 fresh 얼굴 검출 box
+  → 정렬·품질 검사
   → FaceEmbeddingExtractor
   → FaceRecognizer raw candidate
   → IdentityStateService 안정화
@@ -29,12 +30,14 @@ user-camera latest frame
   → CurrentUserSessionService
 ```
 
+- 얼굴 detector는 task 04가 한 번만 load한다. 이 task는 fresh box를 소비하며 detector loop를
+  중복 실행하지 않는다.
 - embedding model은 애플리케이션당 하나만 load하고 등록과 식별이 공유한다.
 - model이 동시 호출을 지원하지 않으면 model 경계의 작은 lock으로 직렬화한다.
 - 현재 사용자 session은 embedding 저장소나 Dashboard route가 아니라 별도 서버 상태가
   소유한다.
 - profile repository는 얼굴을 보고 현재 사용자를 선택하지 않는다.
-- `CurrentUserSessionService`는 session ID·종류·profile과 전환 이유만 소유한다. mode,
+- `CurrentUserSessionService`는 session ID·종류·profile과 전환 이유만 소유한다. control/activity mode,
   generation, 목표 교체와 STOP은 task 06의 `AutomationService`가 session 전이를 입력으로
   받아 처리한다.
 - Voice runtime이 사용자 교대와 경합하지 않도록 원자적 불변 snapshot, 현재 `sessionId`
@@ -43,13 +46,16 @@ user-camera latest frame
 
 ## 저장 설계
 
-구현 전에 다음을 확정한다.
+profile마다 서로 다른 시점에 채택한 embedding 3~5개를 개별 row로 저장한다. 평균 vector 하나로
+합치지 않는다. background 식별은 유효한 표본들과 비교해 profile score를 계산하고, threshold와
+best-second margin을 함께 적용한다.
 
-- profile당 대표 embedding 하나 또는 여러 표본을 저장할지
-- model 이름·version, embedding dimension, normalization과 생성 시각 metadata
-- model 변경 시 기존 embedding을 무효화·재등록하는 방법
-- binary/blob 또는 숫자 직렬화 형식과 SQLite transaction 경계
-- profile 삭제·얼굴 삭제·재등록의 원자성
+- 각 row는 profile ID, model 이름·version, dimension, normalization 방식, 생성 시각과 vector를 가진다.
+- 같은 enrollment에서 수집한 표본 수는 최소 3, 최대 5다. 정확한 채택 수는 품질·일관성 검사로
+  결정하되 3개 미만이면 성공 처리하지 않는다.
+- 재등록은 새 표본 집합을 완성한 뒤 기존 집합과 한 transaction에서 교체한다.
+- model version·dimension·normalization이 다르면 비교하지 않고 재등록 필요 상태로 처리한다.
+- binary/blob 직렬화와 profile score 계산식은 공개 동작을 바꾸지 않는 구현 세부다.
 
 얼굴 이미지와 crop은 기본 저장하지 않는다. embedding vector, raw similarity와 내부 threshold는
 일반 Dashboard API 및 로그에 노출하지 않는다.
@@ -67,6 +73,7 @@ user-camera latest frame
 
 - [ ] `WAITING_FACE → CAPTURING → PROCESSING → SUCCEEDED` 상태와 실패 코드를 구현한다.
 - [ ] 한 명의 얼굴만 있을 때 서로 다른 시점의 품질 표본을 수집한다.
+- [ ] 품질·일관성 검사를 통과한 embedding 3~5개를 개별 row로 원자적으로 저장한다.
 - [ ] 표본 간 일관성을 검사하고 다른 profile과 중복되는 얼굴을 거절한다.
 - [ ] 시작·상태 조회·취소·얼굴 삭제 API와 동시 등록 `409`를 구현한다.
 - [ ] 등록·재등록·삭제 시작 시 task 01 계약대로 STOP·자동화 차단·후보 초기화를 요청한다.
@@ -121,6 +128,7 @@ fresh 단일 재실이 이어지면 얼굴이 보이지 않아도 등록 session
 - session 변경 event는 중복·역순 소비에서도 이전 session을 다시 유효하게 만들지 않으며
   Voice가 이전 run·TTS·follow-up을 취소할 근거를 제공한다.
 - model version·dimension 불일치 embedding을 비교에 사용하지 않는다.
+- 한 enrollment가 3개 미만 표본으로 성공하지 않고, 5개를 초과해 저장하지 않는다.
 - API가 얼굴 이미지·embedding vector를 반환하지 않는다.
 
 ## 실측과 보정

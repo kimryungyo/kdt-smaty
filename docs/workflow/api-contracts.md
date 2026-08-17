@@ -1,16 +1,18 @@
 # 워크플로우 API 계약
 
 아래는 목표 계약이다. 현재 `/api/status`, `/api/control`, `/api/target`, `/api/profiles`와
-WLED API는 구현돼 있지만 사용자·Vision·자동화·preset 계약은 아직 없다.
+WLED API는 구현돼 있지만 사용자·Vision·자동화·작업 모드·Assistant latest 계약은 아직 없다.
 
 ## 공통 규칙
 
 - JSON 필드는 기존 API처럼 camelCase를 사용하고 unknown field를 거부한다.
-- 신원, 재실, 자세, 사용자 session과 자동화 상태를 한 status enum으로 합치지 않는다.
+- 신원, 재실, 자세, 사용자 session, `controlMode`, `activityMode`와 자동화 상태를 서로 다른
+  필드로 유지한다.
 - timestamp는 UTC wall clock을 사용한다. 내부 monotonic 값은 반환하지 않는다.
 - 현재 사용자를 변경하는 PUT/DELETE API는 제공하지 않는다.
 - 사용자 종속 명령은 `expectedSessionId`를 받고 command lock 안에서 비교한다.
-- STOP과 목표 CANCEL은 session 검증보다 먼저 처리한다.
+- STOP과 목표 CANCEL은 session·Vision·전역 readiness 검사보다 먼저 처리한다.
+- 전역 `/health/ready`를 profile CRUD와 상태 조회의 일괄 차단 조건으로 사용하지 않는다.
 
 ## 현재 사용자
 
@@ -18,22 +20,20 @@ WLED API는 구현돼 있지만 사용자·Vision·자동화·preset 계약은 �
 | --- | --- | --- |
 | `GET` | `/api/current-user` | 서버가 결정한 현재 등록·익명 session read-only 조회 |
 
-익명 session 예시:
-
 ```json
 {
   "session": {
     "sessionId": "session-550e8400-e29b-41d4-a716-446655440000",
-    "kind": "ANONYMOUS",
-    "profileId": null,
+    "kind": "REGISTERED",
+    "profileId": "profile-a",
     "startedAt": "2026-08-16T10:00:03Z",
     "changedAt": "2026-08-16T10:00:03Z"
   }
 }
 ```
 
-등록 session은 `kind="REGISTERED"`와 `profileId`를 제공한다. 현재 session이 없으면
-`{"session": null}`을 반환한다. mode, 자세와 재실을 이 객체에 섞지 않는다.
+익명은 `kind="ANONYMOUS"`, `profileId=null`이다. session이 없으면 `{"session":null}`이다.
+제어 방식, 작업 모드, 자세와 재실은 이 객체에 섞지 않는다.
 
 ## Vision
 
@@ -41,44 +41,22 @@ WLED API는 구현돼 있지만 사용자·Vision·자동화·preset 계약은 �
 | --- | --- | --- |
 | `GET` | `/api/vision/status` | 카메라, 신원·재실·자세와 결합 freshness 조회 |
 
-최소 구조 예시:
-
 ```json
 {
   "cameras": {
-    "upper": {"status": "ONLINE", "observedAt": "...", "expiresAt": "..."},
-    "lower": {"status": "ONLINE", "observedAt": "...", "expiresAt": "..."}
+    "upper": {"status":"ONLINE","observedAt":"...","expiresAt":"..."},
+    "lower": {"status":"ONLINE","observedAt":"...","expiresAt":"..."}
   },
-  "identity": {
-    "status": "NO_FACE",
-    "profileId": null,
-    "observedAt": "...",
-    "expiresAt": "..."
-  },
-  "presence": {
-    "status": "PRESENT_SINGLE",
-    "upperCount": 1,
-    "lowerCount": 1,
-    "observedAt": "...",
-    "expiresAt": "..."
-  },
-  "posture": {
-    "status": "STANDING",
-    "candidateSince": "...",
-    "observedAt": "...",
-    "expiresAt": "..."
-  },
-  "association": {
-    "usable": true,
-    "reasonCodes": []
-  }
+  "identity": {"status":"MATCHED","profileId":"profile-a","observedAt":"...","expiresAt":"..."},
+  "presence": {"status":"PRESENT_SINGLE","upperCount":1,"lowerCount":1,"observedAt":"...","expiresAt":"..."},
+  "posture": {"status":"SITTING","candidateSince":"...","observedAt":"...","expiresAt":"..."},
+  "association": {"usable":true,"reasonCodes":[]}
 }
 ```
 
-신원 status는 `MATCHED`, `UNKNOWN_FACE`, `AMBIGUOUS`, `NO_FACE`, `UNKNOWN`, 재실은
+신원은 `MATCHED`, `UNKNOWN_FACE`, `AMBIGUOUS`, `NO_FACE`, `UNKNOWN`, 재실은
 `PRESENT_SINGLE`, `VACANT`, `MULTIPLE`, `UNKNOWN`, 자세는 `SITTING`, `STANDING`,
-`UNKNOWN`을 사용한다. raw confidence와 내부 얼굴 threshold는 일반 Dashboard 응답에서
-제외한다.
+`UNKNOWN`을 사용한다. raw confidence와 얼굴 threshold는 일반 응답에서 제외한다.
 
 ## 얼굴 등록
 
@@ -87,118 +65,173 @@ WLED API는 구현돼 있지만 사용자·Vision·자동화·preset 계약은 �
 | `POST` | `/api/profiles/{id}/face-enrollments` | 등록 session 시작 |
 | `GET` | `/api/face-enrollments/{id}` | 진행 상태 조회 |
 | `DELETE` | `/api/face-enrollments/{id}` | 진행 중 등록 취소 |
-| `DELETE` | `/api/profiles/{id}/face` | 저장된 얼굴 등록 제거 |
+| `DELETE` | `/api/profiles/{id}/face` | 저장된 얼굴 표본 전체 제거 |
 
-시작은 `202 Accepted`, 상태 조회는 `200`이다. 다른 등록 진행 중이면 `409`, profile 없음은
-`404`, camera/Vision 미준비는 `503`이다.
+등록은 서로 다른 시점의 유효 embedding 3~5개를 profile에 원자적으로 저장한다. API는 얼굴
+이미지, vector, similarity와 threshold를 반환하지 않는다. 시작은 `202`, 다른 등록 진행은
+`409`, profile 없음은 `404`, camera/Vision 미준비는 `503`이다.
 
-등록·재등록·삭제 시작은 진행 AUTO를 STOP하고 현재 session을 종료한다. 성공·실패·취소 후
-일반 background 재실·식별을 새로 통과하기 전에는 current user를 만들지 않는다.
+등록·재등록·삭제 시작은 진행 AUTO를 STOP하고 현재 session을 종료한다. 완료 뒤에도 일반
+background 재실·식별을 새로 통과해야 한다.
+
+## profile 작업 모드 설정
+
+profile의 기존 `sittingHeightCm`, `standingHeightCm`, `ledColor`는 내장 `기본` 작업 모드다.
+기본값 수정은 기존 profile PATCH를 사용한다.
+
+| Method | 경로 | 목적 |
+| --- | --- | --- |
+| `GET` | `/api/profiles/{id}/activity-modes` | 기본+custom 작업 모드 합성 목록 |
+| `POST` | `/api/profiles/{id}/activity-modes` | custom 작업 모드 생성 |
+| `PATCH` | `/api/activity-modes/{modeId}` | custom 이름·높이·LED 수정 |
+| `DELETE` | `/api/activity-modes/{modeId}` | custom 작업 모드 삭제 |
+
+생성 요청 예시:
+
+```json
+{
+  "name": "독서",
+  "sittingHeightCm": 82.0,
+  "standingHeightCm": 108.0,
+  "ledColor": "FFD080"
+}
+```
+
+합성 항목은 `key`, `kind`, `name`, `sittingHeightCm`, `standingHeightCm`, `ledColor`,
+`editable`을 가진다. 기본 항목은 `key="default"`, `kind="DEFAULT"`, `editable=false`다.
+설정 CRUD는 current session, active mode, WLED와 Desk를 바꾸지 않는다. 현재 active custom
+mode 삭제는 `409`다. 수정값은 다음 mode 선택 또는 다음 session부터 적용된다.
 
 ## 자동화 상태
 
 | Method | 경로 | 목적 |
 | --- | --- | --- |
-| `GET` | `/api/automation/status` | session 연결, mode, 자동화와 park 상태 조회 |
+| `GET` | `/api/automation/status` | session 연결, 제어 방식, 작업 모드, 자동화와 park 상태 조회 |
 
-익명 AUTO 예시:
+등록 AUTO 예시:
 
 ```json
 {
   "sessionId": "session-550e8400-e29b-41d4-a716-446655440000",
-  "mode": "AUTO",
+  "controlMode": "AUTO",
+  "activityMode": {
+    "key": "mode-reading",
+    "kind": "CUSTOM",
+    "name": "독서",
+    "sittingHeightCm": 82.0,
+    "standingHeightCm": 108.0,
+    "ledColor": "FFD080"
+  },
   "state": "OBSERVING",
-  "heightPolicy": "ANONYMOUS_DEFAULT",
-  "postureCandidate": "STANDING",
+  "heightPolicy": "PROFILE_ACTIVITY_MODE",
+  "postureCandidate": "SITTING",
   "candidateSince": "2026-08-16T10:00:00Z",
   "targetHeightCm": null,
   "intentSource": null,
   "blockedReasonCodes": [],
-  "initialMoveDueAt": "2026-08-16T10:00:05Z",
+  "initialMoveDueAt": null,
   "parkDueAt": null,
   "updatedAt": "2026-08-16T10:00:03Z"
 }
 ```
 
-mode가 없으면 `null`이다. state는 `WAITING_USER`, `OBSERVING`, `READY`, `MOVING`,
-`MANUAL`, `BLOCKED`, `PARK_WAITING`, `PARKING`을 사용한다. `intentSource`는 최소한
-`REGISTERED_POSTURE`, `ANONYMOUS_POSTURE`, `PARK`, `MANUAL`을 구분한다.
+익명 session은 `activityMode=null`, `heightPolicy="ANONYMOUS_DEFAULT"`다. session이 없으면
+`controlMode`, `activityMode`와 `sessionId`가 `null`이다. state는 `WAITING_USER`,
+`OBSERVING`, `READY`, `MOVING`, `MANUAL`, `BLOCKED`, `PARK_WAITING`, `PARKING`을 사용한다.
 
-## mode 변경
+## 제어 방식 변경
 
 | Method | 경로 | 목적 |
 | --- | --- | --- |
-| `PUT` | `/api/desk/mode` | 현재 session의 `AUTO`/`MANUAL` 변경 |
-
-요청 예시:
+| `PUT` | `/api/desk/control-mode` | 현재 session의 `AUTO`/`MANUAL` 변경 |
 
 ```json
 {
-  "mode": "AUTO",
+  "controlMode": "AUTO",
   "expectedSessionId": "session-550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
-현재 session 없음, 불일치 또는 AUTO 재활성화 조건 불충족은 `409`다. AUTO 요청은 기존 이동
-STOP, 자동 generation과 자세 후보 초기화 후 성공하며 fresh 자세를 고정 5초 다시 확인한다.
-자세 확인 시간은 profile API로 변경할 수 없는 전체 자동화 설정이다.
+현재 session 없음·불일치는 `409`다. AUTO 요청은 기존 이동 STOP, generation과 자세 후보
+초기화 후 active 작업 모드로 fresh 자세를 5초 다시 확인한다.
 
-## 사용자 preset 설정
-
-| Method | 경로 | 목적 |
-| --- | --- | --- |
-| `GET` | `/api/profiles/{id}/presets` | 설정 화면용 custom preset 목록 |
-| `POST` | `/api/profiles/{id}/presets` | 이름·높이 preset 생성 |
-| `PATCH` | `/api/presets/{presetId}` | 이름 또는 높이 수정 |
-| `DELETE` | `/api/presets/{presetId}` | preset 삭제 |
-
-이 API는 profile 설정용이며 호출해도 현재 session, mode와 책상을 바꾸지 않는다.
-
-## 현재 session preset
+## 현재 session 작업 모드 변경
 
 | Method | 경로 | 목적 |
 | --- | --- | --- |
-| `GET` | `/api/desk/presets` | 현재 session의 자세·custom preset 합성 목록 |
-| `POST` | `/api/desk/presets/{presetKey}/apply` | MANUAL 전환 후 목표 접수 |
-
-조회 응답은 현재 `sessionId`, `heightPolicy`와 항목을 함께 반환한다. 등록 session은 profile
-자세 높이와 custom preset, 익명 session은 기본 75/110cm 자세 항목만 반환한다. session이
-없으면 `sessionId=null`, 빈 목록을 `200`으로 반환한다.
-
-적용 요청 예시:
+| `PUT` | `/api/desk/activity-mode` | 등록 session의 active 작업 모드 선택 |
 
 ```json
 {
+  "activityModeKey": "mode-reading",
   "expectedSessionId": "session-550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
-합성 항목은 `key`, `kind`, `name`, `heightCm`, `editable`, `heightPolicy`를 가진다. 자세 key는
-등록·익명 모두 `posture:sitting`, `posture:standing`을 사용하고 서버가 현재 session의 높이
-정책으로 해석한다.
+서버가 현재 profile의 mode 소유권과 저장값을 다시 조회한다. 성공은 active snapshot과 LED 적용
+시도가 접수됐다는 뜻이다.
 
-적용 성공 `200`은 목표 접수 의미다. 현재 session 없음·불일치, 다른 사용자 custom preset과
-AUTO 차단 상태는 `409`, 높이·relay 미준비는 `503`이다.
+- AUTO: control mode 유지, 이전 generation 무효화 후 fresh·안정된 현재 자세로 새 높이 평가
+- MANUAL: control mode 유지, active mode와 LED만 변경하고 책상은 움직이지 않음
+- Vision 불확실: active mode와 LED는 변경하고 이동만 `BLOCKED`
+- WLED 실패: mode 변경은 유지하고 WLED 상태만 degraded
+
+session 없음·익명·불일치·다른 profile mode는 `409`, mode 없음은 `404`다.
 
 ## 기존 책상 명령
 
-현재 `/api/control`과 `/api/target`은 Dashboard가 `DeskController`에 직접 위임한다. 목표
-구조에서는 `AutomationService` 경계를 거치지만 HOLD, 직접 목표와 STOP은 신원 독립
-명령으로 유지한다.
+`/api/control`과 `/api/target`은 `AutomationService`를 거치되 신원 독립 명령으로 유지한다.
 
-| 명령 | session 요구 | mode 결과 |
+| 명령 | session 요구 | 결과 |
 | --- | --- | --- |
-| HOLD | 없음 | session이 있으면 MANUAL, 없으면 mode 없음 |
-| 직접 목표 SET | 없음 | session이 있으면 MANUAL, 없으면 mode 없음 |
-| 사용자 STOP | 없음 | session이 있으면 MANUAL, 없으면 mode 없음 |
+| HOLD | 없음 | session이 있으면 MANUAL, active activity mode 유지 |
+| 직접 목표 SET | 없음 | session이 있으면 MANUAL, active activity mode 유지 |
+| 사용자 STOP | 없음 | session이 있으면 MANUAL, active activity mode 유지 |
 | 목표 CANCEL | 없음 | STOP과 동일한 우선순위 |
 
-따라서 기존 request에 `expectedSessionId`를 필수 추가하지 않는다. wire MQTT 계약과
+기존 request에 `expectedSessionId`를 필수 추가하지 않는다. wire MQTT 계약과
 `DeskController` 안전 검증도 바꾸지 않는다.
+
+## WLED 수동 제어
+
+기존 `/api/wled/control` 동작은 유지한다. Dashboard가 현재 session 안에서 호출할 때는 읽은
+`expectedSessionId`를 선택적으로 함께 보내 session override로 귀속한다. session이 없으면
+전역 수동 제어다.
+
+session override는 저장된 작업 모드의 `ledColor`를 수정하지 않는다. 다음 작업 모드 전환이나
+다음 session 시작에서 제거되고 저장 색상이 다시 적용된다. session 종료 시 OFF를 best-effort로
+요청한다. WLED 미연결은 `503`이지만 Desk와 mode 상태는 rollback하지 않는다.
+
+## Assistant 최신 turn
+
+| Method | 경로 | 목적 |
+| --- | --- | --- |
+| `GET` | `/api/assistant/latest` | 현재 session에 표시할 최신 Assistant turn 하나 조회 |
+
+초기 구현은 polling만 사용한다. SSE, WebSocket, 전체 대화 이력 API를 함께 만들지 않는다.
+
+```json
+{
+  "turn": {
+    "turnId": "turn-...",
+    "sessionId": "session-...",
+    "phase": "FINAL",
+    "sequence": 4,
+    "status": "SUCCEEDED",
+    "title": "내일 날씨",
+    "summary": "...",
+    "detail": "...",
+    "updatedAt": "..."
+  }
+}
+```
+
+표시할 turn이 없으면 `{"turn":null}`이다. 서버는 current session과 다른 turn을 반환하지
+않고, Dashboard도 응답의 `sessionId`, `turnId`, `sequence`를 다시 확인한다.
 
 ## session 충돌과 오류 응답
 
-사용자 종속 명령은 `expectedSessionId`가 현재 값과 다르면 처리 전에 `409`로 거절한다.
+사용자 종속 명령의 `expectedSessionId`가 현재 값과 다르면 처리 전에 `409`로 거절한다.
 
 ```json
 {
@@ -211,14 +244,15 @@ AUTO 차단 상태는 `409`, 높이·relay 미준비는 `503`이다.
 }
 ```
 
-Dashboard는 성공 상태나 낙관적 높이를 표시하지 않고 current-user, automation과 preset
-snapshot을 다시 읽는다.
+Dashboard는 낙관적 성공을 표시하지 않고 current-user와 automation snapshot을 다시 읽는다.
 
 | HTTP | 공개 의미 |
 | ---: | --- |
-| `404` | profile, preset 또는 enrollment 없음 |
-| `409` | session 불일치·없음, 전환 중, 자동화 전제 불충족, 동시 등록 충돌 |
+| `404` | profile, activity mode 또는 enrollment 없음 |
+| `409` | session 불일치·없음, active mode 삭제, 자동화 전제 불충족, 동시 등록 충돌 |
 | `422` | unknown field, type, 범위와 schema 오류 |
-| `503` | camera, Vision, height, MQTT 또는 relay 미준비 |
+| `502` | WLED 등 외부 장치의 잘못된 응답 |
+| `503` | 해당 명령에 필요한 camera, Vision, height, MQTT, relay, WLED 또는 storage 미준비 |
 
-STOP/CANCEL은 stale session, current user 없음과 Vision 차단을 이유로 거절하지 않는다.
+STOP/CANCEL은 stale session, current user 없음, Vision 차단과 전역 readiness를 이유로
+거절하지 않는다.

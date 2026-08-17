@@ -15,12 +15,12 @@ Browser ─ HTTP ─┐
                 ▼
           FastAPI application
                 │
-     ┌────────────┼─────────────────────────┐
-     │            │                         │
-     ▼            ▼                         ▼
-Dashboard   Automation               MQTT client
-service     service                   │       │
-   │            │                      ESP32   WLED
+     ┌────────────┼─────────────────────────┬────────────┐
+     │            │                         │            │
+     ▼            ▼                         ▼            ▼
+Dashboard   Automation               MQTT client    WLED client
+service     service                       │              │
+   │            │                        ESP32          WLED
    │            ▼
    │      DeskController ◄── DeskHeightMonitor ◄── Arduino serial
    │            │
@@ -33,9 +33,9 @@ service     service                   │       │
                              FramePreprocessor ◄── RtspFrameSource
 ```
 
-각 상자는 같은 프로세스의 객체다. 객체 사이의 호출은 메모리 안에서 직접
-이뤄지고, ESP32·Arduino·WLED 같은 외부 장치와의 경계에서만 MQTT, 시리얼,
-HTTP를 사용한다.
+각 상자는 같은 프로세스의 객체다. 객체 사이의 호출은 메모리 안에서 직접 이뤄진다. 운영
+ESP32는 서버와 Wi-Fi/MQTT로 통신하고, Arduino 높이 리더만 별도 USB serial을 사용하며 WLED는
+HTTP를 사용한다. MQTT→USB-serial bridge는 운영 구성에 없다.
 
 영상 입력은 FastAPI lifespan이 카메라별 FFmpeg 자식 process와 RTSP reader를
 시작해 다음 경로로 준비한다.
@@ -90,6 +90,7 @@ physical devices and files
 | 전처리 프레임 | `FramePreprocessor` | `get_latest_frame()` |
 | 얼굴·자세·재실 결과 | 각 detector와 `VisionStateService` | `get_snapshot()` |
 | 프로필과 영속 설정 | `ProfileRepository` | 조회·저장 메서드 |
+| 제어 방식·active 작업 모드 | `AutomationService` | 명령 메서드, `get_snapshot()` |
 
 상태를 직접 수정하는 외부 코드는 허용하지 않는다. 다른 객체는 공개 명령이나
 불변 snapshot을 통해서만 상태를 읽고 바꾼다.
@@ -103,6 +104,7 @@ physical devices and files
 - FFmpeg와 MediaMTX를 위한 Docker·Compose 구성
 - publisher manager, factory, registry와 별도 process supervisor
 - Dashboard나 Vision에서의 릴레이 직접 제어
+- MQTT→USB-serial bridge와 ESP32 serial 운영 fallback
 - 프레임을 무제한으로 쌓는 큐 기반 영상 파이프라인
 
 영상은 실시간성을 우선하므로 최신 프레임을 덮어쓴다. 프레임 유실보다 오래된
