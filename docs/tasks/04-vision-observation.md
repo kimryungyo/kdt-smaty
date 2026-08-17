@@ -25,7 +25,8 @@
 - ROI calibration 전에는 전체 하단 frame을 사용한다. 주변 통행도 count되면 보수적으로
   `MULTIPLE_PEOPLE`가 되어 자동화를 차단한다. WHEP/aiortc, FastAPI/web UI, MJPEG/JPEG polling이나
   preview endpoint는 구현하거나 복사하지 않았다.
-- Dashboard와 debug 화면의 Vision 내용은 placeholder다.
+- Dashboard는 Vision snapshot을 표시한다. browser camera preview와 더 넓은 debug 근거 표시는
+  아직 미완료다.
 
 ## 첫 구현의 관측 범위
 
@@ -94,7 +95,8 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 - [x] `/api/vision/status`에 raw·안정화 상태와 차단 이유를 camelCase로 노출한다.
 - [x] Task 04의 `identity`는 `UNKNOWN` placeholder이며 raw frame·face box·vector는 API에
   노출하지 않는다. Task 05는 `get_fresh_face_observation()`의 내부 frame+box만 소비한다.
-- [ ] debug 화면용 데이터와 일반 Dashboard용 최소 상태의 노출 범위를 구분한다.
+- [x] 일반 Dashboard에는 최소 Vision snapshot을 연결했다. preview와 상세 debug 근거는 별도
+  미완료 항목으로 유지한다.
 - [ ] MediaMTX WebRTC/HLS preview를 실제 브라우저에서 실측해 한 방식을 확정한다.
 
 ## 제외 범위

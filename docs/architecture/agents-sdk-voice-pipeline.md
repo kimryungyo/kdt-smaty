@@ -1,13 +1,12 @@
 # OpenAI Agents SDK 음성 파이프라인 전환 결정
 
 **결정 기준일:** 2026-08-16
-**문서 상태:** 확정된 전환 목표 — `main`의 현재 구현은 아직 legacy 경로
-**구현 브랜치:** `feat/agents-sdk-voice-pipeline`
+**문서 상태:** 구현 기준 — 현재 `main`은 Agents SDK `VoicePipeline` 단일 경로
+**구현 브랜치:** 전환 작업은 main에 반영됨
 
-이 문서는 이전 수동 STT → Responses → TTS 파이프라인을 OpenAI Agents SDK의
-`VoicePipeline` 중심 구조로 교체할 때 따라야 할 확정안을 기록한다. 현재 코드의 기준선과
-세부 동작은 [기존 AI 스피커 설계](ai-voice-assistant.md)에 남기되, 두 문서가 충돌하면
-Agents SDK 교체 범위에서는 이 문서가 우선한다.
+이 문서는 이전 수동 STT → Responses → TTS 파이프라인을 대체한 OpenAI Agents SDK
+`VoicePipeline` 중심 구조의 구현 기준을 기록한다. [기존 AI 스피커 설계](ai-voice-assistant.md)는
+역사적 설계와 제품 방향의 참고 문서이며, 현재 Voice runtime 범위에서는 이 문서가 우선한다.
 
 문서 우선순위는 범위별로 적용한다. 이 문서는 Voice runtime, model·오디오, tool 실행 구조,
 SDK 대화 session과 Mem0 adapter의 기준이다. [task 01 상태·워크플로우 계약](../tasks/01-workflow-contracts.md)은

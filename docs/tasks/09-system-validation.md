@@ -54,27 +54,41 @@
 
 ## 자동 검증 묶음
 
+2026-08-17 main 기준으로 상위 검증에서 `.venv/bin/python -m pytest`는 **442 passed,
+2 skipped in 6.13s**, `.venv/bin/python -m compileall -q src tests`와 `git diff --check`는
+통과했다. 하체 관련 suite는 **83 passed**다. 이 수치는 fake/adapter/API 계약의 증거이며
+실제 camera, model, audio 또는 하드웨어 완료를 뜻하지 않는다. 같은 main의 frontend에서
+`npm run build`로 TypeScript와 Vite production build도 통과했다.
+
 ### 코드와 계약
 
 - [x] 하단 YOLO pose adapter fake-output 자동 회귀: empty/single/multiple, 유효·부족·퇴화 관절,
   malformed output fail-closed, 2Hz 최신-frame rate limit과 상단 unavailable raw 관측을 검증한다.
 - [x] 외부 read-only sample 자동 회귀: `sitting` 10, `sitting_fullbody` 6, `standing` 4, `empty` 6
-  장을 로컬 ONNX로 실행한다. 실제 RTSP camera와 ROI calibration은 이 결과에 포함하지 않는다.
-- [ ] Python 전체 unit·integration test와 compile/static 검사를 실행한다.
-- [ ] React TypeScript 검사와 production build를 실행한다.
-- [ ] HTTP request/response, 오류 코드와 stale `sessionId` 계약을 확인한다.
-- [ ] MQTT command/status payload, QoS와 non-retained 명령을 firmware와 대조한다.
-- [ ] SQLite v2→v3 migration·rollback·foreign key와 profile 작업 모드 연관 삭제를 검증한다.
-- [ ] server restart 후 current user, 두 mode와 자동 intent가 복원되지 않는지 확인한다.
+  장을 로컬 ONNX로 실행했다(총 26/26). 실제 RTSP camera와 ROI calibration은 이 결과에 포함하지 않는다.
+- [x] Python 전체 unit·integration test와 compile 검사를 실행했다: 442 passed, 2 skipped in
+  6.13s. `compileall`과 `git diff --check`도 통과했다.
+- [x] React TypeScript 검사와 Vite production build를 실행했다.
+- [x] HTTP request/response, 오류 코드와 stale `sessionId` 계약을 API unit/integration tests로 확인했다.
+- [x] MQTT command/status payload, QoS와 non-retained 명령을 relay/MQTT unit tests로 확인했다.
+  실제 firmware와 broker 통합은 미완료다.
+- [x] SQLite v2→v3 migration·rollback·foreign key와 profile 작업 모드 연관 삭제를 repository
+  unit tests로 확인했다.
+- [x] server restart 후 current user, 두 mode와 자동 intent가 복원되지 않는 계약을
+  current-user/automation/application tests로 확인했다.
+- [x] relay native policy test 6건과 ESP32-C3 Wi-Fi/MQTT production firmware, Arduino
+  segment-reader build를 실행했다. firmware upload와 broker·배선·GPIO 실측은 미완료다.
 
 ### lifecycle과 장애 주입
 
-- [ ] resource 시작 순서와 일부 시작 실패 시 역순 종료를 확인한다.
+- [x] resource 시작 순서와 일부 시작 실패 시 역순 종료를 lifecycle/container tests로 확인했다.
 - [ ] EMQX·MediaMTX·WLED·OpenAI 단절과 복구를 각각 시험한다.
 - [ ] user/posture 카메라와 Arduino·오디오 장치를 각각 제거·복원한다.
-- [ ] Arduino 높이 또는 ESP32 relay가 미준비면 모든 이동이 차단되지만 profile·상태 API는 동작한다.
-- [ ] WLED·Voice 장애는 해당 기능만 degraded이고 Desk·profile·Dashboard를 막지 않는다.
-- [ ] Vision model 예외와 느린 추론 중 health·Dashboard·STOP 응답을 측정한다.
+- [x] fake adapter에서 Arduino 높이 또는 ESP32 relay 미준비가 이동을 차단하고 profile·상태 API는
+  응답하는 계약을 desk/automation/API tests로 확인했다.
+- [x] fake WLED·Voice 장애가 해당 기능 상태로 격리되는 계약을 lifecycle/voice/WLED tests로 확인했다.
+- [x] Vision model 예외와 executor 경계가 fail-closed snapshot을 만드는 것을 Vision tests로 확인했다.
+  실제 느린 추론 중 health·Dashboard·STOP 지연 측정은 미완료다.
 - [ ] FastAPI 정상 종료, task 실패와 강제 종료 뒤 ESP32 독립 timeout STOP을 확인한다.
 - [ ] 장시간 실행에서 frame, Assistant turn과 background task memory 누적을 확인한다.
 

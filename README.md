@@ -49,14 +49,14 @@ AI: 후속 Dashboard 연결을 통해 단계별 풀이와 필요한 자료 제�
 AI: "상세한 해설을 화면에 표시했습니다."                     (짧은 음성)
 ```
 
-현재 Dashboard나 camera context와 연결되지 않은 로컬 AI 스피커 Phase 1 코드를
-구현했다. 장치 없는 자동 테스트는 완료됐으며 실제 microphone·speaker와 OpenAI 계정
-검증은 opt-in으로 수행한다.
+현재 구현은 Agents SDK `VoicePipeline` 단일 경로, 서버 current-user session 문맥,
+제한된 public tool, Assistant turn 저장과 Dashboard의 최신 turn polling까지 포함한다.
+자동 테스트는 이 코드 경계를 검증하지만 실제 microphone·speaker·OpenAI 계정은 opt-in
+실물 검증 대상이다.
 
-이전 수동 STT → Responses → TTS 구현은 Agents SDK 전환으로 superseded되었고
-`VoicePipeline`으로 교체한다. 확정된 model, VAD, 사용자 session과 Mem0/Docker 정책은
-[Agents SDK 음성 파이프라인 전환 결정](docs/architecture/agents-sdk-voice-pipeline.md)을
-따른다. 아래 구조는 아직 `main`에서 실행 중인 legacy 기준선이다.
+이전 수동 STT → Responses → TTS 경로는 운영 경로가 아니다. model, VAD, 사용자 session과
+장기 기억 경계는 [Agents SDK 음성 파이프라인 전환 결정](docs/architecture/agents-sdk-voice-pipeline.md)을
+따르며, 실제 OpenAI·audio·Mem0 운영 검증은 아직 남아 있다.
 
 ```text
 Microphone → VoiceService → AgentsVoiceRuntime (STT → Agent tools → TTS)
@@ -65,8 +65,9 @@ Microphone → VoiceService → AgentsVoiceRuntime (STT → Agent tools → TTS)
 ```
 
 Dashboard AI 응답은 현재 사용자 session의 최신 Assistant turn 하나를 HTTP polling으로
-전달한다. 화면 response 세부 모델, camera context와 MCP tool은 해당 기능을 구현할 때
-확정하되 SSE·WebSocket이나 범용 chat history 구조는 이번 범위에 추가하지 않는다.
+전달한다. SSE·WebSocket이나 범용 chat history 구조는 이번 범위에 추가하지 않는다.
+workspace camera의 문제집·문서·화면 분석과 그 분석을 Assistant tool/camera context로
+전달하는 기능은 아직 구현하지 않은 최종 제품 방향이다.
 
 카메라는 현재 다음 구조를 사용한다.
 
@@ -89,11 +90,11 @@ MediaMTX를 경유하지 않는다.
 추가할 수 있다. 구체적인 source, mixing 방식과 제어 tool은 요구가 확정된 뒤 별도
 설계한다.
 
-후속 단계에서는 Mem0 오픈소스를 연결해 profile별 장기 기억을 제공한다. 최근 대화
-문맥은 책상 `sessionId`에 연결된 Agents SDK 대화 session이 담당하고, Mem0에는 사용자가 명시적으로 기억시킨
-선호와 장기간 유효한 사실만 저장한다. raw 음성·camera 이미지·일시적인 행동 관측과
-전체 대화 transcript는 자동 저장하지 않는다. 기억 관리 UI는 Dashboard 후속 설계에서
-결정한다.
+profile별 장기 기억 경계와 `profile:<profile_id>` namespace는 코드에 있으나, 실제 Mem0
+운영 검증은 남아 있다. 최근 대화 문맥은 책상 `sessionId`에 연결된 Agents SDK 대화
+session이 담당하고, 장기 기억에는 명시적으로 기억시킨 선호와 장기간 유효한 사실만
+저장한다. raw 음성·camera 이미지·일시적인 행동 관측과 전체 transcript는 자동 저장하지
+않는다. 기억 관리 UI는 후속 범위다.
 
 ## 개발 환경
 
@@ -255,7 +256,9 @@ RTSP path publish를 허용해야 한다. FastAPI는 MediaMTX를 설치·시작�
 
 장치를 바꾸면 실제 capture index, input format, 해상도와 FPS를 먼저 확인한 뒤 `.env`에
 안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. 현재 `workspace`는 publish와 최신
-프레임 수신 기반까지만 등록되어 있으며, 업무 영역 분석 로직은 별도 작업에서 연결한다.
+프레임 수신 기반까지만 등록되어 있으며, 업무 영역 AI 분석은 별도 작업에서 연결한다.
+`posture` 하단 Vision은 선택 ONNX 모델을 설정하면 full-frame 자세/인원수 adapter와
+snapshot을 실행할 수 있지만, 실제 RTSP camera, ROI와 threshold/CPU 보정은 완료되지 않았다.
 
 ```bash
 command -v ffmpeg
@@ -336,3 +339,4 @@ SMART_DESK_RUN_MQTT_INTEGRATION=1 \
 [React 대시보드](docs/architecture/frontend.md)에서 확인한다. 실제 구현은
 [번호순 작업 목록](docs/tasks/README.md)을 따른다. 새 기능이나 구조를 계획할
 때는 [계획 및 설계 가이드](docs/guides/README.md)를 먼저 확인한다.
+운영 시작·상태·복구와 현재 제한은 [운영 runbook](docs/operations/README.md)에 정리한다.

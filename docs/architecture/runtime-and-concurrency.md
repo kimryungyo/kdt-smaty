@@ -18,7 +18,8 @@
 - `src/smart_desk/modules/desk/height_monitor.py`: 높이 수신·신선도와 MQTT 발행
 - `src/smart_desk/modules/desk/relay.py`: ESP32 명령·상태 계약
 - `src/smart_desk/modules/desk/controller.py`: 목표·HOLD·STOP 상태전이와 pulse runner
-- `src/smart_desk/modules/assistant/`: OpenAI STT·Responses·TTS와 process-memory history
+- `src/smart_desk/modules/assistant/`: Agents SDK Voice runtime, current-user session context,
+  function tool, profile memory와 Assistant turn store
 - `src/smart_desk/modules/voice/`: microphone callback queue, Wake Word와 voice 상태 머신
 
 `SQLiteDatabase`는 `bootstrap.py`에서 생성해 lifecycle order 5로 가장 먼저 등록한다.
@@ -26,7 +27,8 @@
 종료 시에는 controller가 final STOP을 보낸 뒤 monitor와 MQTT를 종료하고 마지막에
 SQLite operation을 닫는다.
 
-Voice가 활성화되면 media 뒤 lifecycle order 70에 aggregate `VoiceService` 하나를
+Voice가 활성화되면 identity 70, Assistant context/turn 75/76, automation 80 뒤 lifecycle
+order 90에 aggregate `VoiceService` 하나를
 등록한다. 내부 시작은 Wake Word detector → playback → microphone → non-critical
 `voice-main` 순서다. 종료에서는 새 입력을 막고 현재 turn과 speaker buffer를 취소한 뒤
 microphone, detector, speaker와 OpenAI client를 닫으므로 Desk STOP과 media 종료보다
@@ -66,17 +68,19 @@ class AppContainer:
     relay: RelayClient
     desk: DeskController
 
-    # 아래 필드는 이후 작업에서 추가한다.
-    vision: VisionStateService
+    vision: VisionService
+    current_user: CurrentUserSessionService
+    automation: AutomationService
+    assistant_turns: AssistantTurnStore
 
 def get_desk() -> DeskController: ...
-def get_vision() -> VisionStateService: ...
+def get_vision() -> VisionService: ...
 def get_mqtt() -> MqttClient: ...
 ```
 
-현재 container에는 설정, runtime, `TaskManager`, `SQLiteDatabase`,
-`ProfileRepository`, `MqttClient`, 높이 monitor, relay adapter, `DeskController`와
-lifecycle resource 목록이 있다. Vision은 향후 구현 필드다. container가 직접
+현재 container에는 설정, runtime, `TaskManager`, `SQLiteDatabase`, profile/activity-mode
+repository, `MqttClient`, 높이 monitor, relay adapter, `DeskController`, Vision, current-user,
+automation과 Assistant turn store 및 lifecycle resource 목록이 있다. container가 직접
 `start()`나 `shutdown()`을 제공하지 않으며
 `core/lifecycle.py`가 등록된 자원의 수명주기를 관리한다.
 

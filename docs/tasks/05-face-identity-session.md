@@ -11,11 +11,12 @@
 
 ## 현재 상태
 
-- profile CRUD와 user-camera 최신 frame 입력 기반은 있다.
-- 얼굴 detector, 정렬·품질 검사, embedding model과 저장소는 없다.
-- 등록 session API와 현재 사용자 read-only API가 없다.
-- Dashboard에서 선택한 profile이 화면 사용자처럼 표시되지만 서버 사용자 상태는 없다.
-- 현재 사용자 연속성, 익명 session과 A→B 교대 규칙은 task 01에서 확정됐다.
+- v4 face-embedding repository, fake capture/clock 기반 identity 안정화와 current-user session
+  service/API가 구현돼 있다. Dashboard 편집 profile은 현재 사용자와 분리된다.
+- 등록 시작·조회·취소·삭제 API의 상태/오류 경계는 있으나 production 얼굴 detector, landmark
+  alignment, embedding extractor와 실제 camera 등록은 없다.
+- production extractor는 의도적으로 `MODEL_UNAVAILABLE` fail-closed adapter다. 따라서
+  repository/API 자동 테스트 통과는 실제 얼굴 등록·식별 완료를 뜻하지 않는다.
 
 ## 구성 경계
 
@@ -75,7 +76,8 @@ best-second margin을 함께 적용한다.
 - [ ] 한 명의 얼굴만 있을 때 서로 다른 시점의 품질 표본을 수집한다.
 - [ ] 품질·일관성 검사를 통과한 embedding 3~5개를 개별 row로 원자적으로 저장한다.
 - [ ] 표본 간 일관성을 검사하고 다른 profile과 중복되는 얼굴을 거절한다.
-- [ ] 시작·상태 조회·취소·얼굴 삭제 API와 동시 등록 `409`를 구현한다.
+- [x] fake-driven 등록 시작·상태 조회·취소·얼굴 삭제 API와 동시 등록 `409` 계약을 구현했다.
+  실제 embedding 수집·등록 성공은 production model 연결 뒤 검증한다.
 - [ ] 등록·재등록·삭제 시작 시 task 01 계약대로 STOP·자동화 차단·후보 초기화를 요청한다.
 - [ ] 취소·실패·서버 종료에서 임시 표본과 background task를 정리한다.
 
@@ -89,16 +91,16 @@ best-second margin을 함께 적용한다.
 
 ### 현재 사용자 session
 
-- [ ] task 01의 등록·익명 시작, 얼굴 누락·이탈·다중 사용자 전이를 구현한다.
-- [ ] 새 확정 사용자마다 예측 불가능한 `sessionId`와 시작 시각을 발급한다.
-- [ ] 익명→등록, A→B와 A→익명마다 새 session ID, 전환 이유와 변경 시각을 발행한다.
-- [ ] 이전·현재 session ID, 전환 이유, 단조 증가 sequence와 변경 시각을 가진 내부 변경
-  event를 발행하고 구독 해제까지 lifecycle에서 정리한다.
+- [x] fake Vision 관측에서 등록·익명 시작, 얼굴 누락·이탈·다중 사용자 전이를 구현했다.
+- [x] 새 확정 사용자마다 예측 불가능한 `sessionId`와 시작 시각을 발급한다.
+- [x] 익명→등록, A→B와 A→익명에 새 session ID, 전환 이유와 변경 시각을 발행한다.
+- [x] 이전·현재 session ID, 전환 이유, 단조 증가 sequence와 변경 시각을 가진 내부 변경
+  event를 발행하고 구독 해제를 lifecycle에서 정리한다.
 - [x] snapshot capture와 `is_current(sessionId)` 검증을 같은 session 상태 경계에서
   thread-safe하게 제공한다.
-- [ ] session service는 `DeskController`를 직접 호출하거나 mode를 소유하지 않고, task 06이
+- [x] session service는 `DeskController`를 직접 호출하거나 mode를 소유하지 않고, task 06이
   목표 교체·MANUAL 보존·STOP 순서를 적용할 수 있는 불변 snapshot을 제공한다.
-- [ ] 서버 시작·재시작에서 session 없음으로 시작하고 fresh 관측을 요구한다.
+- [x] 서버 시작·재시작에서 session 없음으로 시작하고 fake fresh 관측을 요구한다.
 - [ ] profile 또는 얼굴 삭제 시 활성 session과 후보를 원자적으로 무효화한다.
 - [x] `/api/current-user`와 등록 상태를 read-only snapshot으로 제공한다.
 
@@ -106,7 +108,7 @@ best-second margin을 함께 적용한다.
 
 - SQLite schema는 v4이며 `face_embeddings.vector`는 little-endian float32 BLOB이다. 일반 API와 로그에는 vector, crop, box, similarity를 노출하지 않는다.
 - production extractor는 의도적으로 `MODEL_UNAVAILABLE` fail-closed adapter다. 모델, landmark alignment, 품질 기준, match threshold와 margin은 Pi/camera 실측 전에는 운영 기본값으로 정하지 않았다.
-- `FaceIdentityService`는 Vision의 fresh face observation만 소비하고 session change 구독 경계를 제공한다. Desk/Automation/WLED/Voice 호출은 Task 06/08 연결 대기다.
+- `FaceIdentityService`는 Vision의 fresh face observation만 소비하고 session change 구독 경계를 제공한다. Desk/WLED/Voice를 직접 호출하지 않으며, `AutomationService`와 Assistant runtime이 current-user session event를 구독하는 연결은 fake 기반 자동 테스트로 검증했다.
 - Task 09에서 실제 Pi CPU 지연, model load, 카메라 ROI/조명/가림 품질 및 threshold·margin을 현장 검증하고 production extractor를 연결해야 한다.
 
 ## 얼굴 일시 누락의 안전 원칙
@@ -121,7 +123,7 @@ fresh 단일 재실이 이어지면 얼굴이 보이지 않아도 등록 session
 - 결제·출입 통제용 생체 인증과 liveness/anti-spoof 보장
 - 얼굴 원본·영상 저장과 원격 얼굴 등록
 - 여러 책상이나 여러 사용자의 동시 tracking
-- 자세 기반 실제 높이 제어와 Dashboard 전체 화면 개편
+- production camera·얼굴 모델을 이용한 자세 기반 실제 높이 제어
 
 ## 자동 검증
 

@@ -9,8 +9,8 @@
 bridge와 `feature/serial-esp32`은 운영·통합 검증 범위에 포함하지 않는다. Arduino 높이
 입력 USB serial과 relay 분리 bench용 serial 명령은 ESP32 운영 transport와 구분한다.
 
-단, legacy Voice의 수동 STT→Responses→TTS 구조는 확정적으로 교체하므로 task 08에서
-Agents SDK 전환 자체를 예외적으로 소유한다.
+legacy Voice의 수동 STT→Responses→TTS 구조는 이미 교체됐으며, 현재 Agents SDK runtime
+계약과 남은 운영 검증은 task 08이 소유한다.
 
 각 문서는 구현 직전의 세부 계획이 아니라 다음 내용을 합의하기 위한 작업 경계다.
 
@@ -30,30 +30,27 @@ function tool과 SDK memory 구현은 Agents SDK 문서가 우선한다.
 
 ## Task 목록과 의존성
 
-번호는 책임 영역을 찾기 위한 식별자이며 이번 구현의 엄격한 직렬 순서가 아니다. 특히 legacy
-Voice를 새 lifecycle에 굳히지 않기 위해 task 08의 Agents SDK core를 task 02의 최종 Voice
-lifecycle 연결보다 먼저 수행한다.
+번호는 책임 영역을 찾기 위한 식별자이며 엄격한 구현 순서가 아니다. task 08의 Agents SDK
+runtime은 이미 task 02 lifecycle에 연결돼 있고, 남은 Voice 작업은 실제 audio/OpenAI/Mem0
+환경의 운영 검증과 문서에 표시된 미완료 항목이다.
 
 | 순서 | 작업 | 핵심 결과 | 상태 | 선행·비고 |
 | ---: | --- | --- | --- | --- |
 | 01 | [상태·워크플로우 계약 확정](01-workflow-contracts.md) | 구현 가능한 상태·전이·API 기준 | 완료 | - |
-| 02 | [서비스 수명주기와 준비 상태](02-required-services.md) | 시작·이동 필수 조건과 선택 기능 degraded 분리 | 착수 가능 | 08 Agents core 뒤 최종 연결 |
-| 03 | [프로필과 작업 모드](03-profile-and-presets.md) | 활동별 앉기·서기 높이와 LED 저장 | 착수 가능 | SQLite v2→v3 |
-| 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 착수 가능 | 실물 ROI·모델 보정만 장치 대기 |
-| 05 | [얼굴 식별과 사용자 세션](05-face-identity-session.md) | 얼굴 등록·식별과 서버 현재 사용자 | 대기 | 03·04 공개 계약 |
-| 06 | [책상 자동화](06-desk-automation.md) | 제어 방식·작업 모드와 자세 기반 이동 | 대기 | 03·05 |
-| 07 | [Dashboard 워크플로우](07-dashboard-workflow.md) | 설정 대상과 현재 사용자 분리 | 대기 | 설정 화면은 03 뒤, 완료는 05·06 뒤 |
-| 08 | [Agents SDK 음성과 AI 사용자 문맥](08-ai-user-context.md) | VoicePipeline·session memory·Mem0·화면 응답 | 착수 가능 | Voice core는 즉시, 사용자·tool·화면 연결은 02·05·06·07 |
-| 09 | [통합·실물 검증](09-system-validation.md) | 장애·복구·실제 동작 증거 | 대기 | 02~08 기능 구현 |
+| 02 | [서비스 수명주기와 준비 상태](02-required-services.md) | 시작·이동 필수 조건과 선택 기능 degraded 분리 | 진행 중 | 선택 기능 분리는 구현; 최초 MQTT cold-start 의존과 실제 단절·복구 재검토 필요 |
+| 03 | [프로필과 작업 모드](03-profile-and-presets.md) | 활동별 앉기·서기 높이와 LED 저장 | 코드 완료 | 실제 장치 적용은 06·09 |
+| 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 진행 중 | 하단 구현 완료; 상단 detector·실제 ROI 보정 미완료 |
+| 05 | [얼굴 식별과 사용자 세션](05-face-identity-session.md) | 얼굴 등록·식별과 서버 현재 사용자 | 진행 중 | fake-driven session/repository/API 기반; production 얼굴 추론·등록 미완료 |
+| 06 | [책상 자동화](06-desk-automation.md) | 제어 방식·작업 모드와 자세 기반 이동 | 진행 중 | 정책·자동 검증 완료; 실제 Vision/하드웨어 end-to-end 미완료 |
+| 07 | [Dashboard 워크플로우](07-dashboard-workflow.md) | 설정 대상과 현재 사용자 분리 | 진행 중 | 주요 workflow·Assistant/Voice 상태 구현; preview/debug 일부 미완료 |
+| 08 | [Agents SDK 음성과 AI 사용자 문맥](08-ai-user-context.md) | VoicePipeline·session context/tool/turn | 진행 중 | 실제 audio/OpenAI/Mem0 운영 검증과 남은 항목 구분 |
+| 09 | [통합·실물 검증](09-system-validation.md) | 장애·복구·실제 동작 증거 | 진행 중 | 자동 검증 누적, 실물 검증 대기 |
 
-실제 착수는 08의 Agents SDK core 교체를 먼저 하고 02에서 최종 Voice lifecycle을 연결한다.
-02의 readiness·Desk 분류 정리는 Agents core와 병행할 수 있다. 04는 실제 하단 카메라가 없어도 fake frame과
-detector adapter로 snapshot·freshness·안정화·API를 먼저 구현할 수 있고, ROI와 threshold
-보정만 장치 연결 뒤 완료한다. 03도 04와 병행할 수 있다. 05는
-profile 저장과 Vision 관측을 결합하며, 06은 이 사용자 세션을 기준으로 서버 제어 정책을
-완성한다. 07의 profile 설정 화면은 03 뒤 먼저 착수할 수 있지만, current user·자동화 화면과
-명령까지 완료하려면 05·06이 필요하다. 08의 Agents SDK core 전환은 먼저 진행할 수 있고,
-사용자 session·기억·Desk tool·Dashboard 연결은 02·05·06·07의 공개 계약이 준비된 뒤 완성한다.
+구현 순서는 더 이상 착수 계획이 아니다. 02·03의 코드 경계, 04 하단 detector, 05의
+repository/session/API 기반, 06 자동화 정책, 07 Dashboard 주요 흐름, 08 Agents SDK 단일
+경로와 turn 연결은 구현되어 있다. 남은 순서는 production Vision과 등록 모델을 정하고 실제
+camera/ROI를 보정한 뒤, 안전한 하드웨어와 실제 OpenAI/audio/Mem0 환경에서 Task 09 증거를
+누적하는 것이다.
 
 키 필드는 제거하고 자세 전환 확인 시간은 전체 고정 5초로 사용한다. profile 삭제 시 장기
 기억까지 삭제하며, session 교대·종료 시 이전 AI 상세 응답은 즉시 숨긴다. 작업 모드 이름
@@ -66,18 +63,21 @@ profile 저장과 Vision 관측을 결합하며, 06은 이 사용자 세션을 �
 
 ## 현재 구현 기준선
 
-- MQTT, Arduino 높이 입력과 ESP32 relay 계약이 구현돼 있다.
-- `DeskController`가 목표 이동, HOLD, STOP과 기본 안전 정책을 소유한다.
-- SQLite version 2 profile CRUD·height cache와 React Dashboard 골조가 구현돼 있다.
-- user·workspace·posture 세 카메라 역할의 `CameraPublisher`와 최신 프레임
-  `RtspFrameSource`가 구현돼 있다.
+- MQTT, Arduino 높이 입력과 Wi-Fi/MQTT ESP32 relay 계약이 구현돼 있다.
+- `DeskController`와 `AutomationService`가 목표 이동, HOLD, STOP, 두 mode와 자동화 정책을
+  분리한다. 실제 자동 이동은 기본 shadow 설정이며 실물 증거 전에는 활성화하지 않는다.
+- SQLite v4 profile·activity mode·face-embedding 저장 기반과 React Dashboard 주요 workflow가
+  구현돼 있다.
+- user·workspace·posture 카메라 publisher/latest-frame 입력과 Vision snapshot이 구현돼 있다.
+  하단 ONNX adapter의 sample 회귀는 완료했지만 상단 detector, 실제 posture camera/ROI와 CPU
+  보정은 남아 있다.
 - WLED와 Voice는 선택 기능이며 `enabled=false`는 정상 `DISABLED`다. 활성화한 기능의 잘못된
   정적 구성은 명시적으로 실패하고 runtime 단절은 기능별 degraded로 표시한다.
-- Voice는 아직 legacy 수동 STT→Responses/tool loop→TTS 경로이며 Agents SDK 전환은 목표
-  문서와 별도 기능 브랜치에만 있다.
-- 얼굴·재실·자세 추론, 현재 사용자 세션과 `AutomationService`는 아직 없다.
-- Dashboard의 `selectedProfile`은 서버 사용자와 무관하지만 현재 화면에서는 사용자처럼
-  표시되고 책상·WLED 명령 입력에 사용된다.
+- Voice는 Agents SDK `VoicePipeline` 단일 경로이며 current-user context, 제한 tool,
+  session turn store와 Dashboard latest-turn polling을 사용한다. 실제 audio/OpenAI/Mem0는 미검증이다.
+- 얼굴 repository와 fake-driven identity/session/API는 있지만 production detector, alignment,
+  embedding model 및 실제 등록은 없다.
+- Dashboard의 설정 profile과 서버 current user는 분리되어 있고, stale session 명령은 거절한다.
 
 ## 상태 관리
 
@@ -131,3 +131,4 @@ task 상태는 다음 값 중 하나를 사용한다.
 - [Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)
 - [실행과 동시성](../architecture/runtime-and-concurrency.md)
 - [책상 제어와 안전](../architecture/desk-safety.md)
+- [운영 runbook](../operations/README.md)

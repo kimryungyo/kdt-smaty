@@ -9,12 +9,10 @@
 
 ## 현재 상태
 
-- `DeskController`는 목표 이동, HOLD, STOP, sensor freshness와 relay 안전을 구현한다.
-- `/api/control`과 `/api/target`은 현재 Dashboard에서 `DeskController`로 직접 위임한다.
-- profile에는 앉은·선 높이가 있지만 사용자 session은 아직 없다. 자세 전환 시간은 profile
-  필드로 추가하지 않고 전체 고정 5초를 사용한다.
-- `AutomationService`, server control/activity mode, generation과 차단 이유 API가 없다.
-- 화면의 자동화 ON과 5초 표시는 실제 서버 상태가 아닌 placeholder다.
+- `AutomationService`가 current-user, Vision, profile mode와 `DeskController` 사이의 두 mode,
+  generation, 차단 이유와 command lock을 소유한다. `/api/control`·`/api/target`도 이 경계를 쓴다.
+- fake-driven 자동 정책과 API는 구현·자동 검증됐으며 기본값은 shadow 실행이다.
+- 실제 Vision 입력, ESP32/Arduino/WLED와 제한된 이동을 합친 end-to-end 검증은 Task 09에 남는다.
 
 ## 책임 경계
 
@@ -71,8 +69,8 @@ control mode, activity mode와 자동화 상태는 같은 enum으로 합치지 �
 - [x] 익명 자세 목표는 앉음 75cm·섬 110cm로 선택한다.
 - [x] 현재 높이가 목표 허용 오차 안이면 새 이동을 만들지 않는다.
 - [x] 같은 자세·같은 목표를 frame마다 반복 설정하지 않는다.
-- [ ] 사용자 교대, 이탈, 미등록 얼굴 전환, 다중 사용자와 freshness 만료를 task 01 결정표대로
-  STOP 또는 BLOCK 처리한다.
+- [x] fake-driven 사용자 교대, 이탈, 미등록 얼굴 전환, 다중 사용자와 freshness 만료를
+  결정표대로 STOP 또는 BLOCK 처리한다. 실제 Vision·hardware 입력 검증은 남아 있다.
 - [x] 익명 AUTO 중 등록 identity 확정은 현재 목표를 안전하게 profile 목표로 교체한다.
 - [x] fresh VACANT 30초 뒤 75cm PARK를 만들고 사람 후보·수동 명령에서 취소한다.
 - [x] session 종료·교대에서 active mode와 LED override를 폐기하고 WLED OFF를 best-effort로

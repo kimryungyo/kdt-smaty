@@ -15,6 +15,9 @@ Voice 구현은 legacy `AssistantService`가 아니라
 ## 현재 상태
 
 - SQLite, MQTT, Arduino 높이 입력과 `DeskController`는 기본 lifecycle에 등록된다.
+- 현재 `MqttClient.start()`는 최초 broker 연결·구독에 실패하면 애플리케이션 시작도 실패한다.
+  따라서 아래의 이동 필수 분류와 달리 cold-start broker 장애에서 상태 API를 유지하는 목표는
+  아직 구현 차이로 남아 있다.
 - MQTT·높이·Desk의 critical task 종료는 애플리케이션 readiness를 내린다.
 - WLED와 Voice는 각각 `enabled` 설정일 때만 생성되며 장치 장애는 기능 snapshot으로 표현한다.
 - profile CRUD, 작업 모드 CRUD와 `/api/status`는 전역 application readiness와 무관하게
@@ -33,6 +36,9 @@ Voice 구현은 legacy `AssistantService`가 아니라
 | 책상 이동 필수 | MQTT 연결, fresh Arduino 높이, fresh·ready ESP32 relay 상태 | 서버는 유지하되 AUTO·PARK·수동 이동 차단, STOP은 계속 접수 |
 | AUTO 추가 필수 | fresh Vision, 단일 재실, 귀속 가능한 자세 | AUTO만 차단, 명시적 수동 제어는 장치가 준비되면 허용 |
 | 선택 제품 기능 | WLED, Voice/OpenAI·오디오, Voice debug | 해당 기능만 `DISABLED`/`DEGRADED`/`ERROR`, 핵심 readiness와 Desk 제어에 영향 없음 |
+
+이 표는 목표 분류다. 현재 구현은 최초 MQTT 연결을 시작 gate로 사용하며, 한 번 시작된 뒤의
+연결 상실과 stale relay/height는 이동 지점에서 fail-closed로 처리한다.
 
 현재 운영 ESP32 transport는 Wi-Fi/MQTT다. Arduino 높이 입력 USB serial은 별도 센서 연결이고,
 MQTT→USB-serial bridge는 lifecycle·readiness·복구 대상에 포함하지 않는다.
@@ -79,15 +85,17 @@ dependency 또는 model 파일이 잘못된 경우에는 조용히 기능을 생
 
 - [x] 현재 lifecycle 등록 resource의 startup order와 shutdown order 역순 종료를 검증한다.
 - [x] 일부 시작 실패 시 이미 시작한 resource가 역순으로 정확히 한 번 종료되고 목록에서 제거됨을 검증한다.
-- [ ] MQTT·Arduino·ESP32 단절은 Desk 기능별 `BLOCKED` 근거가 되고 STOP을 시도하게 한다.
+- [x] fake adapter에서 MQTT·Arduino·ESP32 미준비를 Desk 기능별 `BLOCKED` 근거로 만들고
+  STOP 경로를 유지한다. 실제 단절·복구와 ESP32 STOP은 Task 09 실물 검증 대기다.
 - [x] WLED·오디오·OpenAI runtime 단절은 해당 기능 상태와 복구로만 나타나게 한다.
 - [x] profile·작업 모드 CRUD와 `/api/status`에서 전역 readiness guard를 제거하고, 저장소 오류만 `503`으로 변환한다.
 
 ### 문서와 운영
 
 - [x] 개발·운영 환경변수에서 핵심 service와 선택 기능을 구분한다.
-- [ ] Arduino·ESP32·WLED·오디오·OpenAI 단절의 확인·복구 절차를 각각 기록한다.
-- [ ] 운영 문서에서 serial bridge를 시작하거나 확인하도록 안내하지 않는다.
+- [x] Arduino·ESP32·WLED·오디오·OpenAI의 확인·복구 원칙과 실물 검증 범위를
+  [운영 runbook](../operations/README.md)에 기록한다.
+- [x] 운영 문서는 Wi-Fi/MQTT ESP32 경로만 안내하며 serial bridge를 포함하지 않는다.
 
 ## 제외 범위
 

@@ -33,11 +33,11 @@ React 상태를 최소한 다음 의미로 구분한다.
 서버 현재 사용자가 바뀌어도 `editingProfile`이나 입력 draft를 자동으로 바꾸지 않는다. 반대로
 profile 설정 화면을 열거나 닫아도 서버 session과 두 mode가 바뀌지 않는다.
 
-## 화면 구조와 전면 개편 원칙
+## 구현된 화면 구조와 남은 범위
 
-현재 `App.tsx`의 page enum, 첫 profile 선택 화면과 legacy CSS를 유지하는 점진적 수정은 목표가
-아니다. 기존 API client와 안전한 HOLD/STOP 동작은 재사용할 수 있지만 화면 구조는 다음
-역할에 맞게 교체한다. 구체적인 router library는 구현 시 가장 작은 방식을 선택한다.
+`/` 메인 Dashboard와 profile 설정 route는 구현돼 있으며, 기존 첫 profile 선택 흐름은 제거됐다.
+API client는 server current-user, Vision, automation, Desk/WLED/Voice 및 Assistant latest turn을
+별도 snapshot으로 polling한다. 아래 구조는 현재 화면 책임을 나타낸다.
 
 ```text
 메인 Dashboard `/`
@@ -72,7 +72,7 @@ Vision debug `/debug/vision`
 
 ### API client와 상태 분리
 
-- [x] profile·activity mode·얼굴 등록·현재 사용자·Vision·자동화 TypeScript 계약을 추가한다. (07A: profile·activity mode만 완료)
+- [x] profile·activity mode·얼굴 등록·현재 사용자·Vision·자동화·Assistant TypeScript 계약을 추가한다.
 - [x] 첫 profile 선택을 제거하고 `/`을 항상 메인 Dashboard로 표시한다.
 - [x] 설정 route의 `editingProfile`과 서버 current user를 분리하고 `selectedProfile` 기반 제어를
   제거한다.
@@ -84,14 +84,14 @@ Vision debug `/debug/vision`
 
 ### profile 설정 흐름
 
-- [x] profile 목록·생성·상세 설정 route를 연결한다. (메인 설정 버튼은 07B 범위)
+- [x] profile 목록·생성·상세 설정 route와 메인 설정 진입을 연결한다.
 - [x] 이름, 앉은·선 높이와 조명 입력을 profile API에 연결한다.
 - [x] 사용자 키 입력·state와 자세 유지 시간 입력을 제거하고, 필요하면 “모든 사용자는 자세를
   5초 확인합니다”라는 읽기 전용 안내만 표시한다.
 - [x] 최신 height가 ONLINE일 때만 “현재 높이 사용”을 draft에 복사한다.
 - [x] 기본 작업 모드의 비편집 이름과 custom 작업 모드 생성·수정·삭제 UI를 구현한다.
 - [x] 얼굴 등록 진행, 취소·재시도·건너뛰기와 재등록·삭제를 연결한다.
-- [x] profile 삭제 확인에는 현 범위의 custom 작업 모드 cascade와 얼굴·Mem0 완전 삭제 미연결을 명시한다.
+- [x] profile 삭제 확인은 custom mode·face/memory 삭제의 서버 결과와 실패를 표시한다.
 
 ### 메인 Dashboard
 

@@ -260,7 +260,7 @@ PlatformIO 프로젝트다. 한 자리만 선택된 안정 구간에서 mask와 
 | `frontend/src/config.ts` | UI가 사용하는 75~115cm 사용자 제어 범위를 한곳에 정의한다. |
 | `frontend/src/features/desk/DeskPanel.tsx` | 상태·목표와 HOLD/STOP pointer·keyboard cleanup을 제공한다. |
 | `frontend/src/features/profiles/ProfilesPanel.tsx` | profile 목록·생성·수정·hard delete 확인을 제공한다. |
-| `frontend/src/features/debug/DebugPanel.tsx` | 기존 Vision debug 화면 구조를 미연결 placeholder로 유지한다. |
+| `frontend/src/features/debug/DebugPanel.tsx` | Vision snapshot debug를 표시한다. browser preview와 일부 상세 근거 표시는 아직 연결하지 않았다. |
 | `frontend/src/styles.css` | 대시보드의 전역·component 스타일을 정의한다. |
 | `frontend/src/vite-env.d.ts` | CSS·정적 asset import에 필요한 Vite TypeScript 타입을 연결한다. |
 

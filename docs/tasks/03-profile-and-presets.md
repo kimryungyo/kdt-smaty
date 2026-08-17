@@ -12,12 +12,10 @@
 
 ## 현재 상태
 
-- 실제 SQLite schema version은 2이며 `profiles`와 `desk_height_cache`가 있다.
-- `profiles`에는 이름, 앉은·선 높이와 선택 LED 색상이 있고 기본 CRUD가 구현돼 있다.
-- 사용자 키 입력은 영속화되지 않고 자세 유지 시간은 5초 placeholder다. 둘 다 profile
-  필드로 만들지 않는다.
-- custom preset이나 작업 모드 저장소와 API는 아직 없다.
-- Dashboard의 앉은·선 버튼은 화면에서 선택한 profile 값을 직접 사용한다.
+- SQLite schema v3 migration과 현재 v4 schema에 `profile_modes` CRUD가 구현돼 있다.
+- profile의 높이·LED는 내장 `기본` mode로 합성하고 custom 작업 모드를 별도 row로 저장한다.
+- Dashboard 설정과 API는 profile 편집을 서버 current user 및 자동화 실행과 분리한다.
+- 실제 책상·WLED 적용은 저장 CRUD의 완료 증거가 아니며 Task 06/09 범위다.
 
 ## 용어와 확정 정책
 

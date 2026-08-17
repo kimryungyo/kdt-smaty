@@ -20,9 +20,10 @@
 | [구현 계획](implementation-plan.md) | 현재 차이, 구현 순서와 검증 시나리오 |
 
 책상 relay 자체의 물리 안전과 pulse 정책은
-[책상 제어와 안전](../architecture/desk-safety.md)을 기준으로 한다. Voice의 현재 legacy
-기준선은 [AI 음성 스피커](../architecture/ai-voice-assistant.md), 전환 목표와 구현 우선순위는
-[Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)을 기준으로 한다.
+[책상 제어와 안전](../architecture/desk-safety.md)을 기준으로 한다. Voice의 현재 구현은
+[Agents SDK 음성 파이프라인 전환 결정](../architecture/agents-sdk-voice-pipeline.md)의
+`VoicePipeline` 단일 경로이며, [AI 음성 스피커](../architecture/ai-voice-assistant.md)는
+이전 설계와 제품 방향의 참고 문서다.
 
 ## 공통 원칙
 

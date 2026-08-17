@@ -1,41 +1,30 @@
 # 워크플로우 구현 계획
 
-## 현재 구현과 목표 차이
+## 현재 구현과 남은 차이
 
-| 영역 | 현재 | 목표 |
+| 영역 | 현재 코드·자동 검증 | 남은 목표/제한 |
 | --- | --- | --- |
-| profile 선택 | React 값을 메인 사용자처럼 사용 | 첫 선택 화면 제거, 별도 설정 route에서만 사용 |
-| Dashboard route | page enum으로 목록·설정·메인을 전환 | `/` 메인, `/settings/profiles...` 설정 분리 |
-| 현재 사용자 | 서버 상태 없음 | 재실·얼굴 기반 등록/익명 `CurrentUserSnapshot` |
-| 사용자 키 | 입력 후 폐기 | 사용처 없는 입력과 state 제거 |
-| 얼굴 등록·식별 | placeholder·미구현 | background 식별과 등록 session |
-| 자세·재실 | 미구현 | 안정화·freshness snapshot |
-| 제어 방식 | 없음 | 서버 session `controlMode=AUTO/MANUAL` |
-| 작업 모드 | profile 기본 높이·LED만 존재 | 기본+custom 활동별 앉기·서기 높이와 LED |
-| 자동 높이 | 비활성 placeholder | profile 또는 익명 기본 75/110cm 적용과 빈자리 park |
-| 자세별 버튼 | 브라우저 선택 profile 사용 | active 작업 모드와 현재 자세로 서버가 목표 선택 |
-| 사용자 작업 모드 | 없음 | CRUD, session 선택과 LED·높이 적용 |
-| Vision debug | placeholder | 실제 상태·preview 연결 |
-| AI·Voice | 수동 STT→Responses/tool loop→TTS, 화면 응답 없음 | Agents SDK VoicePipeline과 동일 turn의 화면 응답 |
-| 서비스 상태 | 전역 readiness와 선택 기능 조건부 생성 혼재 | Desk 이동 필수 조건과 WLED·Voice degraded 분리 |
+| Dashboard/profile | `/` 메인과 설정 route, 편집 profile/current user 분리 | Vision preview·일부 debug 근거 |
+| 현재 사용자·얼굴 | fake-driven identity/session, v4 embedding repository와 API | production detector/alignment/embedding model, 실제 등록 |
+| Vision | 하단 ONNX pose·freshness/stabilization/API, sample 회귀 | 상단 몸체/얼굴 detector, 실제 user/posture RTSP·ROI/threshold/CPU 보정 |
+| mode·자동화 | activity mode CRUD, `AUTO`/`MANUAL`, generation/blocked policy와 shadow AUTO | 실제 Vision·WLED·Desk가 연결된 안전한 end-to-end 이동 |
+| AI·Voice | Agents SDK `VoicePipeline` 단일 경로, session context/tool/turn store와 Dashboard polling | 실제 microphone/speaker/OpenAI·Mem0 운영 검증, 일부 preview/debug UX |
+| service 상태 | 이동 필수 조건과 선택 WLED/Voice degraded 분리 | 실제 장치 단절·복구 측정 |
 
-현재 얼굴 감지로 특정 profile 화면을 자동으로 여는 코드는 없다. 목표에도 추가하지 않는다.
+현재 얼굴 감지로 특정 profile 설정 화면을 자동으로 여는 코드는 없고 추가하지 않는다.
 
-## 구현 순서
+## 잔여 구현·검증 순서
 
-1. Voice를 Agents SDK VoicePipeline으로 교체하고 legacy gateway·수동 tool loop를 제거한다.
-2. 서비스 lifecycle을 시작 필수·이동 필수·선택 기능으로 분류하고 전역 readiness 일괄 차단을 제거한다.
-3. 사용자 키·profile별 자세 시간 입력을 제거하고 전체 자세 전환 확인 시간을 5초로 고정한다.
-4. SQLite v3 `profile_modes` schema와 기본+custom 작업 모드 설정 CRUD를 추가한다.
-5. 분리된 Vision snapshot과 등록·익명 `CurrentUserSnapshot` read-only API를 추가한다.
-6. 상단 몸체/얼굴과 하단 하체를 결합하는 재실·자세 loop와 freshness를 구현한다.
-7. 얼굴 임베딩 저장소, background 식별과 등록·익명 session 전이를 구현한다.
-8. Dashboard를 `/` 메인과 `/settings/profiles...` 설정 route로 전면 개편하고 얼굴 등록을 연결한다.
-9. Vision과 현재 사용자를 메인 Dashboard·debug 화면에 표시한다.
-10. `AutomationService`에 `AUTO`/`MANUAL`, 최초 2초 지연, 빈자리 park와 명령 직렬화를 구현한다.
-11. 등록 active 작업 모드·익명 기본 높이와 mode 선택·LED 적용을 연결한다.
-12. 관측·차단과 control/activity mode 전이를 검증한 뒤 자세 기반 실제 자동 목표를 허용한다.
-13. SDK 대화 session·Mem0·Desk function tool과 AI Dashboard 응답을 사용자 session에 연결한다.
+1. production 상단 몸체/얼굴 detector와 embedding model을 선정하고 model별 binary
+   provisioning, SHA-256와 라이선스를 검토한다. 현재 하단 Ultralytics ONNX는 별도로
+   AGPL-3.0/Enterprise 조건을 확인한다.
+2. 실제 user/posture RTSP camera를 연결해 ROI, count, freshness, threshold와 Pi CPU를 보정한다.
+3. 이 Vision 입력으로 face enrollment와 등록/익명 session 전이를 실측한다.
+4. 자동화는 shadow 상태 검증 후 제한된 범위에서 WLED, Arduino, Wi-Fi/MQTT ESP32와 Desk를
+   연결해 STOP·복구를 먼저 확인하고 실제 이동을 검증한다.
+5. 실제 microphone/speaker/OpenAI 계정과 Mem0를 opt-in으로 검증하고 Voice/turn UX의 남은
+   preview/debug 항목을 정리한다.
+6. Task 09 evidence matrix에 환경, firmware/model hash, 측정과 미완료 항목을 누적한다.
 
 ## 필수 자동 검증
 

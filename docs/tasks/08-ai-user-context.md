@@ -92,7 +92,7 @@ broker는 이번 범위에 추가하지 않는다.
   tool이 기존 public domain service만 호출하게 한다.
 - [ ] 긴 tool 전 진행 안내와 최종 응답을 같은 Agent run·`turnId`에서 streaming TTS로
   재생하고 TTS 자체를 function tool로 만들지 않는다.
-- [ ] 일반 응답은 Wake Word 대기로 돌아가며 Agent가 `request_followup`을 호출한 경우에만
+- [x] 일반 응답은 Wake Word 대기로 돌아가며 Agent가 `request_followup`을 호출한 경우에만
   TTS drain과 정책 재검증 뒤 제한된 follow-up 창을 연다.
 - [x] 운영 Voice 경로를 `AgentsVoiceRuntime.run_audio` 하나로 전환하고 `OpenAiGateway`, 수동 Responses/tool loop, local RMS 발화 종료와 WAV STT
   경로를 제거하고 legacy/SDK 이중 실행 flag를 두지 않는다.
@@ -101,32 +101,30 @@ broker는 이번 범위에 추가하지 않는다.
 
 ### 현재 사용자 연결
 
-- [ ] `AgentsVoiceRuntime`이 current user snapshot을 안전하게 읽도록 adapter를 주입한다.
-- [ ] turn 시작 시 사용자 session을 캡처하고 transcript·tool·memory 동작에 전달한다.
-- [ ] session 변경 event를 구독해 이전 Agent run·대기 tool·TTS·follow-up을 취소하고 SDK
-  session을 폐기한다.
-- [ ] 익명·session 없음·다중·교대 상태의 비개인화 동작과 memory 차단을 구현한다.
-- [ ] 익명 session 종료와 등록 전환에서 익명 짧은 history를 폐기한다.
-- [ ] 서버 재시작 또는 session 종료 후 이전 profile 문맥이 process state에 남지 않게 한다.
+- [x] `AgentsVoiceRuntime`에 current user snapshot adapter를 주입한다.
+- [x] turn 시작 시 사용자 session을 캡처하고 context·tool·memory 동작에 전달한다.
+- [x] session 변경 event로 이전 Agent run·대기 tool·TTS·follow-up을 취소하고 SDK session을 폐기한다.
+- [x] 익명·session 없음·다중·교대 상태의 비개인화 동작과 memory 차단을 구현한다.
+- [x] 익명 session 종료와 등록 전환에서 익명 짧은 history를 폐기한다.
+- [x] 서버 재시작 또는 session 종료 후 이전 profile 문맥이 process state에 남지 않게 한다.
 
 ### 기억 경계
 
-- [ ] 책상 `sessionId`마다 Agents SDK memory session을 만들고 사용자 session 종료·전환과
+- [x] 책상 `sessionId`마다 Agents SDK memory session을 만들고 사용자 session 종료·전환과
   서버 재시작에서 폐기한다.
-- [ ] 긴 책상 사용에서 raw history가 무제한 증가하지 않도록 item/token 제한 또는 compaction을
-  설정화한다.
+- [x] session history item cap으로 raw history 증가를 제한한다.
 - [x] `profile:<profile_id>` namespace를 사용하는 memory service 경계를 구현한다.
 - [x] Mem0 OSS를 `fin-main` process에 library로 포함하고 `data/mem0`를 명시적인 영속 경로로
   사용한다. Docker 전환 후에는 같은 container의 `/app/data/mem0` volume으로 연결한다.
 - [x] 검색·저장할 정보, 최대 결과 수, timeout과 실패 fallback을 정한다.
-- [ ] turn 완료 시 같은 session인지 다시 확인한 뒤에만 사용자 기억을 저장한다.
+- [x] turn 완료 시 같은 session인지 다시 확인한 뒤에만 사용자 기억을 저장한다.
 - [x] profile 삭제 전에 장기 기억 전체 삭제를 완료하고 실패 시 profile DB를 보존한다.
 - [ ] transcript, 사용자 ID와 기억 내용의 로그·보존·민감정보 범위를 문서화한다.
 
 ### Dashboard 응답
 
 - [x] streaming Assistant 답변을 같은 turn의 FINAL 요약(최대 200자)과 필요 시 상세 응답으로 기록하며 raw transcript는 기록하지 않는다.
-- [x] 현재 session의 최신 turn 하나를 반환하는 `/api/assistant/latest`를 구현한다. Dashboard polling UI 연결은 별도 범위다.
+- [x] 현재 session의 최신 turn 하나를 반환하는 `/api/assistant/latest`와 Dashboard polling UI를 구현한다.
 - [x] 늦게 완료된 과거 turn이 새 turn 화면을 덮어쓰지 않도록 `turnId`·sequence를 사용한다.
 - [x] LISTENING → PROCESSING → 0개 이상의 TOOL → FINAL 순서로 같은 `turnId` phase를 발행한다.
 - [x] session 교대·종료 시 이전 turn의 Dashboard 상세 응답을 즉시 숨긴다.
@@ -134,19 +132,18 @@ broker는 이번 범위에 추가하지 않는다.
 
 ### tool 정책
 
-- [ ] WLED tool은 WLED public service만 호출하고 내부 client 상태를 우회하지 않게 유지한다.
-- [ ] Desk tool은 Agents SDK function tool로 구현하되 `AutomationService`의 session·mode·안전
-  검증을 반드시 통한다.
+- [x] WLED tool은 WLED public service만 호출하고 내부 client 상태를 우회하지 않게 유지한다.
+- [x] Desk tool은 Agents SDK function tool로 구현하고 `AutomationService`의 session·mode·안전
+  검증을 통한다.
 - [x] `AutomationService.hold`와 `set_target`은 선택적 `expectedSessionId`를 받아 Voice turn의
   시작 session을 실제 Desk 부작용 직전까지 재검증한다. `None`은 기존 Dashboard의 신원 독립
   명령 경로이고, stale turn은 필요한 자동 이동 안전 STOP만 남기고 `SESSION_MISMATCH`로
   거절된다.
-- [ ] 작업 모드 선택 tool은 `activityModeKey`와 turn 시작 `expectedSessionId`로
-  `AutomationService`를 호출하며 AUTO/MANUAL 보존 규칙을 그대로 따른다.
-- [ ] WLED 수동 변경 tool은 저장된 작업 모드를 수정하지 않고 현재 session override만 만든다.
-- [ ] tool 호출이 사용자 교대와 경합하면 model의 tool call 생성 시점이 아니라 실제
-  `AutomationService` 호출 직전에 캡처한 session ID를 서버에서 재검증한다.
-- [ ] STOP 성격의 안전 명령과 개인화 명령의 권한·문맥 차이를 유지한다.
+- [x] 작업 모드 선택 tool은 `activityModeKey`와 turn 시작 `expectedSessionId`로
+  `AutomationService`를 호출하며 AUTO/MANUAL 보존 규칙을 따른다.
+- [x] WLED 수동 변경 tool은 저장된 작업 모드를 수정하지 않고 현재 session override만 만든다.
+- [x] tool 호출은 실제 `AutomationService` 호출 직전에 캡처한 session ID를 서버에서 재검증한다.
+- [x] STOP 성격의 안전 명령과 개인화 명령의 권한·문맥 차이를 유지한다.
 
 ## 제외 범위
 
