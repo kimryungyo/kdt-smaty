@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timezone
 import logging
 from typing import Iterator
 
@@ -39,7 +38,6 @@ class VoiceDebugView:
 
     def snapshot(self) -> dict[str, object]:
         return {
-            "updated_at": datetime.now(timezone.utc),
             "voice": asdict(self._voice.get_snapshot()),
             "wakeword": asdict(self._wakeword.get_debug_snapshot()),
             "audio_input": asdict(self._audio_input.get_debug_snapshot()),
@@ -174,21 +172,13 @@ DEBUG_PAGE = """<!doctype html>
     section { margin-top:18px; } section > h2 { margin-bottom:10px; font-size:1rem; color:#cbd9de; }
     .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     dl { display:grid; grid-template-columns:150px 1fr; gap:9px; margin:0; } dt { color:#82939c; } dd { margin:0; font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
-    .history { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
-    .history i { padding:5px 8px; border-radius:7px; background:#1e3039; color:#b7cad2; font-style:normal; font-size:.75rem; }
-    .turns { display:grid; gap:10px; } .turn { border-left:3px solid #42c5e7; }
-    .turn-head { display:flex; justify-content:space-between; color:#83969f; font-size:.75rem; }
-    .utterance { margin:15px 0 8px; color:#d8e8ed; } .reply { margin:0; color:#77ddf5; }
-    .meta { margin-top:12px; color:#7e9199; font: .72rem ui-monospace,monospace; }
-    .decision { margin:10px 0 0; color:#dfc689; font: .72rem ui-monospace,monospace; }
-    .empty { color:#71828b; text-align:center; padding:28px; }
     .privacy { margin-top:18px; padding:12px 14px; border-radius:10px; background:#271f12; color:#dfc689; font-size:.8rem; }
     @media(max-width:760px){header{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:repeat(2,1fr)}.score{grid-column:span 2}.two{grid-template-columns:1fr}}
     @media(max-width:440px){.grid{grid-template-columns:1fr}.score{grid-column:auto}dl{grid-template-columns:1fr;gap:3px}dd{margin-bottom:8px}}
   </style>
 </head>
 <body><main>
-  <header><div><p class="eyebrow">TEMPORARY · PORT 10000</p><h1>AI Speaker Debug</h1><p>Wake Word부터 OpenAI 음성 응답까지 실시간 관측</p></div><div id="connection" class="status offline">연결 확인 중</div></header>
+  <header><div><p class="eyebrow">TEMPORARY · PORT 10000</p><h1>AI Speaker Debug</h1><p>Wake Word와 local audio 상태를 read-only로 관측</p></div><div id="connection" class="status offline">연결 확인 중</div></header>
   <div class="grid">
     <article class="score"><div class="score-row"><div><span>HI SMARTY SCORE</span><strong id="score">--</strong></div><div><span>THRESHOLD</span><strong id="threshold">--</strong></div></div><progress id="scoreBar" max="1" value="0"></progress></article>
     <article><span>VOICE STATE</span><strong id="state">--</strong></article>
@@ -196,15 +186,12 @@ DEBUG_PAGE = """<!doctype html>
     <article><span>ACTIVATION STREAK</span><strong id="streak">--</strong></article>
     <article><span>FOLLOW-UP EXPIRES</span><strong id="followup">--</strong></article>
     <article><span>LAST ERROR</span><strong id="error">--</strong></article>
-    <article><span>COMPLETED TURNS</span><strong id="turnCount">0</strong></article>
   </div>
   <section class="two">
     <article><h2>Microphone input</h2><dl id="audio"></dl></article>
-    <article><h2>Session history</h2><dl id="session"></dl><div id="history" class="history"></div></article>
+    <article><h2>Wake Word telemetry</h2><dl id="wakewordTelemetry"></dl></article>
   </section>
-  <section><article><h2>Wake Word telemetry</h2><dl id="wakewordTelemetry"></dl></article></section>
-  <section><h2>최근 성공 응답</h2><div id="turns" class="turns"><article class="empty">아직 완료된 음성 응답이 없습니다.</article></div></section>
-  <p class="privacy">이 페이지에는 transcript와 spoken response가 표시됩니다. 신뢰할 수 있는 디버그 환경에서만 사용하세요. API key와 encrypted reasoning 원문은 표시하지 않습니다.</p>
+  <p class="privacy">이 페이지는 사용자 발화, 음성 응답, 개인 대화 문맥과 provider secrets를 표시하지 않습니다. 신뢰할 수 있는 디버그 환경에서만 사용하세요.</p>
 </main><script>
   const byId=(id)=>document.getElementById(id);
   const text=(id,value)=>{byId(id).textContent=value ?? "--"};
@@ -214,16 +201,12 @@ DEBUG_PAGE = """<!doctype html>
   const percent=(value)=>value==null ? "--" : `${(value*100).toFixed(3)}%`;
   const renderDl=(id,rows)=>{const root=byId(id);root.replaceChildren();for(const [key,value] of rows){const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=key;dd.textContent=String(value);root.append(dt,dd)}};
   const render=(data)=>{
-    const w=data.wakeword,v=data.voice,a=data.audio_input,s=data.assistant;
+    const w=data.wakeword,v=data.voice,a=data.audio_input;
     const score=w.score ?? 0;text("score",w.score==null?"warming up":w.score.toFixed(4));text("threshold",w.threshold.toFixed(2));byId("scoreBar").value=score;
-    text("state",v.state);text("armed",w.armed?"ARMED":"DISARMED");text("streak",`${w.activation_streak} / ${w.consecutive_frames}`);text("followup",localTime(v.followup_expires_at));text("error",v.last_error);text("turnCount",s.completed_turns);
+    text("state",v.state);text("armed",w.armed?"ARMED":"DISARMED");text("streak",`${w.activation_streak} / ${w.consecutive_frames}`);text("followup",localTime(v.followup_expires_at));text("error",v.last_error);
     renderDl("audio",[["accepting",a.accepting],["queue",`${a.queue_size} / ${a.queue_capacity}`],["dropped",a.dropped_frames],["overflow",a.overflow_frames],["callback errors",a.callback_errors],["input RMS",dbfs(a.latest_rms_dbfs)],["input peak",dbfs(a.latest_peak_dbfs)],["recent peak",dbfs(a.recent_peak_dbfs)],["noise floor (est.)",dbfs(a.estimated_noise_floor_dbfs)],["SNR (est.)",a.estimated_snr_db==null ? "--" : `${a.estimated_snr_db.toFixed(1)} dB`],["clipping",`${percent(a.latest_clipping_ratio)} / clipped frames ${a.clipped_frames}`],["signal frames",a.signal_frames],["DC offset",a.latest_dc_offset_pcm==null ? "--" : `${number(a.latest_dc_offset_pcm)} PCM`]]);
     renderDl("wakewordTelemetry",[["recent max",number(w.recent_max_score,4)],["inference count",w.inference_count],["inference",w.last_inference_ms==null ? "--" : `last ${number(w.last_inference_ms)}ms / p50 ${number(w.inference_p50_ms)}ms / p95 ${number(w.inference_p95_ms)}ms`]]);
-    renderDl("session",[["session",s.session_id],["history items",s.history_items],["updated",localTime(data.updated_at)]]);
-    const history=byId("history");history.replaceChildren();for(const item of s.history_item_types){const tag=document.createElement("i");tag.textContent=item;history.append(tag)}
-    const turns=byId("turns");turns.replaceChildren();if(!s.turns.length){const empty=document.createElement("article");empty.className="empty";empty.textContent="아직 완료된 음성 응답이 없습니다.";turns.append(empty)}
-    for(const turn of [...s.turns].reverse()){const card=document.createElement("article");card.className="turn";const head=document.createElement("div");head.className="turn-head";const time=document.createElement("span"),request=document.createElement("span");time.textContent=localTime(turn.completed_at);request.textContent=turn.request_id ?? "request id 없음";head.append(time,request);const user=document.createElement("p"),reply=document.createElement("p"),decision=document.createElement("p"),meta=document.createElement("p");user.className="utterance";user.textContent=`사용자 · ${turn.user_text}`;reply.className="reply";reply.textContent=`AI · ${turn.spoken_text}`;decision.className="decision";decision.textContent=`FOLLOW-UP: ${turn.next_action} · ${turn.decision_reason}`;meta.className="meta";meta.textContent=`tokens ${turn.input_tokens ?? "?"} → ${turn.output_tokens ?? "?"} · ${turn.output_item_types.join(", ")}`;card.append(head,user,reply,decision,meta);turns.append(card)}
   };
   const refresh=async()=>{try{const response=await fetch("/api/snapshot",{cache:"no-store"});if(!response.ok)throw new Error(String(response.status));render(await response.json());text("connection","LIVE");byId("connection").classList.remove("offline")}catch(_){text("connection","연결 끊김");byId("connection").classList.add("offline")}};
-  refresh();setInterval(refresh,50);
+  refresh();setInterval(refresh,250);
 </script></body></html>"""

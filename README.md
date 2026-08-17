@@ -179,6 +179,9 @@ Agents SDK `VoicePipeline`에 streaming으로 전달하고, final transcript 뒤
 사용자에게 **“이 음성은 AI가 생성합니다”**를 고정 화면 문구, 물리 라벨 또는 온보딩으로
 고지해야 한다.
 
+오늘 AKG microphone이 없는 상태에서는 이 검증을 통과했다고 주장하지 않는다. 내일은
+구성된 microphone을 연결하고 서버를 한 번 재기동한 뒤 `/api/voice/status`가
+`WAITING_WAKE`인지 확인한다. 그 다음에만 원하면 아래 opt-in hardware test를 실행한다.
 실제 장치 검증은 자동 테스트 증거가 아니며, 배포 환경에서 별도로 수행한다:
 
 ```bash
@@ -195,8 +198,9 @@ Wake Word model의 사용 조건과 wheel provenance는
 
 ### 임시 AI 스피커 디버그 페이지
 
-Voice와 같은 프로세스에서 별도 HTTP 서버를 열어 Wake Word score, 상태 전이,
-microphone queue 통계와 성공한 사용자 발화·음성 응답 이력을 확인할 수 있다.
+Voice와 같은 프로세스에서 별도 HTTP 서버를 열어 Wake Word score, Voice 상태 전이와
+microphone queue 통계를 확인할 수 있다. 사용자 발화, 음성 응답, session/turn 이력과
+provider secret은 표시하지 않는다.
 
 ```text
 SMART_DESK_VOICE_DEBUG__ENABLED=true
@@ -206,11 +210,9 @@ SMART_DESK_VOICE_DEBUG__PORT=10000
 
 기본 FastAPI 서버를 평소처럼 실행한 뒤 `http://<장비 IP>:10000`에서 확인한다. 디버그
 서버는 Voice 다음에 시작되고 먼저 종료되므로 microphone, Wake Word model과 OpenAI
-session을 중복 생성하지 않는다. 화면은 50ms(20Hz)마다 read-only snapshot을 갱신한다.
-
-이 페이지에는 transcript와 speaker가 읽은 응답이 평문으로 표시된다. API key와
-encrypted reasoning 원문은 제공하지 않지만, 임시 검증이 끝나면
-`SMART_DESK_VOICE_DEBUG__ENABLED=false`로 닫고 신뢰하는 네트워크에서만 사용한다.
+session을 중복 생성하지 않는다. 화면은 250ms(4Hz)마다 content-free read-only snapshot을
+갱신한다. 임시 검증이 끝나면 `SMART_DESK_VOICE_DEBUG__ENABLED=false`로 닫고 신뢰하는
+네트워크에서만 사용한다.
 
 ## 운영 실행
 
@@ -255,8 +257,9 @@ RTSP path publish를 허용해야 한다. FastAPI는 MediaMTX를 설치·시작�
 | `posture` | 미지정 | 1280x720 후보 | `posture-cam` |
 
 장치를 바꾸면 실제 capture index, input format, 해상도와 FPS를 먼저 확인한 뒤 `.env`에
-안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. 현재 `workspace`는 publish와 최신
-프레임 수신 기반까지만 등록되어 있으며, 업무 영역 AI 분석은 별도 작업에서 연결한다.
+안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. 현재 `workspace`는 application-owned
+publish만 등록되어 있고 server-side receiver는 없다. 업무 영역 AI 분석과 receiver 연결은
+별도 작업에서 다룬다.
 `posture` 하단 Vision은 선택 ONNX 모델을 설정하면 full-frame 자세/인원수 adapter와
 snapshot을 실행할 수 있지만, 실제 RTSP camera, ROI와 threshold/CPU 보정은 완료되지 않았다.
 
@@ -268,14 +271,15 @@ ffmpeg -hide_banner -f v4l2 -list_formats all -i /dev/v4l/by-id/<camera-device>
 ss -ltn | rg ':8554\b'
 ```
 
-로컬 카메라를 송출하고 같은 MediaMTX stream을 수신하려면 역할별 설정을 모두 켠다.
+현재 topology에서 user는 publish+receive, workspace는 publish-only, posture는 external
+`/bottom-cam` receive-only로 설정한다.
 
 ```text
 SMART_DESK_MEDIA__USER__PUBLISH_ENABLED=true
 SMART_DESK_MEDIA__USER__RECEIVE_ENABLED=true
 SMART_DESK_MEDIA__WORKSPACE__PUBLISH_ENABLED=true
-SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED=true
-SMART_DESK_MEDIA__POSTURE__PUBLISH_ENABLED=true
+SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED=false
+SMART_DESK_MEDIA__POSTURE__PUBLISH_ENABLED=false
 SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED=true
 ```
 

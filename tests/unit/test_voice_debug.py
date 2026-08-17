@@ -78,14 +78,15 @@ async def test_debug_snapshot_combines_voice_observability_without_provider_secr
 
     assert response.status_code == 200
     payload = response.json()
+    assert set(payload) == {"voice", "wakeword", "audio_input"}
     assert payload["voice"]["state"] == "WAITING_FOLLOWUP"
     assert payload["wakeword"]["score"] == 0.73
     assert payload["wakeword"]["inference_p95_ms"] == 31.0
     assert payload["audio_input"]["queue_capacity"] == 64
     assert payload["audio_input"]["estimated_snr_db"] == 23.2
-    assert "assistant" not in payload
-    assert "encrypted_content" not in response.text
-    assert "api_key" not in response.text
+    assert "assistant" not in response.text.lower()
+    assert "transcript" not in response.text.lower()
+    assert "api_key" not in response.text.lower()
 
 
 async def test_debug_page_is_no_store_and_polls_snapshot() -> None:
@@ -98,6 +99,9 @@ async def test_debug_page_is_no_store_and_polls_snapshot() -> None:
     assert response.headers["cache-control"] == "no-store"
     assert "AI Speaker Debug" in response.text
     assert "/api/snapshot" in response.text
-    assert "setInterval(refresh,50)" in response.text
+    assert "setInterval(refresh,250)" in response.text
     assert "noise floor (est.)" in response.text
     assert "Wake Word telemetry" in response.text
+    assert "data.assistant" not in response.text
+    assert 'id="session"' not in response.text
+    assert 'id="turns"' not in response.text

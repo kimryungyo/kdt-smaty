@@ -31,7 +31,9 @@ from smart_desk.modules.voice.wakeword import WakeWordDetector
 
 
 LOGGER = logging.getLogger(__name__)
-DEVICE_RETRY_INTERVAL_SECONDS = 2.0
+# The deployment normally recovers the microphone with one planned restart.
+# A slow fallback retry avoids flooding logs while the configured device is unplugged.
+DEVICE_RETRY_INTERVAL_SECONDS = 30.0
 RECOVERABLE_DEVICE_ERRORS = frozenset({
     "input_device_name_invalid", "microphone_inactive", "microphone_open_failed",
     "output_device_name_invalid", "speaker_open_failed",

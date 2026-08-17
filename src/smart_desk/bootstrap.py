@@ -370,7 +370,10 @@ def build_container(settings: Settings) -> AppContainer:
                                             startup_order=80, shutdown_order=80))
     if settings.voice.enabled:
         try:
-            from smart_desk.modules.assistant.agents_runtime import AgentsVoiceRuntime
+            from smart_desk.modules.assistant.agents_runtime import (
+                AgentsVoiceConfig,
+                AgentsVoiceRuntime,
+            )
             from smart_desk.modules.voice.audio import LocalAudioInput, LocalPcmOutput
             from smart_desk.modules.voice.debug import VoiceDebugServer, VoiceDebugView
             from smart_desk.modules.voice.playback import PlaybackCoordinator
@@ -405,6 +408,7 @@ def build_container(settings: Settings) -> AppContainer:
                 api_key=api_key.get_secret_value(), sessions=container.assistant_context,
                 memory=container.profile_memory, turns=container.assistant_turns,
                 automation=automation, wled=container.wled,
+                config=AgentsVoiceConfig(model=settings.openai.response_model),
             )
             voice = VoiceService(
                 audio_input=audio_input,

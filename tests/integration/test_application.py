@@ -448,6 +448,13 @@ async def test_voice_only_start_error_does_not_fail_application(
         assert height_monitor.start_count == 1
         assert voice.get_snapshot().state is VoiceState.ERROR
         assert voice.get_snapshot().last_error == "microphone_open_failed"
+        transport = ASGITransport(app=application)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            assert (await client.get("/health/ready")).status_code == 200
+            status = await client.get("/api/voice/status")
+            assert status.status_code == 200
+            assert status.json()["state"] == "ERROR"
+            assert status.json()["lastError"] == "microphone_open_failed"
 
     assert voice.get_snapshot().state is VoiceState.DISABLED
 

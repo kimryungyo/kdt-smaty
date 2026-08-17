@@ -246,10 +246,16 @@ def test_build_container_registers_voice_at_order_90_when_enabled(
         async def stop(self): pass
         async def run_audio(self, _):
             if False: yield None
-    monkeypatch.setattr(AgentsVoiceRuntime, "build_for_services", classmethod(lambda cls, **_: Runtime()))
+    received: dict[str, object] = {}
+
+    def build_runtime(cls, **kwargs):
+        received.update(kwargs)
+        return Runtime()
+
+    monkeypatch.setattr(AgentsVoiceRuntime, "build_for_services", classmethod(build_runtime))
     settings = Settings(
         voice={"enabled": True},
-        openai={"api_key": "test-key"},
+        openai={"api_key": "test-key", "response_model": "configured-response-model"},
         _env_file=None,
     )
 
@@ -259,6 +265,10 @@ def test_build_container_registers_voice_at_order_90_when_enabled(
     assert container.resources[-1].name == "voice"
     assert container.resources[-1].startup_order == 90
     assert container.resources[-1].shutdown_order == 90
+    config = received["config"]
+    assert config.model == "configured-response-model"  # type: ignore[union-attr]
+    assert config.stt_model == "gpt-4o-transcribe"  # type: ignore[union-attr]
+    assert config.tts_model == "tts-1"  # type: ignore[union-attr]
 
 
 def test_build_container_registers_voice_debug_after_voice(
