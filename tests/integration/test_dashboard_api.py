@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 
 from httpx import ASGITransport, AsyncClient
+import pytest
 
 from smart_desk.application import create_application
 from smart_desk.config.settings import DashboardSettings, Settings, StorageSettings
@@ -61,7 +62,12 @@ class FakeDesk:
         self.commands.append("set_target")
 
 
-async def test_dashboard_api_contract_and_profile_crud(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "runtime_status", [ApplicationStatus.FAILED, ApplicationStatus.STARTING]
+)
+async def test_dashboard_api_contract_and_storage_crud_ignore_global_readiness(
+    tmp_path, runtime_status: ApplicationStatus
+) -> None:
     settings = Settings(environment="test", storage=StorageSettings(database_path=tmp_path / "desk.db"), dashboard=DashboardSettings(serve_frontend=False), _env_file=None)
     database = SQLiteDatabase(settings.storage.database_path)
     profiles = ProfileRepository(database)
@@ -71,7 +77,7 @@ async def test_dashboard_api_contract_and_profile_crud(tmp_path) -> None:
     container = AppContainer(settings=settings, runtime=runtime, task_manager=TaskManager(), database=database, profiles=profiles, activity_modes=activity_modes, dashboard=DashboardService(desk, profiles), mqtt=object(), height_monitor=object(), relay=object(), desk=desk)  # type: ignore[arg-type]
     application = create_application(settings=settings, container=container)
     await database.start()
-    runtime.mark(ApplicationStatus.READY, "test ready")
+    runtime.mark(runtime_status, "unrelated lifecycle state")
 
     transport = ASGITransport(app=application)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -79,6 +85,19 @@ async def test_dashboard_api_contract_and_profile_crud(tmp_path) -> None:
         assert response.status_code == 200
         assert response.json()["height"] == {"heightCm": 90.0, "observedAt": "2026-08-08T00:00:00Z", "status": "ONLINE", "provenance": None}
         assert response.json()["targetHeightCm"] is None
+
+        assert (await client.post(
+            "/api/control", json={"action": "HOLD", "direction": "UP"}
+        )).status_code == 200
+        assert (await client.post(
+            "/api/target", json={"action": "SET", "targetCm": 100}
+        )).status_code == 200
+        assert (await client.post(
+            "/api/control", json={"action": "STOP"}
+        )).status_code == 200
+        assert (await client.post(
+            "/api/target", json={"action": "CANCEL"}
+        )).status_code == 200
 
         created = await client.post("/api/profiles", json={"name": " 홍길동 ", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "ff3000"})
         assert created.status_code == 201
@@ -120,7 +139,7 @@ async def test_dashboard_api_contract_and_profile_crud(tmp_path) -> None:
         assert (await client.get("/api/profiles")).json()[0]["id"] == profile_id
         assert (await client.delete(f"/api/profiles/{profile_id}")).status_code == 204
         assert (await client.get(f"/api/profiles/{profile_id}")).status_code == 404
-        assert desk.commands == []
+        assert desk.commands == ["hold_up", "set_target", "stop_motion", "stop_motion"]
 
         assert (await client.post("/api/target", json={"action": "SET", "targetCm": 116})).status_code == 422
         assert (await client.post("/api/control", json={"action": "HOLD", "direction": "UP", "unknown": True})).status_code == 422
@@ -131,3 +150,20 @@ async def test_dashboard_api_contract_and_profile_crud(tmp_path) -> None:
         assert (await client.post("/api/control", json={"action": "HOLD", "direction": "UP"})).status_code == 503
 
     await database.stop()
+
+
+async def test_storage_routes_return_503_only_when_database_is_not_ready(tmp_path) -> None:
+    settings = Settings(environment="test", storage=StorageSettings(database_path=tmp_path / "desk.db"), dashboard=DashboardSettings(serve_frontend=False), _env_file=None)
+    database = SQLiteDatabase(settings.storage.database_path)
+    profiles = ProfileRepository(database)
+    activity_modes = ActivityModeRepository(database)
+    desk = FakeDesk()
+    runtime = RuntimeState()
+    container = AppContainer(settings=settings, runtime=runtime, task_manager=TaskManager(), database=database, profiles=profiles, activity_modes=activity_modes, dashboard=DashboardService(desk, profiles), mqtt=object(), height_monitor=object(), relay=object(), desk=desk)  # type: ignore[arg-type]
+    application = create_application(settings=settings, container=container)
+    runtime.mark(ApplicationStatus.FAILED, "database has not started")
+
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        assert (await client.get("/api/profiles")).status_code == 503
+        assert (await client.get("/api/profiles/profile-a/activity-modes")).status_code == 503

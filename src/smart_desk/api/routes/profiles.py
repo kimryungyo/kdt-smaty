@@ -7,7 +7,6 @@ from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, Response, status
 
-from smart_desk.core.container import get_container
 from smart_desk.modules.dashboard import get_dashboard
 from smart_desk.modules.profiles.models import Profile, ProfileCreate, ProfileUpdate
 from smart_desk.modules.profiles.repository import (
@@ -20,14 +19,6 @@ from smart_desk.storage import StorageError
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 Result = TypeVar("Result")
-
-
-def _require_application_ready() -> None:
-    if not get_container().runtime.snapshot().ready:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="프로필 저장소가 아직 준비되지 않았습니다.",
-        )
 
 
 async def _run(operation: Callable[[], Awaitable[Result]]) -> Result:
@@ -46,30 +37,25 @@ async def _run(operation: Callable[[], Awaitable[Result]]) -> Result:
 
 @router.get("", response_model=list[Profile])
 async def list_profiles() -> list[Profile]:
-    _require_application_ready()
     return await _run(get_dashboard().list_profiles)
 
 
 @router.get("/{profile_id}", response_model=Profile)
 async def get_profile(profile_id: str) -> Profile:
-    _require_application_ready()
     return await _run(lambda: get_dashboard().get_profile(profile_id))
 
 
 @router.post("", response_model=Profile, status_code=status.HTTP_201_CREATED)
 async def create_profile(create: ProfileCreate) -> Profile:
-    _require_application_ready()
     return await _run(lambda: get_dashboard().create_profile(create))
 
 
 @router.patch("/{profile_id}", response_model=Profile)
 async def update_profile(profile_id: str, update: ProfileUpdate) -> Profile:
-    _require_application_ready()
     return await _run(lambda: get_dashboard().update_profile(profile_id, update))
 
 
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_profile(profile_id: str) -> Response:
-    _require_application_ready()
     await _run(lambda: get_dashboard().delete_profile(profile_id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

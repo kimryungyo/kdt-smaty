@@ -17,8 +17,8 @@ Voice 구현은 legacy `AssistantService`가 아니라
 - SQLite, MQTT, Arduino 높이 입력과 `DeskController`는 기본 lifecycle에 등록된다.
 - MQTT·높이·Desk의 critical task 종료는 애플리케이션 readiness를 내린다.
 - WLED와 Voice는 각각 `enabled` 설정일 때만 생성되며 장치 장애는 기능 snapshot으로 표현한다.
-- profile과 Dashboard route 일부가 전역 application readiness를 일괄 검사한다. 이 때문에
-  MQTT 같은 외부 장치가 준비되지 않았을 때 장치와 무관한 profile 설정까지 막힐 수 있다.
+- profile CRUD, 작업 모드 CRUD와 `/api/status`는 전역 application readiness와 무관하게
+  관련 저장소 또는 snapshot이 준비되면 응답한다.
 - 현재 Voice는 legacy 경로다. Agents SDK core 전환을 먼저 끝낸 뒤 최종 lifecycle을 연결한다.
 
 ## 확정 분류
@@ -75,12 +75,11 @@ dependency 또는 model 파일이 잘못된 경우에는 조용히 기능을 생
 
 ### lifecycle과 상태
 
-- [ ] SQLite → MQTT → height/relay/Desk → media/Vision/automation → WLED/Agents Voice/Voice의
-  시작 순서와 역순 종료를 검증한다.
-- [ ] 일부 시작 실패 시 이미 시작한 resource가 역순으로 정확히 한 번 종료되게 한다.
+- [x] 현재 lifecycle 등록 resource의 startup order와 shutdown order 역순 종료를 검증한다.
+- [x] 일부 시작 실패 시 이미 시작한 resource가 역순으로 정확히 한 번 종료되고 목록에서 제거됨을 검증한다.
 - [ ] MQTT·Arduino·ESP32 단절은 Desk 기능별 `BLOCKED` 근거가 되고 STOP을 시도하게 한다.
 - [ ] WLED·오디오·OpenAI runtime 단절은 해당 기능 상태와 복구로만 나타나게 한다.
-- [ ] 전역 readiness를 일괄 검사하는 profile·상태 route를 기능별 준비 검사로 교체한다.
+- [x] profile·작업 모드 CRUD와 `/api/status`에서 전역 readiness guard를 제거하고, 저장소 오류만 `503`으로 변환한다.
 
 ### 문서와 운영
 

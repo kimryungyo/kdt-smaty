@@ -23,6 +23,14 @@ class FakeResource:
         self._events.append(f"stop:{self._name}")
 
 
+class FailingResource(FakeResource):
+    """시작 도중 실패해 이미 시작한 resource의 rollback을 검증한다."""
+
+    async def start(self) -> None:
+        await super().start()
+        raise RuntimeError(f"start failed: {self._name}")
+
+
 async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
     events: list[str] = []
     database = FakeResource("sqlite", events)
@@ -103,3 +111,45 @@ async def test_resources_follow_explicit_startup_and_shutdown_order() -> None:
         "stop:sqlite",
     ]
     assert container.runtime.snapshot().status is ApplicationStatus.STOPPED
+
+
+async def test_partial_start_failure_stops_started_resources_once_in_reverse_order() -> None:
+    events: list[str] = []
+    first = FakeResource("first", events)
+    second = FakeResource("second", events)
+    failing = FailingResource("failing", events)
+    profiles = ProfileRepository(first)  # type: ignore[arg-type]
+    activity_modes = ActivityModeRepository(first)  # type: ignore[arg-type]
+    container = AppContainer(
+        settings=Settings(environment="test", _env_file=None),
+        runtime=RuntimeState(),
+        task_manager=TaskManager(),
+        database=first,  # type: ignore[arg-type]
+        profiles=profiles,
+        activity_modes=activity_modes,
+        dashboard=DashboardService(first, profiles),  # type: ignore[arg-type]
+        mqtt=second,  # type: ignore[arg-type]
+        height_monitor=second,  # type: ignore[arg-type]
+        relay=object(),  # type: ignore[arg-type]
+        desk=first,  # type: ignore[arg-type]
+    )
+    container.register(ResourceRegistration("first", first, startup_order=10, shutdown_order=10))
+    container.register(ResourceRegistration("second", second, startup_order=20, shutdown_order=20))
+    container.register(ResourceRegistration("failing", failing, startup_order=30, shutdown_order=30))
+
+    try:
+        await start_application(container)
+    except RuntimeError as error:
+        assert str(error) == "start failed: failing"
+    else:
+        raise AssertionError("start_application() must propagate resource startup failure")
+
+    assert events == [
+        "start:first",
+        "start:second",
+        "start:failing",
+        "stop:second",
+        "stop:first",
+    ]
+    assert container.started_resources == []
+    assert container.runtime.snapshot().status is ApplicationStatus.FAILED

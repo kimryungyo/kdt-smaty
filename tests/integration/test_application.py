@@ -343,7 +343,7 @@ async def test_react_build_and_spa_fallback_are_served(tmp_path) -> None:
     assert "SMART DESK TEST" in root_response.text
     assert fallback_response.status_code == 200
     assert "SMART DESK TEST" in fallback_response.text
-    assert api_response.status_code == 503
+    assert api_response.status_code == 200
     assert api_response.headers["content-type"].startswith("application/json")
 
 

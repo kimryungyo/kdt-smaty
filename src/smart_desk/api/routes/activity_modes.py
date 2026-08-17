@@ -7,7 +7,6 @@ from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, Response, status
 
-from smart_desk.api.routes.profiles import _require_application_ready
 from smart_desk.modules.profiles import get_activity_modes
 from smart_desk.modules.profiles.activity_modes import (
     ActivityModeConflictError,
@@ -48,7 +47,6 @@ async def _run(operation: Callable[[], Awaitable[Result]]) -> Result:
 
 @profiles_router.get("/{profile_id}/activity-modes", response_model=list[EffectiveActivityMode])
 async def list_activity_modes(profile_id: str) -> list[EffectiveActivityMode]:
-    _require_application_ready()
     return await _run(lambda: get_activity_modes().list_effective_modes(profile_id))
 
 
@@ -60,7 +58,6 @@ async def list_activity_modes(profile_id: str) -> list[EffectiveActivityMode]:
 async def create_activity_mode(
     profile_id: str, create: ActivityModeCreate
 ) -> EffectiveActivityMode:
-    _require_application_ready()
     mode = await _run(lambda: get_activity_modes().create_mode(profile_id, create))
     return effective_mode_from_activity(mode)
 
@@ -69,13 +66,11 @@ async def create_activity_mode(
 async def update_activity_mode(
     mode_id: str, update: ActivityModeUpdate
 ) -> EffectiveActivityMode:
-    _require_application_ready()
     mode = await _run(lambda: get_activity_modes().update_mode(mode_id, update))
     return effective_mode_from_activity(mode)
 
 
 @activity_modes_router.delete("/{mode_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_activity_mode(mode_id: str) -> Response:
-    _require_application_ready()
     await _run(lambda: get_activity_modes().delete_mode(mode_id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

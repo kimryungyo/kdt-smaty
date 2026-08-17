@@ -7,7 +7,6 @@ from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, status
 
-from smart_desk.core.container import get_container
 from smart_desk.modules.dashboard import get_dashboard
 from smart_desk.modules.dashboard.models import (
     CancelTargetRequest,
@@ -24,14 +23,6 @@ from smart_desk.storage import StorageError
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 Result = TypeVar("Result")
-
-
-def _require_application_ready() -> None:
-    if not get_container().runtime.snapshot().ready:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="대시보드가 아직 요청을 처리할 준비가 되지 않았습니다.",
-        )
 
 
 async def _run(operation: Callable[[], Awaitable[Result]]) -> Result:
@@ -59,7 +50,6 @@ async def _run(operation: Callable[[], Awaitable[Result]]) -> Result:
 async def get_status() -> DashboardStatusResponse:
     """현재 Desk, height, relay snapshot을 반환한다."""
 
-    _require_application_ready()
     return get_dashboard().get_status()
 
 
@@ -67,7 +57,6 @@ async def get_status() -> DashboardStatusResponse:
 async def control(command: ControlRequest) -> DashboardStatusResponse:
     """수동 HOLD 갱신 또는 즉시 STOP을 DeskController에 위임한다."""
 
-    _require_application_ready()
     dashboard = get_dashboard()
     if isinstance(command, HoldControlRequest):
         return await _run(lambda: dashboard.hold(command.direction))
@@ -81,7 +70,6 @@ async def control(command: ControlRequest) -> DashboardStatusResponse:
 async def target(command: TargetRequest) -> DashboardStatusResponse:
     """자동 목표를 설정하거나 현재 이동을 취소한다."""
 
-    _require_application_ready()
     dashboard = get_dashboard()
     if isinstance(command, SetTargetRequest):
         return await _run(lambda: dashboard.set_target(command.target_cm))
