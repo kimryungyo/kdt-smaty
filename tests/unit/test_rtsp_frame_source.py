@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 
@@ -136,6 +137,116 @@ class ClosedCapture:
         self.released = True
 
 
+class OneFrameThenFailCapture:
+    """한 frame을 성공적으로 읽은 뒤 연결이 끊기는 VideoCapture 대역이다."""
+
+    def __init__(self) -> None:
+        self._reads = 0
+
+    def isOpened(self) -> bool:
+        return True
+
+    def read(self) -> tuple[bool, np.ndarray | None]:
+        self._reads += 1
+        if self._reads == 1:
+            return True, np.zeros((1, 1), dtype=np.uint8)
+        return False, None
+
+    def release(self) -> None:
+        return None
+
+
+class OpenedNoFrameCapture:
+    def isOpened(self) -> bool:
+        return True
+
+    def read(self) -> tuple[bool, None]:
+        return False, None
+
+    def release(self) -> None:
+        return None
+
+
+async def test_reconnect_backoff_doubles_and_resets_after_a_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captures = iter([ClosedCapture(), ClosedCapture(), OneFrameThenFailCapture()])
+    monkeypatch.setattr(
+        "smart_desk.modules.media.frame_source.cv2.VideoCapture",
+        lambda *_args: next(captures),
+    )
+    source = RtspFrameSource(
+        name="posture",
+        rtsp_url="rtsp://media/posture",
+        reconnect_interval_seconds=0.25,
+    )
+    retry_delays: list[float] = []
+
+    def fake_wait(_stop_event: threading.Event, failures: int) -> bool:
+        retry_delays.append(source._retry_delay(failures))
+        return len(retry_delays) == 3
+
+    monkeypatch.setattr(source, "_wait_for_retry", fake_wait)
+
+    await source.start()
+    await wait_until(lambda: len(retry_delays) == 3)
+    await source.stop()
+
+    assert retry_delays == [0.25, 0.5, 0.25]
+    assert source._retry_delay(100) == 30.0
+    assert source._retry_delay(10**9) == 30.0
+    assert source.is_connected() is False
+    assert source.get_latest_frame() is None
+
+
+def test_disconnection_logging_is_transition_based_and_rate_limited(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    clock = iter([100.0, 105.0, 130.0, 131.0])
+    monkeypatch.setattr(
+        "smart_desk.modules.media.frame_source.time.monotonic", lambda: next(clock)
+    )
+    caplog.set_level(logging.WARNING, logger="smart_desk.modules.media.frame_source")
+    source = RtspFrameSource(name="posture", rtsp_url="rtsp://media/posture")
+
+    source._set_disconnected("first failure")
+    source._set_disconnected("second failure")
+    source._set_disconnected("third failure")
+    source._set_connected()
+    source._set_disconnected("read failure")
+
+    warnings = [
+        record for record in caplog.records if record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 3
+    assert source.get_last_error() == "read failure"
+    assert source.is_connected() is False
+
+
+async def test_open_without_a_frame_does_not_claim_connected_or_bypass_log_limit(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(
+        "smart_desk.modules.media.frame_source.cv2.VideoCapture",
+        lambda *_args: OpenedNoFrameCapture(),
+    )
+    caplog.set_level(logging.INFO, logger="smart_desk.modules.media.frame_source")
+    source = RtspFrameSource(
+        name="posture",
+        rtsp_url="rtsp://media/posture",
+        reconnect_interval_seconds=0.01,
+    )
+
+    await source.start()
+    await wait_until(lambda: source.get_last_error() is not None)
+    await asyncio.sleep(0.04)
+    await source.stop()
+
+    events = [getattr(record, "event", None) for record in caplog.records]
+    assert "rtsp_connected" not in events
+    assert events.count("rtsp_disconnected") == 1
+
+
 async def test_stop_interrupts_reconnect_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     captures: list[ClosedCapture] = []
 
@@ -156,8 +267,10 @@ async def test_stop_interrupts_reconnect_wait(monkeypatch: pytest.MonkeyPatch) -
 
     await source.start()
     await wait_until(lambda: source.get_last_error() is not None)
+    started_stop_at = time.monotonic()
     await source.stop()
 
+    assert time.monotonic() - started_stop_at < 0.5
     assert captures[0].released is True
     assert source.is_connected() is False
     assert source.get_latest_frame() is None

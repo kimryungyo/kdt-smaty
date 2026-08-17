@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from math import ceil, log2
 import threading
 import time
 
@@ -15,6 +16,8 @@ LOGGER = logging.getLogger(__name__)
 OPEN_TIMEOUT_MILLISECONDS = 3_000
 READ_TIMEOUT_MILLISECONDS = 3_000
 THREAD_JOIN_TIMEOUT_SECONDS = 5.0
+MAX_RECONNECT_INTERVAL_SECONDS = 30.0
+DISCONNECTION_LOG_INTERVAL_SECONDS = 30.0
 LatestFrame = tuple[np.ndarray, float]
 
 
@@ -35,6 +38,7 @@ class RtspFrameSource:
         self._latest_frame: LatestFrame | None = None
         self._connected = False
         self._last_error: str | None = None
+        self._last_disconnection_log_at: float | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -50,6 +54,7 @@ class RtspFrameSource:
             self._latest_frame = None
             self._connected = False
             self._last_error = None
+            self._last_disconnection_log_at = None
         thread = threading.Thread(
             target=self._run,
             args=(self._stop_event,),
@@ -93,30 +98,43 @@ class RtspFrameSource:
             return self._last_error
 
     def _run(self, stop_event: threading.Event) -> None:
+        consecutive_failures = 0
         while not stop_event.is_set():
             capture = self._open_capture()
             if capture is None:
-                if stop_event.wait(self._reconnect_interval_seconds):
+                consecutive_failures += 1
+                if self._wait_for_retry(stop_event, consecutive_failures):
                     break
                 continue
 
-            self._set_connected()
+            received_frame = False
             try:
                 while not stop_event.is_set():
                     ok, frame = capture.read()
                     if not ok or frame is None:
-                        self._set_disconnected("RTSP stream read failed.")
+                        if not stop_event.is_set():
+                            self._set_disconnected("RTSP stream read failed.")
                         break
+                    if stop_event.is_set():
+                        break
+                    if not received_frame:
+                        self._set_connected()
+                        received_frame = True
                     with self._state_lock:
                         self._latest_frame = (frame, time.monotonic())
                         self._connected = True
                         self._last_error = None
+                    consecutive_failures = 0
             except Exception as error:
-                self._set_disconnected(self._format_error(error))
+                if not stop_event.is_set():
+                    self._set_disconnected(self._format_error(error))
             finally:
                 capture.release()
 
-            if not stop_event.is_set() and stop_event.wait(self._reconnect_interval_seconds):
+            if stop_event.is_set():
+                break
+            consecutive_failures += 1
+            if self._wait_for_retry(stop_event, consecutive_failures):
                 break
 
         with self._state_lock:
@@ -159,18 +177,50 @@ class RtspFrameSource:
 
     def _set_disconnected(self, error: str) -> None:
         with self._state_lock:
+            was_connected = self._connected
             self._latest_frame = None
             self._connected = False
             self._last_error = error
+            now = time.monotonic()
+            should_log = (
+                was_connected
+                or self._last_disconnection_log_at is None
+                or now - self._last_disconnection_log_at >= DISCONNECTION_LOG_INTERVAL_SECONDS
+            )
+            if should_log:
+                self._last_disconnection_log_at = now
 
-        LOGGER.warning(
-            "RTSP frame source 연결 또는 read에 실패했습니다.",
-            extra={
-                "component": "media",
-                "event": "rtsp_disconnected",
-                "camera": self._name,
-            },
+        if should_log:
+            LOGGER.warning(
+                "RTSP frame source 연결 또는 read에 실패했습니다.",
+                extra={
+                    "component": "media",
+                    "event": "rtsp_disconnected",
+                    "camera": self._name,
+                },
+            )
+
+    def _retry_delay(self, consecutive_failures: int) -> float:
+        """연속 실패 횟수에 맞춘 bounded exponential reconnect 대기 시간이다."""
+
+        base = min(self._reconnect_interval_seconds, MAX_RECONNECT_INTERVAL_SECONDS)
+        if base >= MAX_RECONNECT_INTERVAL_SECONDS:
+            return MAX_RECONNECT_INTERVAL_SECONDS
+        exponent_to_cap = ceil(
+            log2(MAX_RECONNECT_INTERVAL_SECONDS) - log2(base)
         )
+        exponent = min(max(consecutive_failures - 1, 0), exponent_to_cap)
+        return min(
+            base * (2.0 ** exponent),
+            MAX_RECONNECT_INTERVAL_SECONDS,
+        )
+
+    def _wait_for_retry(
+        self, stop_event: threading.Event, consecutive_failures: int
+    ) -> bool:
+        """stop 요청으로 interrupt 가능한 reconnect 대기를 수행한다."""
+
+        return stop_event.wait(self._retry_delay(consecutive_failures))
 
     @staticmethod
     def _format_error(error: BaseException) -> str:

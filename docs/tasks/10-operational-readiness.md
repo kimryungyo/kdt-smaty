@@ -45,6 +45,8 @@
 - MQTT cold-start background 재연결과 이동 명령 fail-closed
 - Arduino 높이 입력, Wi-Fi/MQTT ESP32 relay 계약, WLED adapter
 - user/workspace/posture별 FFmpeg publisher와 RTSP latest-frame receiver lifecycle
+- FFmpeg publisher는 warning/error만 journal에 남기고 progress stats를 억제하며, RTSP receiver는
+  성공 frame 뒤 reconnect backoff를 base로 reset하고 source별 disconnect warning을 30초로 제한
 - 하단 YOLO pose adapter, Vision freshness/count/skew/association과 Automation shadow 정책
 
 ## 우선순위별 차이

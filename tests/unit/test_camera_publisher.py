@@ -71,11 +71,11 @@ async def test_start_builds_safe_ffmpeg_command(
     assert calls == [
         (
             [
-                "ffmpeg", "-hide_banner", "-nostdin", "-f", "v4l2", "-input_format",
-                "mjpeg", "-video_size", "1280x720", "-framerate", "15", "-i",
-                str(tmp_path / "camera"), "-an", "-c:v", "libx264", "-preset",
-                "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p", "-bf",
-                "0", "-f", "rtsp", "-rtsp_transport", "tcp",
+                "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "warning", "-nostats",
+                "-f", "v4l2", "-input_format", "mjpeg", "-video_size", "1280x720",
+                "-framerate", "15", "-i", str(tmp_path / "camera"), "-an", "-c:v",
+                "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt",
+                "yuv420p", "-bf", "0", "-f", "rtsp", "-rtsp_transport", "tcp",
                 "rtsp://127.0.0.1:8554/user-cam",
             ],
             {"shell": False, "stdin": subprocess.DEVNULL},
