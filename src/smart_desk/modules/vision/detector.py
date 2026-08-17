@@ -9,7 +9,7 @@ from typing import Protocol
 import cv2
 import numpy as np
 
-from smart_desk.modules.vision.models import LowerDetection, PostureStatus, UpperDetection
+from smart_desk.modules.vision.models import FaceBox, LowerDetection, PostureStatus, UpperDetection
 
 
 class VisionDetector(Protocol):
@@ -25,6 +25,66 @@ class NoopVisionDetector:
 
     def detect_upper(self, _frame: np.ndarray) -> UpperDetection:
         return UpperDetection(body_count=None)
+
+    def detect_lower(self, _frame: np.ndarray) -> LowerDetection:
+        return LowerDetection(count=None)
+
+
+class CompositeVisionDetector:
+    """Delegates each camera role to its independently configured adapter."""
+
+    def __init__(self, upper: VisionDetector, lower: VisionDetector) -> None:
+        self._upper, self._lower = upper, lower
+
+    def detect_upper(self, frame: np.ndarray) -> UpperDetection:
+        return self._upper.detect_upper(frame)
+
+    def detect_lower(self, frame: np.ndarray) -> LowerDetection:
+        return self._lower.detect_lower(frame)
+
+
+class OpenCvYuNetUpperDetector:
+    """One YuNet inference produces face boxes and five landmarks."""
+
+    _ROW_WIDTH = 15
+
+    def __init__(self, model_path: Path, *, score_threshold: float, nms_threshold: float,
+                 min_face_size: int) -> None:
+        if not model_path.is_file():
+            raise FileNotFoundError(f"YuNet model not found: {model_path}")
+        self._detector = cv2.FaceDetectorYN.create(
+            str(model_path), "", (320, 320), score_threshold, nms_threshold, 5000
+        )
+        if self._detector is None:
+            raise RuntimeError("Unable to create OpenCV YuNet detector")
+        self._min_face_size = min_face_size
+
+    def detect_upper(self, frame: np.ndarray) -> UpperDetection:
+        if frame.ndim != 3 or frame.shape[0] <= 0 or frame.shape[1] <= 0:
+            raise ValueError("YuNet frame must be a non-empty color image")
+        self._detector.setInputSize((int(frame.shape[1]), int(frame.shape[0])))
+        _status, rows = self._detector.detect(frame)
+        if rows is None:
+            return UpperDetection(body_count=0)
+        rows = np.asarray(rows)
+        if rows.ndim != 2 or rows.shape[1] != self._ROW_WIDTH or not np.isfinite(rows).all():
+            raise ValueError("Malformed YuNet output")
+        boxes: list[FaceBox] = []
+        for row in rows:
+            x, y, width, height = row[:4]
+            landmarks = tuple((float(row[index]), float(row[index + 1])) for index in range(4, 14, 2))
+            if (
+                width <= 0 or height <= 0 or x < 0 or y < 0
+                or x + width > frame.shape[1] or y + height > frame.shape[0]
+                or row[14] < 0 or row[14] > 1
+                or any(point_x < 0 or point_y < 0 or point_x >= frame.shape[1] or point_y >= frame.shape[0]
+                       for point_x, point_y in landmarks)
+            ):
+                raise ValueError("Malformed YuNet row")
+            if width < self._min_face_size or height < self._min_face_size:
+                continue
+            boxes.append(FaceBox(int(x), int(y), int(width), int(height), landmarks, float(row[14])))
+        return UpperDetection(body_count=len(rows), face_boxes=tuple(boxes))
 
     def detect_lower(self, _frame: np.ndarray) -> LowerDetection:
         return LowerDetection(count=None)

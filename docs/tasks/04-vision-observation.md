@@ -18,6 +18,8 @@
   소비한다. `workspace`는 Vision 자세 입력으로 대체하지 않는다.
 - `/api/vision/status`는 fail-closed raw/stable snapshot과 camera freshness를 제공한다.
 - 기본 `NoopVisionDetector`는 실제 관측인 척하지 않고 `MODEL_UNAVAILABLE`를 반환한다.
+- YuNet이 provision되면 한 번의 상단 inference에서 box·5 landmarks를 만들며, face row 수를
+  upper count로 사용한다. landmark와 confidence는 내부 face 경계에만 남고 일반 API에는 노출하지 않는다.
 - 선택 하단 detector는 OpenCV DNN YOLO pose ONNX의 `(1,300,57)` end-to-end NMS 출력을 검증한다.
   최신 posture RTSP frame 전체를 letterbox 640으로 처리하고 2Hz에서 최신 frame 하나만 사용한다.
   상단 model이 unavailable이어도 fresh singleton 하단의 frame-level raw posture는 보이지만,

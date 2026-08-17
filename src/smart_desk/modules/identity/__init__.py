@@ -3,6 +3,7 @@ from smart_desk.core.container import get_container
 from .models import CurrentUserSnapshot
 from .session import CurrentUserSessionService
 from .service import FaceIdentityService, UnavailableFaceEmbeddingExtractor
+from .opencv import OpenCvSFaceEmbeddingExtractor
 
 
 def get_identity() -> FaceIdentityService:
@@ -22,6 +23,7 @@ def get_current_user() -> CurrentUserSessionService:
 __all__ = [
     "CurrentUserSnapshot",
     "FaceIdentityService",
+    "OpenCvSFaceEmbeddingExtractor",
     "UnavailableFaceEmbeddingExtractor",
     "get_current_user",
     "get_identity",

@@ -2,6 +2,8 @@
 
 from smart_desk.core.container import get_container
 from smart_desk.modules.vision.detector import (
+    CompositeVisionDetector,
+    OpenCvYuNetUpperDetector,
     OpenCvYoloPoseLowerDetector,
     NoopVisionDetector,
     VisionDetector,
@@ -28,8 +30,8 @@ def get_vision() -> VisionService:
 
 
 __all__ = [
-    "BlockCode", "FaceBox", "FreshFaceObservation", "IdentityStatus", "LowerDetection",
-    "OpenCvYoloPoseLowerDetector", "NoopVisionDetector", "PostureStatus",
+    "BlockCode", "CompositeVisionDetector", "FaceBox", "FreshFaceObservation", "IdentityStatus", "LowerDetection",
+    "OpenCvYuNetUpperDetector", "OpenCvYoloPoseLowerDetector", "NoopVisionDetector", "PostureStatus",
     "PresenceStatus", "UpperDetection", "VisionDetector", "VisionService",
     "VisionSnapshot", "get_vision",
 ]

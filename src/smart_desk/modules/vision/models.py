@@ -68,6 +68,8 @@ class FaceBox:
     y: int
     width: int
     height: int
+    landmarks: tuple[tuple[float, float], ...] = ()
+    confidence: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

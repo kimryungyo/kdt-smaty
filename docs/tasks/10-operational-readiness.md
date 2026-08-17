@@ -5,7 +5,7 @@
 완료 상태는 자동 테스트가 많은 상태가 아니라, 한 대의 로컬 SMART DESK에서 다음 사용자
 흐름을 실제로 수행할 수 있는 상태다.
 
-1. Dashboard에서 profile을 만들고 user camera로 얼굴 표본을 등록한다.
+1. Dashboard에서 profile을 만들고 user camera로 얼굴 표본을 등록한다. (현장 enrollment 검증은 미완료)
 2. 등록 사용자를 다시 보면 current-user session이 시작되고, 이탈하면 session이 끝난다.
 3. posture는 기존 MediaMTX `/bottom-cam`을 receive-only로 소비해 착석·기립을 관측한다.
 4. user camera와 workspace camera는 이 애플리케이션이 FFmpeg publisher를 소유한다.
@@ -23,11 +23,11 @@
 | FastAPI | 18:15부터 worker 1개가 `:9090`에서 실행 중 | 현재 `main` 병합 전 process라 Voice API가 `404`; 계획된 재기동 필요 |
 | EMQX | `:1883`에서 실행 중 | 실제 Wi-Fi 단절·복구와 ESP32 GPIO STOP 실측은 별도 |
 | MediaMTX | RTSP `:8554`, WebRTC `:8889`에서 실행 중 | 감사 시 RTSP `/bottom-cam` DESCRIBE는 `404`; 외부 publisher online 시 재확인 필요 |
-| user camera | Alcorlink `/dev/video0` 존재 | publish/receive가 모두 꺼져 있고 FFmpeg가 없음 |
-| workspace camera | ABKO `/dev/video2` 존재 | publish/receive가 모두 꺼져 있고 FFmpeg가 없음 |
-| posture | operator 제공 MediaMTX `/bottom-cam` | 로컬 `/dev/posture-cam` publisher 없이 RTSP receive-only로 바꿔야 함 |
+| user camera | Alcorlink `/dev/video0` 존재 | app FFmpeg publish + MediaMTX `/user-cam` receive topology is encoded; not field-tested |
+| workspace camera | ABKO `/dev/video2` 존재 | app FFmpeg publish + MediaMTX `/workspace-cam` receive topology is encoded; not field-tested |
+| posture | operator 제공 MediaMTX `/bottom-cam` | app does not publish; receives existing RTSP only (availability unverified) |
 | 하단 pose | adapter와 sample 26/26 회귀 완료 | ONNX 경로가 비어 있어 runtime은 Noop |
-| 얼굴 | 등록·식별·저장·session 엔진과 UI 구현 | upper detector, alignment, embedding model과 threshold가 없어 등록은 `503` |
+| 얼굴 | 등록·식별·저장·session 엔진과 UI, YuNet/SFace adapter 연결 | 모델 provision·설정 및 user camera 현장 등록/재인식 검증 필요 |
 | Voice | Agents SDK 경로, Wake Word 자산, API key와 speaker 장치가 있음 | 설정된 AKG Ara input은 오늘 미연결; 연결·재기동 뒤 실측 필요 |
 | memory | `MemoryService` 경계 구현 | `mem0` package/storage 미준비; 기본 음성을 막지 않는 후순위 선택 기능 |
 | Desk | MQTT relay heartbeat는 STOP, cached height 82.7cm | 현재 Desk `ERROR`; 실제 이동은 계속 비활성·별도 안전 검증 |

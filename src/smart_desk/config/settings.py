@@ -393,6 +393,35 @@ class VisionSettings(BaseModel):
         return self
 
 
+class FaceSettings(BaseModel):
+    """Local OpenCV face models and conservative calibration candidates."""
+
+    detector_model_path: Path | None = None
+    embedding_model_path: Path | None = None
+    detector_score_threshold: float = Field(default=0.85, ge=0, le=1, allow_inf_nan=False)
+    detector_nms_threshold: float = Field(default=0.3, ge=0, le=1, allow_inf_nan=False)
+    min_face_size: int = Field(default=64, ge=16, le=2048)
+    min_blur_variance: float = Field(default=30.0, ge=0, le=100000, allow_inf_nan=False)
+    min_brightness: float = Field(default=35.0, ge=0, le=255, allow_inf_nan=False)
+    max_brightness: float = Field(default=220.0, ge=0, le=255, allow_inf_nan=False)
+    match_threshold: float = Field(default=0.363, ge=-1, le=1, allow_inf_nan=False)
+    best_second_margin: float = Field(default=0.04, ge=0, le=2, allow_inf_nan=False)
+    pairwise_consistency_threshold: float = Field(default=0.363, ge=-1, le=1, allow_inf_nan=False)
+    duplicate_threshold: float = Field(default=0.45, ge=-1, le=1, allow_inf_nan=False)
+    enrollment_sample_interval_seconds: float = Field(default=0.5, gt=0, le=30, allow_inf_nan=False)
+
+    @field_validator("detector_model_path", "embedding_model_path", mode="before")
+    @classmethod
+    def normalize_model_path(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @model_validator(mode="after")
+    def validate_brightness(self) -> FaceSettings:
+        if self.min_brightness >= self.max_brightness:
+            raise ValueError("Face brightness minimum must be below maximum.")
+        return self
+
+
 class AutomationSettings(BaseModel):
     """자동 목표의 실제 Desk 실행 여부만 제어한다.
 
@@ -579,6 +608,7 @@ class Settings(BaseSettings):
     desk: DeskSettings = DeskSettings()
     media: MediaSettings = MediaSettings()
     vision: VisionSettings = VisionSettings()
+    face: FaceSettings = FaceSettings()
     automation: AutomationSettings = AutomationSettings()
     storage: StorageSettings = StorageSettings()
     dashboard: DashboardSettings = DashboardSettings()

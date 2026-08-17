@@ -115,6 +115,7 @@ class FaceIdentityService:
         freshness_seconds: float = 2.0,
         pairwise_consistency_threshold: float | None = None,
         duplicate_threshold: float | None = None,
+        enrollment_sample_interval_seconds: float = 0.0,
     ) -> None:
         self._vision = vision
         self._repo = repository
@@ -127,6 +128,7 @@ class FaceIdentityService:
         self._freshness_seconds = freshness_seconds
         self._pairwise_consistency_threshold = pairwise_consistency_threshold
         self._duplicate_threshold = duplicate_threshold
+        self._enrollment_sample_interval_seconds = enrollment_sample_interval_seconds
         self._state_lock = asyncio.Lock()
         self._model_lock = threading.Lock()
         self._stop = asyncio.Event()
@@ -449,7 +451,10 @@ class FaceIdentityService:
             generation = self._generation
             if snapshot is None or not self._active_enrollment_locked():
                 return
-            if self._last_capture is not None and observation.captured_monotonic <= self._last_capture:
+            if self._last_capture is not None and (
+                observation.captured_monotonic <= self._last_capture
+                or observation.captured_monotonic - self._last_capture < self._enrollment_sample_interval_seconds
+            ):
                 return
             self._enrollment = snapshot.model_copy(
                 update={"state": EnrollmentState.CAPTURING, "changed_at": self._utc_now()}

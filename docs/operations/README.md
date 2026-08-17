@@ -37,6 +37,7 @@ curl http://127.0.0.1:9090/health/ready
 | 이동 필수 | 실제 이동 때 필수 | 지속 중인 MQTT 연결, Arduino `SMART_DESK_SERIAL__PORT`, ESP32 Wi-Fi/MQTT 상태와 fresh height |
 | media | 역할별 선택 | FFmpeg, MediaMTX RTSP path, 안정된 `/dev/v4l/by-id/...` camera path |
 | 하단 Vision | 선택 | `SMART_DESK_VISION__LOWER_POSE_MODEL_PATH`와 ONNX 파일 |
+| 얼굴 Vision | 선택 | local YuNet/SFace paths, OpenCV Zoo license review and operator SHA-256 record |
 | WLED | 선택 | `SMART_DESK_WLED__ENABLED`, base URL |
 | Voice/AI | 선택 | `SMART_DESK_VOICE__ENABLED`, OpenAI API key, wake-word/effect 파일, microphone/speaker 권한 |
 | memory | 선택 | `SMART_DESK_PROFILE_MEMORY__ENABLED`, `data/mem0` 권한 |

@@ -107,6 +107,23 @@ def face(capture: float) -> FreshFaceObservation:
     )
 
 
+async def test_enrollment_defers_adjacent_frames_until_sample_interval() -> None:
+    vision = Vision()
+    vision.face = face(1.0)
+    service = FaceIdentityService(
+        vision=vision, repository=Repository(), current_user=CurrentUserSessionService(),
+        extractor=Extractor(), enrollment_sample_interval_seconds=0.5,
+    )
+    enrollment = await service.start_enrollment("a")
+    await service.process_once()
+    vision.face = face(1.25)
+    await service.process_once()
+    snapshot = await service.enrollment(enrollment.enrollment_id)
+    assert snapshot is not None
+    assert snapshot.state is EnrollmentState.CAPTURING
+    assert snapshot.accepted_samples == 1
+
+
 async def test_presence_starts_anonymous_immediately_then_distinct_match_replaces_it() -> None:
     clock = Clock()
     vision = Vision()

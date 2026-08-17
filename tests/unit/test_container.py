@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import smart_desk.bootstrap as bootstrap_module
 from smart_desk.bootstrap import build_container
 from smart_desk.config.settings import Settings
 from smart_desk.core.container import get_container, install_container
@@ -19,7 +20,8 @@ from smart_desk.modules.desk import get_desk
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
 from smart_desk.modules.profiles import get_activity_modes, get_profiles
 from smart_desk.modules.assistant.agents_runtime import AgentsVoiceRuntime
-from smart_desk.modules.vision import NoopVisionDetector
+from smart_desk.modules.identity import UnavailableFaceEmbeddingExtractor
+from smart_desk.modules.vision import CompositeVisionDetector, NoopVisionDetector
 
 
 def test_get_container_requires_installation() -> None:
@@ -82,6 +84,69 @@ def test_missing_lower_pose_model_falls_back_to_noop_without_failing_bootstrap()
     )
     assert container.vision is not None
     assert isinstance(container.vision._detector, NoopVisionDetector)  # noqa: SLF001
+
+
+def test_face_detector_and_embedding_fail_closed_independently(monkeypatch) -> None:
+    class Extractor:
+        model_name = "test"
+        model_version = "1"
+        dimension = 128
+        normalization = "l2"
+
+        def __init__(self, *_args, **_kwargs): pass
+        def extract(self, _observation): return None
+
+    monkeypatch.setattr(
+        bootstrap_module,
+        "OpenCvYuNetUpperDetector",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad detector")),
+    )
+    monkeypatch.setattr(bootstrap_module, "OpenCvSFaceEmbeddingExtractor", Extractor)
+    detector_failed = build_container(Settings(face={
+        "detector_model_path": "/tmp/yunet.onnx",
+        "embedding_model_path": "/tmp/sface.onnx",
+    }, _env_file=None))
+    assert isinstance(detector_failed.vision._detector, NoopVisionDetector)  # noqa: SLF001
+    assert isinstance(detector_failed.identity._extractor, Extractor)  # noqa: SLF001
+
+    class Upper:
+        def __init__(self, *_args, **_kwargs): pass
+        def detect_upper(self, _frame): return None
+        def detect_lower(self, _frame): return None
+
+    monkeypatch.setattr(bootstrap_module, "OpenCvYuNetUpperDetector", Upper)
+    monkeypatch.setattr(
+        bootstrap_module,
+        "OpenCvSFaceEmbeddingExtractor",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad embedding")),
+    )
+    embedding_failed = build_container(Settings(face={
+        "detector_model_path": "/tmp/yunet.onnx",
+        "embedding_model_path": "/tmp/sface.onnx",
+    }, _env_file=None))
+    assert isinstance(embedding_failed.vision._detector, Upper)  # noqa: SLF001
+    assert isinstance(  # noqa: SLF001
+        embedding_failed.identity._extractor, UnavailableFaceEmbeddingExtractor
+    )
+
+
+def test_bootstrap_composes_configured_upper_and_lower_detectors(monkeypatch) -> None:
+    class Upper:
+        def __init__(self, *_args, **_kwargs): pass
+        def detect_upper(self, _frame): return None
+        def detect_lower(self, _frame): return None
+
+    class Lower(Upper):
+        pass
+
+    monkeypatch.setattr(bootstrap_module, "OpenCvYuNetUpperDetector", Upper)
+    monkeypatch.setattr(bootstrap_module, "OpenCvYoloPoseLowerDetector", Lower)
+    container = build_container(Settings(
+        face={"detector_model_path": "/tmp/yunet.onnx"},
+        vision={"lower_pose_model_path": "/tmp/pose.onnx"},
+        _env_file=None,
+    ))
+    assert isinstance(container.vision._detector, CompositeVisionDetector)  # noqa: SLF001
 
 
 def test_build_container_registers_media_roles_independently() -> None:

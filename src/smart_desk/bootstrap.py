@@ -20,11 +20,16 @@ from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.modules.wled.client import WledClient
 from smart_desk.modules.vision import (
+    CompositeVisionDetector,
+    OpenCvYuNetUpperDetector,
     OpenCvYoloPoseLowerDetector,
     NoopVisionDetector,
     VisionService,
 )
-from smart_desk.modules.identity import FaceIdentityService, UnavailableFaceEmbeddingExtractor
+from smart_desk.modules.identity import (
+    FaceIdentityService, OpenCvSFaceEmbeddingExtractor, UnavailableFaceEmbeddingExtractor,
+)
+from smart_desk.modules.identity.service import FaceRecognizer
 from smart_desk.modules.identity.repository import FaceEmbeddingRepository
 from smart_desk.modules.identity.session import CurrentUserSessionService
 from smart_desk.modules.automation.service import AutomationService
@@ -228,10 +233,21 @@ def build_container(settings: Settings) -> AppContainer:
         )
     # Vision은 user(상단)와 posture(하단)만 소비한다. workspace 영상은 AI 작업공간
     # 역할이므로 편의상 자세 입력으로 대체하지 않는다.
-    detector = NoopVisionDetector()
+    upper_detector = NoopVisionDetector()
+    lower_detector = NoopVisionDetector()
+    if settings.face.detector_model_path is not None:
+        try:
+            upper_detector = OpenCvYuNetUpperDetector(
+                settings.face.detector_model_path,
+                score_threshold=settings.face.detector_score_threshold,
+                nms_threshold=settings.face.detector_nms_threshold,
+                min_face_size=settings.face.min_face_size,
+            )
+        except Exception:
+            LOGGER.exception("Failed to load YuNet face model; using unavailable upper detector")
     if settings.vision.lower_pose_model_path is not None:
         try:
-            detector = OpenCvYoloPoseLowerDetector(
+            lower_detector = OpenCvYoloPoseLowerDetector(
                 settings.vision.lower_pose_model_path,
                 input_size=settings.vision.lower_pose_input_size,
                 min_person_confidence=settings.vision.lower_pose_min_person_confidence,
@@ -243,6 +259,14 @@ def build_container(settings: Settings) -> AppContainer:
             LOGGER.exception(
                 "Failed to load lower YOLO pose model; using unavailable detector"
             )
+    if not isinstance(upper_detector, NoopVisionDetector) and not isinstance(lower_detector, NoopVisionDetector):
+        detector = CompositeVisionDetector(upper_detector, lower_detector)
+    elif not isinstance(upper_detector, NoopVisionDetector):
+        detector = upper_detector
+    elif not isinstance(lower_detector, NoopVisionDetector):
+        detector = lower_detector
+    else:
+        detector = NoopVisionDetector()
     vision = VisionService(
         upper_source=container.user_frame_source,
         lower_source=container.posture_frame_source,
@@ -296,9 +320,25 @@ def build_container(settings: Settings) -> AppContainer:
         current_user, item_cap=settings.voice.session_history_item_cap
     )
     container.assistant_turns = AssistantTurnStore(current_user)
-    identity = FaceIdentityService(vision=vision, repository=face_embeddings,
-                                   current_user=current_user,
-                                   extractor=UnavailableFaceEmbeddingExtractor())
+    extractor = UnavailableFaceEmbeddingExtractor()
+    if settings.face.embedding_model_path is not None:
+        try:
+            extractor = OpenCvSFaceEmbeddingExtractor(
+                settings.face.embedding_model_path, min_face_size=settings.face.min_face_size,
+                min_blur_variance=settings.face.min_blur_variance,
+                min_brightness=settings.face.min_brightness,
+                max_brightness=settings.face.max_brightness,
+            )
+        except Exception:
+            LOGGER.exception("Failed to load SFace model; using unavailable embedding extractor")
+    identity = FaceIdentityService(
+        vision=vision, repository=face_embeddings, current_user=current_user, extractor=extractor,
+        recognizer=FaceRecognizer(match_threshold=settings.face.match_threshold,
+                                  margin=settings.face.best_second_margin),
+        pairwise_consistency_threshold=settings.face.pairwise_consistency_threshold,
+        duplicate_threshold=settings.face.duplicate_threshold,
+        enrollment_sample_interval_seconds=settings.face.enrollment_sample_interval_seconds,
+    )
     container.face_embeddings = face_embeddings
     container.current_user = current_user
     container.identity = identity

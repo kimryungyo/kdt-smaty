@@ -107,7 +107,10 @@ best-second margin을 함께 적용한다.
 ## Task 05 구현 메모 (fake-driven)
 
 - SQLite schema는 v4이며 `face_embeddings.vector`는 little-endian float32 BLOB이다. 일반 API와 로그에는 vector, crop, box, similarity를 노출하지 않는다.
-- production extractor는 의도적으로 `MODEL_UNAVAILABLE` fail-closed adapter다. 모델, landmark alignment, 품질 기준, match threshold와 margin은 Pi/camera 실측 전에는 운영 기본값으로 정하지 않았다.
+- local SFace model이 provision되면 extractor는 YuNet landmark row를 `alignCrop`에만 전달하고,
+  crop은 저장하지 않는다. 초기 cosine 0.363 및 관련 quality/margin 값은 calibration 후보이며
+  실제 user camera site validation은 아직 완료되지 않았다. 표본은 configured interval보다 빠르게
+  연속 capture하지 않는다.
 - `FaceIdentityService`는 Vision의 fresh face observation만 소비하고 session change 구독 경계를 제공한다. Desk/WLED/Voice를 직접 호출하지 않으며, `AutomationService`와 Assistant runtime이 current-user session event를 구독하는 연결은 fake 기반 자동 테스트로 검증했다.
 - Task 09에서 실제 Pi CPU 지연, model load, 카메라 ROI/조명/가림 품질 및 threshold·margin을 현장 검증하고 production extractor를 연결해야 한다.
 
