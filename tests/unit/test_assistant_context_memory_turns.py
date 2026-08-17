@@ -5,9 +5,9 @@ import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from smart_desk.api.routes import assistant as assistant_route
@@ -271,7 +271,7 @@ async def test_null_session_turn_only_displays_before_any_user_change() -> None:
     await store.stop()
 
 
-def test_latest_response_is_frozen_camel_case_and_preserves_null_session(
+async def test_latest_response_is_frozen_camel_case_and_preserves_null_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     turn = SimpleNamespace(
@@ -296,8 +296,11 @@ def test_latest_response_is_frozen_camel_case_and_preserves_null_session(
     app = FastAPI()
     app.include_router(assistant_route.router)
     monkeypatch.setattr(assistant_route, "get_container", lambda: SimpleNamespace(assistant_turns=SimpleNamespace(latest=latest)))
-    with TestClient(app) as client:
-        response = client.get("/api/assistant/latest")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/api/assistant/latest")
     assert response.json()["turn"]["sessionId"] is None
     with pytest.raises(ValidationError):
         assistant_route.TurnResponse.model_validate({"turnId": "x", "unknown": True})
