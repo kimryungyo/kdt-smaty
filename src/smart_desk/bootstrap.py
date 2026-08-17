@@ -311,30 +311,19 @@ def build_container(settings: Settings) -> AppContainer:
                                             startup_order=80, shutdown_order=80))
     if settings.voice.enabled:
         try:
-            from smart_desk.modules.assistant.openai import OpenAiGateway
-            from smart_desk.modules.assistant.service import AssistantService
-            from smart_desk.modules.assistant.tooling import AssistantToolRegistry
-            from smart_desk.modules.assistant.wled_tools import WledAssistantTools
-            from smart_desk.modules.voice.audio import (
-                LocalAudioInput,
-                LocalPcmOutput,
-                RmsRecorder,
-            )
+            from smart_desk.modules.assistant.agents_runtime import AgentsVoiceRuntime
+            from smart_desk.modules.voice.audio import LocalAudioInput, LocalPcmOutput
             from smart_desk.modules.voice.debug import VoiceDebugServer, VoiceDebugView
             from smart_desk.modules.voice.playback import PlaybackCoordinator
             from smart_desk.modules.voice.service import VoiceService
             from smart_desk.modules.voice.wakeword import LiveKitWakeWordOnnxDetector
 
-            gateway = OpenAiGateway(settings.openai)
-            tool_registry = AssistantToolRegistry(
-                (WledAssistantTools(container.wled),)
-                if container.wled is not None
-                else ()
-            )
-            assistant = AssistantService(
-                gateway,
-                tool_registry,
-                session_max_turns=settings.voice.session_max_turns,
+            api_key = settings.openai.api_key
+            assert api_key is not None  # Settings validates enabled Voice/OpenAI.
+            runtime = AgentsVoiceRuntime.build_for_services(
+                api_key=api_key.get_secret_value(), sessions=container.assistant_context,
+                memory=container.profile_memory, turns=container.assistant_turns,
+                automation=automation, wled=container.wled,
             )
             audio_input = LocalAudioInput(
                 device_name=settings.voice.input_device_name,
@@ -356,22 +345,10 @@ def build_container(settings: Settings) -> AppContainer:
                     settings.voice.wakeword_inference_interval_frames
                 ),
             )
-            recorder = RmsRecorder(
-                rms_threshold=settings.voice.silence_rms_threshold,
-                speech_start_consecutive_frames=(
-                    settings.voice.speech_start_consecutive_frames
-                ),
-                silence_duration_seconds=settings.voice.silence_duration_seconds,
-                min_utterance_seconds=settings.voice.min_utterance_seconds,
-                max_utterance_seconds=settings.voice.max_utterance_seconds,
-                preroll_seconds=settings.voice.followup_preroll_seconds,
-            )
             voice = VoiceService(
                 audio_input=audio_input,
                 wakeword=wakeword,
-                recorder=recorder,
-                gateway=gateway,
-                assistant=assistant,
+                runtime=runtime,
                 playback=playback,
                 settings=settings.voice,
                 task_manager=task_manager,
@@ -386,14 +363,13 @@ def build_container(settings: Settings) -> AppContainer:
                 },
             )
         else:
-            container.assistant = assistant
             container.voice = voice
             container.register(
                 ResourceRegistration(
                     name="voice",
                     resource=voice,
-                    startup_order=70,
-                    shutdown_order=70,
+                    startup_order=90,
+                    shutdown_order=90,
                 )
             )
             if settings.voice_debug.enabled:
@@ -402,7 +378,6 @@ def build_container(settings: Settings) -> AppContainer:
                         voice=voice,
                         wakeword=wakeword,
                         audio_input=audio_input,
-                        assistant=assistant,
                     ),
                     settings.voice_debug,
                     task_manager,
@@ -412,8 +387,8 @@ def build_container(settings: Settings) -> AppContainer:
                     ResourceRegistration(
                         name="voice-debug-http",
                         resource=voice_debug,
-                        startup_order=80,
-                        shutdown_order=80,
+                        startup_order=91,
+                        shutdown_order=91,
                     )
                 )
     return container

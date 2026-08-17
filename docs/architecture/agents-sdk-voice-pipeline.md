@@ -4,7 +4,7 @@
 **문서 상태:** 확정된 전환 목표 — `main`의 현재 구현은 아직 legacy 경로
 **구현 브랜치:** `feat/agents-sdk-voice-pipeline`
 
-이 문서는 현재 구현된 수동 STT → Responses → TTS 파이프라인을 OpenAI Agents SDK의
+이 문서는 이전 수동 STT → Responses → TTS 파이프라인을 OpenAI Agents SDK의
 `VoicePipeline` 중심 구조로 교체할 때 따라야 할 확정안을 기록한다. 현재 코드의 기준선과
 세부 동작은 [기존 AI 스피커 설계](ai-voice-assistant.md)에 남기되, 두 문서가 충돌하면
 Agents SDK 교체 범위에서는 이 문서가 우선한다.

@@ -266,9 +266,10 @@ FFmpeg는 `CameraPublisher`가 관리하는 FastAPI 자식 process이고, MediaM
 
 ## 애플리케이션 컴포넌트
 
-### `AssistantService`와 `OpenAiGateway` (현재 구현)
+### `AssistantService`와 `OpenAiGateway` (폐기된 legacy 설계)
 
-아래 경계는 현재 실행 코드의 기준선이다. Agents SDK 교체 후에는 `OpenAiGateway`와 수동
+아래 경계는 이전 실행 코드의 기준선이다. 현재 실행은 `AgentsVoiceRuntime.run_audio` 하나이며,
+`OpenAiGateway`와 수동
 tool/history loop를 제거하고 `AgentsVoiceRuntime`, `SmartDeskVoiceWorkflow`와 SDK session으로
 대체한다. 목표 책임과 이전 범위는
 [Agents SDK 음성 파이프라인 전환 결정](agents-sdk-voice-pipeline.md)을 따른다.
@@ -282,12 +283,12 @@ Responses structured output와 24kHz PCM TTS stream을 제공한다. `store=Fals
 cancel에서는 기존 history를 유지한다. `session_max_turns`는 성공 history 크기만 제한하며
 Wake Word 없는 follow-up 횟수를 제한하지 않는다.
 
-### `VoiceService`
+### `VoiceService` (현재 실행)
 
-`VoiceService`는 `LocalAudioInput`, `LiveKitWakeWordOnnxDetector`, `RmsRecorder`,
-`AssistantService`와 `PlaybackCoordinator`를 연결해 `WAITING_WAKE`, `RECORDING`,
+`VoiceService`는 `LocalAudioInput`, `LiveKitWakeWordOnnxDetector`, `AgentsVoiceRuntime`,
+`PlaybackCoordinator`를 연결해 `WAITING_WAKE`, `RECORDING`,
 `PROCESSING`, `SPEAKING`, `WAITING_FOLLOWUP` 상태를 하나의 `voice-main` task에서 순차
-진행한다. callback thread는 80ms PCM을 event loop의 bounded queue로 전달하기만 한다.
+진행한다. wake 뒤 원본 24kHz PCM을 `run_audio`에 직접 넘기며 발화 종료는 server VAD가 정한다.
 
 Voice는 half-duplex다. TTS 중 입력을 폐기하고 정상 drain 뒤 250ms guard를 거쳐 4초
 follow-up을 연다. 정상 후속 응답마다 새 4초 창을 만들며 횟수 제한은 없다. microphone,

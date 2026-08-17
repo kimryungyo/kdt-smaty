@@ -112,7 +112,7 @@ Dashboard에 AI 결과를 전달하는 API·event·화면 모델은 아직 설�
 ### 현재 유지할 확장 경계
 
 ```text
-현재 AI speaker: Microphone → VoiceService → AssistantService → Speaker
+Historical legacy speaker: Microphone → VoiceService → AssistantService → Speaker
 
 기존 camera: 물리 camera → CameraPublisher/FFmpeg → MediaMTX
                                                     ↓ RTSP
@@ -485,7 +485,7 @@ TTS text는 `spoken_text`만 사용한다. 실제 사용자 테스트 전에 고
 
 ## 8. Mem0 장기 기억 확장
 
-현재 `AssistantService` 경계는 Mem0를 추가하기에 적합하므로 1차 AI 스피커 구조를
+Historical `AssistantService` 경계는 Mem0를 추가하기에 적합하다고 보았으나 현재 구조는
 바꾸지 않는다. 장기 기억을 실제로 구현할 때 `MemoryService`와 Mem0 OSS adapter만
 추가한다.
 

@@ -4,12 +4,6 @@ from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
-from smart_desk.modules.assistant.models import (
-    AssistantDecisionReason,
-    AssistantDebugSnapshot,
-    AssistantDebugTurn,
-    AssistantNextAction,
-)
 from smart_desk.modules.voice.audio import AudioInputDebugSnapshot
 from smart_desk.modules.voice.debug import VoiceDebugView, create_voice_debug_application
 from smart_desk.modules.voice.models import VoiceSnapshot, VoiceState
@@ -67,35 +61,11 @@ class FakeAudioInput:
         )
 
 
-class FakeAssistant:
-    def get_debug_snapshot(self) -> AssistantDebugSnapshot:
-        return AssistantDebugSnapshot(
-            session_id="voice:local",
-            completed_turns=1,
-            history_items=3,
-            history_item_types=("user", "reasoning", "message"),
-            turns=(
-                AssistantDebugTurn(
-                    completed_at=NOW,
-                    user_text="오늘 날씨는 어때?",
-                    spoken_text="맑은 날씨입니다.",
-                    next_action=AssistantNextAction.RETURN_TO_WAKE_WORD,
-                    decision_reason=AssistantDecisionReason.CONVERSATION_COMPLETE,
-                    request_id="req-debug",
-                    input_tokens=10,
-                    output_tokens=5,
-                    output_item_types=("reasoning", "message"),
-                ),
-            ),
-        )
-
-
 def make_client() -> TestClient:
     view = VoiceDebugView(
         voice=FakeVoice(),  # type: ignore[arg-type]
         wakeword=FakeWakeWord(),  # type: ignore[arg-type]
         audio_input=FakeAudioInput(),  # type: ignore[arg-type]
-        assistant=FakeAssistant(),  # type: ignore[arg-type]
     )
     return TestClient(create_voice_debug_application(view))
 
@@ -110,12 +80,7 @@ def test_debug_snapshot_combines_voice_observability_without_provider_secret() -
     assert payload["wakeword"]["inference_p95_ms"] == 31.0
     assert payload["audio_input"]["queue_capacity"] == 64
     assert payload["audio_input"]["estimated_snr_db"] == 23.2
-    assert payload["assistant"]["turns"][0]["spoken_text"] == "맑은 날씨입니다."
-    assert payload["assistant"]["turns"][0]["next_action"] == "RETURN_TO_WAKE_WORD"
-    assert (
-        payload["assistant"]["turns"][0]["decision_reason"]
-        == "CONVERSATION_COMPLETE"
-    )
+    assert "assistant" not in payload
     assert "encrypted_content" not in response.text
     assert "api_key" not in response.text
 

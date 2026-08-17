@@ -99,7 +99,8 @@ card 번호와 PipeWire node 숫자는 hot-plug 또는 재부팅 뒤 바뀔 수 
 - `LocalAudioInput` callback은 PCM bytes와 timestamp만 queue로 넘긴다.
 - 현재 `AudioInputDebugSnapshot`에는 accepting, queue size/capacity, drop, overflow,
   callback error만 있다.
-- RMS는 `RmsRecorder`가 발화 시작/종료 판정 때만 계산하며 debug snapshot에는 없다.
+- 이 historical handoff의 `RmsRecorder` 발화 종료 설명은 superseded다. 현재 RMS는 follow-up 후보의
+  네트워크 실행 회피에만 쓰고 final speech는 SDK server VAD가 정한다.
 - peak, clipping, DC offset, noise floor, SNR을 계산하지 않는다.
 - `WakeWordDebugSnapshot`에는 마지막 score만 있고 최근 최대 score와 inference latency가
   없다.

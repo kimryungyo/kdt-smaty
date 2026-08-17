@@ -200,10 +200,9 @@ Arduino frame의 높이 의미와 ESP32 MQTT JSON 계약을 담당한다. 목표
 
 | 경로 | 역할 |
 | --- | --- |
-| `src/smart_desk/modules/assistant/__init__.py` | structured reply, gateway Protocol과 `AssistantService`를 공개한다. |
-| `src/smart_desk/modules/assistant/models.py` | `AssistantReply`, `OpenAiTurn`과 JSON history item을 정의한다. |
-| `src/smart_desk/modules/assistant/openai.py` | OpenAI file STT, Responses parse와 streaming PCM TTS를 adapter 안에 격리한다. |
-| `src/smart_desk/modules/assistant/service.py` | `voice:local` history lock, 성공 commit과 max-turn reset을 관리한다. |
+| `src/smart_desk/modules/assistant/__init__.py` | provider-neutral Agents voice runtime 공개 surface를 제공한다. |
+| `src/smart_desk/modules/assistant/agents_runtime.py` | 24kHz PCM `run_audio`, SDK VoicePipeline, session·tool 연결을 조립한다. |
+| `src/smart_desk/modules/assistant/context.py` | current-user별 bounded SDK session과 실행 취소를 관리한다. |
 
 ### `modules/voice/`
 
@@ -291,13 +290,12 @@ frontend/src/
 | `tests/unit/test_container.py` | container 설치 전 접근, 동일 인스턴스 반환과 중복 설치 차단을 검증한다. |
 | `tests/unit/test_lifecycle.py` | 공유 자원의 명시적 시작·안전 종료 순서를 검증한다. |
 | `tests/unit/test_task_manager.py` | async 작업 중복 차단과 critical 실패 callback을 검증한다. |
-| `tests/unit/test_voice_models.py` | Voice DTO, 상태와 structured assistant reply를 검증한다. |
-| `tests/unit/test_voice_audio.py` | callback queue, RMS recording, pre-roll과 memory WAV를 검증한다. |
+| `tests/unit/test_voice_models.py` | Voice 상태 DTO의 content-free 계약을 검증한다. |
+| `tests/unit/test_voice_audio.py` | callback 신호 진단과 RMS follow-up gate를 검증한다. |
 | `tests/unit/test_wakeword_detector.py` | builtin model 선택, 연속 activation, reset과 close를 검증한다. |
 | `tests/unit/test_playback.py` | effect/TTS 직렬화, sample carry, abort와 cancel을 검증한다. |
-| `tests/unit/test_openai_gateway.py` | STT·Responses·TTS SDK request와 timeout을 network 없이 검증한다. |
-| `tests/unit/test_assistant_service.py` | history commit·rollback·serialization과 privacy log를 검증한다. |
-| `tests/unit/test_voice_service.py` | Voice 상태 전이, follow-up, fatal 경계와 shutdown을 검증한다. |
+| `tests/unit/test_agents_voice_runtime.py` | SDK stream, lifecycle event와 cancellation 경계를 network 없이 검증한다. |
+| `tests/unit/test_voice_service.py` | PCM passthrough, runtime event, follow-up, 오류와 shutdown을 검증한다. |
 | `tests/unit/test_sqlite_database.py` | SQLite migration, schema, lifecycle, transaction과 cancellation을 검증한다. |
 | `tests/unit/test_profile_models.py` | 프로필 alias, 범위, 정규화와 부분 수정 입력을 검증한다. |
 | `tests/unit/test_profile_repository.py` | 임시 SQLite 파일에서 프로필 CRUD, 충돌, 영속성과 동시 부분 수정을 검증한다. |
@@ -311,9 +309,8 @@ frontend/src/
 | `tests/integration/test_dashboard_api.py` | Dashboard HTTP contract, 오류 상태와 SQLite profile CRUD를 검증한다. |
 | `tests/integration/test_application.py` | FastAPI lifespan, health API, React 정적 제공과 SPA fallback을 검증한다. |
 | `tests/integration/test_mqtt_emqx.py` | 로컬 EMQX에서 실제 QoS 1 왕복과 재연결·재구독을 선택적으로 검증한다. |
-| `tests/integration/test_voice_pipeline.py` | fake 장치와 실제 Voice 정책을 연결해 Wake Word 없는 3-turn을 검증한다. |
+| `tests/integration/test_voice_pipeline.py` | fake 장치와 provider-neutral runtime을 연결해 wake/transcript/audio를 검증한다. |
 | `tests/integration/test_wakeword_builtin.py` | Voice extra 환경에서 builtin HEY_JARVIS offline load·추론을 검증한다. |
-| `tests/integration/test_openai_voice_live.py` | opt-in OpenAI STT·2-turn Responses·streaming TTS를 검증한다. |
 | `tests/integration/test_voice_hardware.py` | opt-in microphone/speaker open과 local effect를 검증한다. |
 | `src/smart_desk/modules/voice/debug.py` | 10000 포트 임시 Voice 관측 페이지와 read-only snapshot API를 제공한다. |
 
@@ -358,7 +355,7 @@ src/smart_desk/modules/
 ├── serial/        Arduino 시리얼 라인 수신 (구현 완료)
 ├── desk/          높이 해석·ESP32 명령과 목표·수동 제어 (구현 완료)
 ├── media/         FFmpeg 카메라 발행과 RTSP 최신 프레임 (구현 완료)
-├── assistant/     OpenAI STT·Responses·TTS와 voice:local history (구현 완료)
+├── assistant/     Agents VoicePipeline runtime, user session·memory·tools
 ├── voice/         Wake Word·녹음·재생과 follow-up 상태 머신 (구현 완료)
 ├── vision/        전처리, 얼굴·자세·재실 판정
 ├── automation/    Vision·프로필을 이용한 목표 높이 결정

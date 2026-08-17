@@ -422,35 +422,9 @@ class OpenAiSettings(BaseModel):
 
     api_key: SecretStr | None = None
     response_model: str = "gpt-5.6-terra"
-    reasoning_effort: Literal["none", "low", "medium", "high"] = "low"
-    transcription_model: str = "gpt-transcribe"
-    transcription_prompt: str | None = Field(default=None, max_length=200)
-    speech_model: str = "gpt-4o-mini-tts"
-    speech_voice: str = "marin"
-    transcription_timeout_seconds: float = Field(
-        default=20.0,
-        gt=0,
-        le=60,
-        allow_inf_nan=False,
-    )
-    response_timeout_seconds: float = Field(
-        default=30.0,
-        gt=0,
-        le=120,
-        allow_inf_nan=False,
-    )
-    speech_timeout_seconds: float = Field(
-        default=30.0,
-        gt=0,
-        le=120,
-        allow_inf_nan=False,
-    )
 
     @field_validator(
         "response_model",
-        "transcription_model",
-        "speech_model",
-        "speech_voice",
     )
     @classmethod
     def normalize_required_string(cls, value: str) -> str:
@@ -460,16 +434,6 @@ class OpenAiSettings(BaseModel):
         if not normalized:
             raise ValueError("OpenAI 모델과 음성 이름은 비어 있을 수 없습니다.")
         return normalized
-
-    @field_validator("transcription_prompt", mode="before")
-    @classmethod
-    def normalize_optional_prompt(cls, value: object) -> object:
-        """빈 transcription prompt를 설정되지 않은 값으로 정규화한다."""
-
-        if isinstance(value, str):
-            normalized = value.strip()
-            return normalized or None
-        return value
 
 
 class ProfileMemorySettings(BaseModel):
@@ -502,29 +466,10 @@ class VoiceSettings(BaseModel):
         le=32_767,
         allow_inf_nan=False,
     )
-    speech_start_consecutive_frames: int = Field(default=2, ge=1, le=5)
-    silence_duration_seconds: float = Field(
-        default=0.6,
-        ge=0.24,
-        le=3.0,
-        allow_inf_nan=False,
-    )
     speech_start_timeout_seconds: float = Field(
         default=3.0,
         gt=0,
         le=15,
-        allow_inf_nan=False,
-    )
-    min_utterance_seconds: float = Field(
-        default=0.24,
-        ge=0.16,
-        le=2.0,
-        allow_inf_nan=False,
-    )
-    max_utterance_seconds: float = Field(
-        default=10.0,
-        gt=0,
-        le=30,
         allow_inf_nan=False,
     )
 
@@ -548,7 +493,6 @@ class VoiceSettings(BaseModel):
         allow_inf_nan=False,
     )
     input_queue_frames: int = Field(default=64, ge=8, le=256)
-    session_max_turns: int = Field(default=12, ge=1, le=50)
     session_history_item_cap: int = Field(default=24, ge=1, le=200)
 
     acknowledgement_effect_path: Path = Path(
@@ -570,10 +514,6 @@ class VoiceSettings(BaseModel):
     def validate_voice_timings(self) -> VoiceSettings:
         """녹음과 follow-up 설정 사이의 불변 조건을 검증한다."""
 
-        if self.min_utterance_seconds >= self.max_utterance_seconds:
-            raise ValueError("최소 발화 시간은 최대 발화 시간보다 짧아야 합니다.")
-        if self.silence_duration_seconds >= self.max_utterance_seconds:
-            raise ValueError("무음 종료 시간은 최대 발화 시간보다 짧아야 합니다.")
         preroll_frames = ceil(self.followup_preroll_seconds / 0.08)
         if preroll_frames >= self.input_queue_frames:
             raise ValueError("pre-roll frame 수는 입력 queue 크기보다 작아야 합니다.")

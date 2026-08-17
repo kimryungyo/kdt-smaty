@@ -129,9 +129,6 @@ class SmartDeskVoiceWorkflow:
                 yield text
             return
         self._active_context = context
-        current = asyncio.current_task()
-        if current is not None:
-            context.sessions.register_run(current)
         recalled: list[object] = []
         if context.turn_context.personalized and await context.sessions.is_valid(context.turn_context):
             try:
@@ -283,6 +280,12 @@ class AgentsVoiceRuntime:
             audio_input = self._streamed_input_factory()
             if self._workflow is not None:
                 await self._workflow.prepare_run()
+                # Register the public run consumer (the VoiceService child task),
+                # never the SDK workflow producer.  Cancelling process_turns alone
+                # can leave StreamedAudioResult.stream() awaiting forever.
+                current = asyncio.current_task()
+                if current is not None and self._workflow._active_context is not None:
+                    self._workflow._active_context.sessions.register_run(current)
                 transcript_channel = asyncio.Queue()
 
                 async def publish_final_transcript(transcript: str) -> None:
@@ -300,6 +303,8 @@ class AgentsVoiceRuntime:
                 feeder.result()
             result = await pipeline_wait
             result_stream = result.stream()
+            if inspect.isawaitable(result_stream):
+                result_stream = await result_stream
             result_wait = asyncio.create_task(anext(result_stream))
             if transcript_channel is not None:
                 transcript_wait = asyncio.create_task(transcript_channel.get())

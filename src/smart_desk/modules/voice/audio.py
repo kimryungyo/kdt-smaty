@@ -4,28 +4,22 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Sequence
 from dataclasses import dataclass
 import importlib
-import io
 import logging
 from math import ceil, log10
 import time
 from typing import Protocol
-import wave
 
 import numpy as np
 
 from smart_desk.modules.voice.models import (
     AudioChunk,
-    AudioUtterance,
     INPUT_FRAME_BYTES,
     INPUT_FRAME_SAMPLES,
     INPUT_FRAME_SECONDS,
     INPUT_SAMPLE_RATE,
     OUTPUT_SAMPLE_RATE,
-    RecordingEnd,
-    RecordingResult,
     VoiceFatalError,
 )
 
@@ -128,25 +122,6 @@ def analyze_signal_frame(pcm: bytes) -> AudioSignalFrame:
         dc_offset_pcm=float(np.mean(samples)),
     )
 
-
-def build_wav(pcm_frames: Sequence[bytes]) -> AudioUtterance:
-    """24kHz mono PCM16 frame을 하나의 memory WAV로 조립한다."""
-
-    if not pcm_frames:
-        raise ValueError("WAV를 만들 PCM frame이 없습니다.")
-    if any(len(frame) != INPUT_FRAME_BYTES for frame in pcm_frames):
-        raise ValueError("WAV 입력에는 고정 크기 PCM frame만 사용할 수 있습니다.")
-    pcm = b"".join(pcm_frames)
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wav_file:
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(INPUT_SAMPLE_RATE)
-        wav_file.writeframes(pcm)
-    return AudioUtterance(
-        wav=buffer.getvalue(),
-        duration_seconds=len(pcm) / (INPUT_SAMPLE_RATE * 2),
-    )
 
 
 def _resolve_device_index(
@@ -526,115 +501,3 @@ def _to_device_pcm(pcm: bytes) -> bytes:
     upsampled = np.repeat(samples, 2)
     return np.repeat(upsampled[:, np.newaxis], 2, axis=1).tobytes()
 
-
-class RmsRecorder:
-    """RMS threshold와 bounded deadline으로 하나의 발화를 memory WAV로 만든다."""
-
-    def __init__(
-        self,
-        *,
-        rms_threshold: float,
-        speech_start_consecutive_frames: int,
-        silence_duration_seconds: float,
-        min_utterance_seconds: float,
-        max_utterance_seconds: float,
-        preroll_seconds: float,
-    ) -> None:
-        self._rms_threshold = rms_threshold
-        self._start_frames = speech_start_consecutive_frames
-        self._silence_seconds = silence_duration_seconds
-        self._min_seconds = min_utterance_seconds
-        self._max_frames = ceil(max_utterance_seconds / INPUT_FRAME_SECONDS)
-        self._preroll_frames = ceil(preroll_seconds / INPUT_FRAME_SECONDS)
-
-    async def record(
-        self,
-        audio_input: AudioInput,
-        *,
-        speech_start_deadline: float,
-        initial_chunks: tuple[AudioChunk, ...] = (),
-        initial_above_threshold_frames: int = 0,
-    ) -> RecordingResult:
-        preroll: deque[AudioChunk] = deque(initial_chunks, maxlen=self._preroll_frames)
-        streak = initial_above_threshold_frames
-        first_high_at = initial_chunks[-1].captured_at if streak and initial_chunks else None
-        frames: list[bytes] | None = None
-        speech_started_at: float | None = None
-        last_high_at: float | None = None
-        silence_started_at: float | None = None
-        utterance_deadline: float | None = None
-
-        while True:
-            now = time.monotonic()
-            if frames is None and now >= speech_start_deadline:
-                return None, RecordingEnd.SPEECH_START_TIMEOUT
-            timeout = (
-                max(0.0, speech_start_deadline - now)
-                if frames is None
-                else max(0.0, (utterance_deadline or now) - now)
-            )
-            try:
-                chunk = await audio_input.read(timeout_seconds=timeout)
-            except TimeoutError:
-                if frames is None:
-                    return None, RecordingEnd.SPEECH_START_TIMEOUT
-                return self._finish(
-                    frames,
-                    speech_started_at,
-                    last_high_at,
-                    RecordingEnd.MAX_DURATION,
-                )
-
-            above = calculate_rms(chunk.pcm) >= self._rms_threshold
-            if frames is None:
-                preroll.append(chunk)
-                if above:
-                    if streak == 0:
-                        first_high_at = chunk.captured_at
-                    streak += 1
-                else:
-                    streak = 0
-                    first_high_at = None
-                if streak < self._start_frames:
-                    continue
-                frames = [item.pcm for item in preroll]
-                speech_started_at = first_high_at or chunk.captured_at
-                last_high_at = chunk.captured_at
-                utterance_deadline = time.monotonic() + (
-                    self._max_frames - len(frames)
-                ) * INPUT_FRAME_SECONDS
-                if len(frames) >= self._max_frames:
-                    return self._finish(frames, speech_started_at, last_high_at, RecordingEnd.MAX_DURATION)
-                continue
-
-            frames.append(chunk.pcm)
-            if above:
-                last_high_at = chunk.captured_at
-                silence_started_at = None
-            else:
-                if silence_started_at is None:
-                    silence_started_at = chunk.captured_at
-                if (
-                    chunk.captured_at
-                    - silence_started_at
-                    + INPUT_FRAME_SECONDS
-                    + 1e-9
-                    >= self._silence_seconds
-                ):
-                    return self._finish(frames, speech_started_at, last_high_at, RecordingEnd.SILENCE)
-            if len(frames) >= self._max_frames:
-                return self._finish(frames, speech_started_at, last_high_at, RecordingEnd.MAX_DURATION)
-
-    def _finish(
-        self,
-        frames: list[bytes],
-        speech_started_at: float | None,
-        last_high_at: float | None,
-        end: RecordingEnd,
-    ) -> RecordingResult:
-        if speech_started_at is None or last_high_at is None:
-            return None, RecordingEnd.TOO_SHORT
-        voiced_seconds = last_high_at - speech_started_at + INPUT_FRAME_SECONDS
-        if voiced_seconds + 1e-9 < self._min_seconds:
-            return None, RecordingEnd.TOO_SHORT
-        return build_wav(frames[: self._max_frames]), end

@@ -39,31 +39,6 @@ class AudioChunk:
 
 
 @dataclass(frozen=True, slots=True)
-class AudioUtterance:
-    """OpenAI file transcription에 전달할 memory WAV다."""
-
-    wav: bytes
-    duration_seconds: float
-
-    def __post_init__(self) -> None:
-        if not self.wav.startswith(b"RIFF") or self.wav[8:12] != b"WAVE":
-            raise ValueError("발화는 RIFF/WAVE 형식이어야 합니다.")
-        if not math.isfinite(self.duration_seconds) or self.duration_seconds <= 0:
-            raise ValueError("발화 길이는 0보다 큰 finite 값이어야 합니다.")
-
-
-class RecordingTrigger(StrEnum):
-    WAKE_WORD = "WAKE_WORD"
-    FOLLOWUP = "FOLLOWUP"
-
-
-class RecordingEnd(StrEnum):
-    SILENCE = "SILENCE"
-    MAX_DURATION = "MAX_DURATION"
-    SPEECH_START_TIMEOUT = "SPEECH_START_TIMEOUT"
-    TOO_SHORT = "TOO_SHORT"
-
-
 class EffectName(StrEnum):
     ACKNOWLEDGEMENT = "acknowledgement"
     ERROR = "error"
@@ -99,5 +74,3 @@ class VoiceSnapshot:
         ):
             raise ValueError("Voice 오류는 content-free code여야 합니다.")
 
-
-RecordingResult = tuple[AudioUtterance | None, RecordingEnd]

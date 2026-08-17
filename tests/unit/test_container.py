@@ -18,6 +18,7 @@ from smart_desk.modules.dashboard import get_dashboard
 from smart_desk.modules.desk import get_desk
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
 from smart_desk.modules.profiles import get_activity_modes, get_profiles
+from smart_desk.modules.assistant.agents_runtime import AgentsVoiceRuntime
 
 
 def test_get_container_requires_installation() -> None:
@@ -50,7 +51,6 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
     assert container.face_embeddings is not None
     assert container.current_user is not None
     assert container.identity is not None
-    assert container.assistant is None
     assert container.voice is None
     assert [registration.name for registration in container.resources] == [
         "sqlite",
@@ -59,13 +59,15 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
         "desk-controller",
         "vision",
         "face-identity",
+        "assistant-context",
+        "assistant-turns",
         "desk-automation",
     ]
     assert [registration.startup_order for registration in container.resources] == [
-        5, 10, 20, 30, 60, 70, 80,
+        5, 10, 20, 30, 60, 70, 75, 76, 80,
     ]
     assert [registration.shutdown_order for registration in container.resources] == [
-        5, 10, 20, 30, 60, 70, 80,
+        5, 10, 20, 30, 60, 70, 75, 76, 80,
     ]
 
     qos, handler = container.mqtt._handlers[ESP32_STATUS_TOPIC]  # noqa: SLF001
@@ -92,6 +94,8 @@ def test_build_container_registers_media_roles_independently() -> None:
         "desk-controller",
         "vision",
         "face-identity",
+        "assistant-context",
+        "assistant-turns",
         "desk-automation",
     ]
     assert disabled.user_camera_publisher is None
@@ -157,15 +161,14 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
     ]
 
 
-def test_build_container_registers_voice_at_order_70_when_enabled(
+def test_build_container_registers_voice_at_order_90_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_client = SimpleNamespace()
-    monkeypatch.setitem(
-        sys.modules,
-        "openai",
-        SimpleNamespace(AsyncOpenAI=lambda **_kwargs: fake_client),
-    )
+    class Runtime:
+        async def stop(self): pass
+        async def run_audio(self, _):
+            if False: yield None
+    monkeypatch.setattr(AgentsVoiceRuntime, "build_for_services", classmethod(lambda cls, **_: Runtime()))
     settings = Settings(
         voice={"enabled": True},
         openai={"api_key": "test-key"},
@@ -174,22 +177,20 @@ def test_build_container_registers_voice_at_order_70_when_enabled(
 
     container = build_container(settings)
 
-    assert container.assistant is not None
     assert container.voice is not None
     assert container.resources[-1].name == "voice"
-    assert container.resources[-1].startup_order == 70
-    assert container.resources[-1].shutdown_order == 70
+    assert container.resources[-1].startup_order == 90
+    assert container.resources[-1].shutdown_order == 90
 
 
 def test_build_container_registers_voice_debug_after_voice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake_client = SimpleNamespace()
-    monkeypatch.setitem(
-        sys.modules,
-        "openai",
-        SimpleNamespace(AsyncOpenAI=lambda **_kwargs: fake_client),
-    )
+    class Runtime:
+        async def stop(self): pass
+        async def run_audio(self, _):
+            if False: yield None
+    monkeypatch.setattr(AgentsVoiceRuntime, "build_for_services", classmethod(lambda cls, **_: Runtime()))
     settings = Settings(
         voice={"enabled": True},
         voice_debug={"enabled": True},
@@ -204,8 +205,8 @@ def test_build_container_registers_voice_debug_after_voice(
         "voice",
         "voice-debug-http",
     ]
-    assert container.resources[-1].startup_order == 80
-    assert container.resources[-1].shutdown_order == 80
+    assert container.resources[-1].startup_order == 91
+    assert container.resources[-1].shutdown_order == 91
 
 
 def test_disabled_voice_does_not_import_optional_packages() -> None:

@@ -15,7 +15,6 @@ import uvicorn
 
 from smart_desk.config.settings import VoiceDebugSettings
 from smart_desk.core.task_manager import TaskManager
-from smart_desk.modules.assistant.service import AssistantService
 from smart_desk.modules.voice.audio import LocalAudioInput
 from smart_desk.modules.voice.service import VoiceService
 from smart_desk.modules.voice.wakeword import LiveKitWakeWordOnnxDetector
@@ -33,12 +32,10 @@ class VoiceDebugView:
         voice: VoiceService,
         wakeword: LiveKitWakeWordOnnxDetector,
         audio_input: LocalAudioInput,
-        assistant: AssistantService,
     ) -> None:
         self._voice = voice
         self._wakeword = wakeword
         self._audio_input = audio_input
-        self._assistant = assistant
 
     def snapshot(self) -> dict[str, object]:
         return {
@@ -46,7 +43,6 @@ class VoiceDebugView:
             "voice": asdict(self._voice.get_snapshot()),
             "wakeword": asdict(self._wakeword.get_debug_snapshot()),
             "audio_input": asdict(self._audio_input.get_debug_snapshot()),
-            "assistant": asdict(self._assistant.get_debug_snapshot()),
         }
 
 

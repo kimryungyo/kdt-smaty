@@ -13,8 +13,7 @@ Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을
 ## 현재 상태
 
 - wake word, 녹음, Assistant 호출, playback과 WLED function tool 기반이 구현돼 있다.
-- 현재 수동 STT·Responses·TTS 경로는 Agents SDK `VoicePipeline`으로 교체하기로 확정됐지만
-  아직 구현되지 않았다.
+- 운영 Voice는 Agents SDK `VoicePipeline`과 `AgentsVoiceRuntime.run_audio` 하나로 실행한다.
 - Voice는 아직 서버 current user session을 입력으로 받지 않는다.
 - profile별 장기 기억 service와 저장 정책은 설계 문서 수준이다.
 - Dashboard에 Assistant turn이나 화면용 상세 응답을 전달하는 API가 없다.
@@ -94,7 +93,7 @@ broker는 이번 범위에 추가하지 않는다.
   재생하고 TTS 자체를 function tool로 만들지 않는다.
 - [ ] 일반 응답은 Wake Word 대기로 돌아가며 Agent가 `request_followup`을 호출한 경우에만
   TTS drain과 정책 재검증 뒤 제한된 follow-up 창을 연다.
-- [ ] 전환 완료 후 `OpenAiGateway`, 수동 Responses/tool loop, local RMS 발화 종료와 WAV STT
+- [x] 운영 Voice 경로를 `AgentsVoiceRuntime.run_audio` 하나로 전환하고 `OpenAiGateway`, 수동 Responses/tool loop, local RMS 발화 종료와 WAV STT
   경로를 제거하고 legacy/SDK 이중 실행 flag를 두지 않는다.
 - [x] SDK lifecycle·audio·오류 event를 provider 중립 Voice runtime event로
   변환하고 OpenAI SDK 타입을 Dashboard·AutomationService에 노출하지 않는다.
