@@ -16,7 +16,7 @@ from smart_desk.storage import (
 from smart_desk.storage.sqlite import _migrate_to_version_1, _migrate_to_version_2
 
 
-async def test_new_database_migrates_to_version_three(tmp_path: Path) -> None:
+async def test_new_database_migrates_to_version_four(tmp_path: Path) -> None:
     database = SQLiteDatabase(tmp_path / "nested" / "smart-desk.db")
 
     await database.start()
@@ -36,8 +36,8 @@ async def test_new_database_migrates_to_version_three(tmp_path: Path) -> None:
     )
 
     assert database.path == (tmp_path / "nested" / "smart-desk.db").resolve()
-    assert version == 3
-    assert tables == ["profiles", "desk_height_cache", "profile_modes"]
+    assert version == 4
+    assert tables == ["profiles", "desk_height_cache", "profile_modes", "face_embeddings"]
     assert columns == [
         "id",
         "name",
@@ -73,7 +73,7 @@ async def test_interrupted_new_database_migration_resumes_from_version_one(
         )
     )
 
-    assert version == 3
+    assert version == 4
     assert cache_table_count == 1
     await database.stop()
 
@@ -256,7 +256,7 @@ async def test_version_two_data_migrates_once_to_profile_modes_without_loss(
         )
     )
 
-    assert version == 3
+    assert version == 4
     assert restored_profile == profile
     assert restored_cache == cache
     assert mode_count == 0

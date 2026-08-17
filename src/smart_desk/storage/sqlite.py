@@ -13,7 +13,7 @@ from typing import TypeVar
 
 
 LOGGER = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 SQLITE_TIMEOUT_SECONDS = 5.0
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -143,7 +143,11 @@ class SQLiteDatabase:
             if version == 2:
                 _verify_version_2_schema(connection)
                 _migrate_to_version_3(connection)
-            _verify_version_3_schema(connection)
+                version = 3
+            if version == 3:
+                _verify_version_3_schema(connection)
+                _migrate_to_version_4(connection)
+            _verify_version_4_schema(connection)
         finally:
             connection.close()
 
@@ -376,6 +380,44 @@ def _migrate_to_version_3(connection: Connection) -> None:
         raise
 
 
+def _migrate_to_version_4(connection: Connection) -> None:
+    """얼굴 embedding 표본을 profile별로 보관한다."""
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            """CREATE TABLE face_embeddings (
+                profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                sample_index INTEGER NOT NULL CHECK (sample_index BETWEEN 0 AND 4),
+                model_name TEXT NOT NULL CHECK (length(trim(model_name)) > 0),
+                model_version TEXT NOT NULL CHECK (length(trim(model_version)) > 0),
+                dimension INTEGER NOT NULL CHECK (dimension > 0),
+                normalization TEXT NOT NULL CHECK (length(trim(normalization)) > 0),
+                created_at TEXT NOT NULL CHECK (
+                    typeof(created_at) = 'text' AND length(trim(created_at)) > 0
+                ),
+                vector BLOB NOT NULL CHECK (
+                    typeof(vector) = 'blob' AND length(vector) = dimension * 4
+                ),
+                PRIMARY KEY (profile_id, sample_index)
+            )"""
+        )
+        connection.execute(
+            "CREATE INDEX face_embeddings_metadata_idx "
+            "ON face_embeddings(model_name, model_version, dimension, normalization)"
+        )
+        connection.execute("PRAGMA user_version = 4")
+        connection.execute("COMMIT")
+    except BaseException:
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            LOGGER.exception(
+                "SQLite migration rollback에 실패했습니다.",
+                extra={"component": "sqlite", "event": "migration_rollback_failed"},
+            )
+        raise
+
+
 def _verify_version_2_schema(connection: Connection) -> None:
     version = _read_user_version(connection)
     if version != 2:
@@ -412,7 +454,7 @@ def _verify_version_2_schema(connection: Connection) -> None:
 
 def _verify_version_3_schema(connection: Connection) -> None:
     version = _read_user_version(connection)
-    if version != CURRENT_SCHEMA_VERSION:
+    if version != 3:
         raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
 
     tables = {
@@ -428,6 +470,95 @@ def _verify_version_3_schema(connection: Connection) -> None:
     _verify_profile_schema(connection)
     _verify_height_cache_schema(connection)
     _verify_profile_modes_schema(connection)
+
+
+def _verify_version_4_schema(connection: Connection) -> None:
+    if _read_user_version(connection) != 4:
+        raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if tables != {"profiles", "desk_height_cache", "profile_modes", "face_embeddings"}:
+        raise StorageVersionError("SQLite version 4 table 구성이 올바르지 않습니다.")
+    _verify_profile_schema(connection)
+    _verify_height_cache_schema(connection)
+    _verify_profile_modes_schema(connection)
+    columns = connection.execute("PRAGMA table_info(face_embeddings)").fetchall()
+    expected = [
+        ("profile_id", "TEXT", 1, 1),
+        ("sample_index", "INTEGER", 1, 2),
+        ("model_name", "TEXT", 1, 0),
+        ("model_version", "TEXT", 1, 0),
+        ("dimension", "INTEGER", 1, 0),
+        ("normalization", "TEXT", 1, 0),
+        ("created_at", "TEXT", 1, 0),
+        ("vector", "BLOB", 1, 0),
+    ]
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    if actual != expected:
+        raise StorageVersionError("SQLite face embeddings schema가 올바르지 않습니다.")
+    foreign_keys = connection.execute("PRAGMA foreign_key_list(face_embeddings)").fetchall()
+    if [
+        (row["table"], row["from"], row["to"], row["on_delete"])
+        for row in foreign_keys
+    ] != [("profiles", "profile_id", "id", "CASCADE")]:
+        raise StorageVersionError("SQLite face embeddings foreign key가 올바르지 않습니다.")
+    indexes = connection.execute("PRAGMA index_list(face_embeddings)").fetchall()
+    index_definitions = {
+        (
+            row["origin"],
+            bool(row["unique"]),
+            tuple(
+                column["name"]
+                for column in connection.execute(
+                    f'PRAGMA index_info("{row["name"].replace(chr(34), chr(34) * 2)}")'
+                ).fetchall()
+            ),
+        )
+        for row in indexes
+    }
+    expected_indexes = {
+        ("c", False, ("model_name", "model_version", "dimension", "normalization")),
+        ("pk", True, ("profile_id", "sample_index")),
+    }
+    if index_definitions != expected_indexes:
+        raise StorageVersionError("SQLite face embeddings index 구성이 올바르지 않습니다.")
+    _verify_face_embedding_constraints(connection)
+
+
+def _verify_face_embedding_constraints(connection: Connection) -> None:
+    connection.execute("SAVEPOINT validate_face_embeddings_schema")
+    try:
+        connection.execute(
+            "INSERT INTO profiles VALUES ('__face_schema__', 'face schema', 80, 100, NULL)"
+        )
+        valid = (
+            "__face_schema__", 0, "model", "v1", 2, "l2",
+            "2026-01-01T00:00:00Z", b"\0" * 8,
+        )
+        connection.execute("INSERT INTO face_embeddings VALUES (?, ?, ?, ?, ?, ?, ?, ?)", valid)
+        invalid_rows = [
+            ("__face_schema__", 5, "model", "v1", 2, "l2", "x", b"\0" * 8),
+            ("__face_schema__", 1, "", "v1", 2, "l2", "x", b"\0" * 8),
+            ("__face_schema__", 1, "model", "", 2, "l2", "x", b"\0" * 8),
+            ("__face_schema__", 1, "model", "v1", 0, "l2", "x", b""),
+            ("__face_schema__", 1, "model", "v1", 2, "", "x", b"\0" * 8),
+            ("__face_schema__", 1, "model", "v1", 2, "l2", "", b"\0" * 8),
+            ("__face_schema__", 1, "model", "v1", 2, "l2", "x", b"\0"),
+        ]
+        for row in invalid_rows:
+            try:
+                connection.execute("INSERT INTO face_embeddings VALUES (?, ?, ?, ?, ?, ?, ?, ?)", row)
+            except sqlite3.IntegrityError:
+                continue
+            raise StorageVersionError("SQLite face embeddings CHECK 제약이 누락되었습니다.")
+    finally:
+        connection.execute("ROLLBACK TO validate_face_embeddings_schema")
+        connection.execute("RELEASE validate_face_embeddings_schema")
 
 
 def _verify_profile_schema(connection: Connection) -> None:

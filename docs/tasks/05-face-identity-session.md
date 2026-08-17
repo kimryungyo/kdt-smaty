@@ -67,7 +67,7 @@ best-second margin을 함께 적용한다.
 - [ ] 얼굴 detector, landmark 정렬과 embedding model을 선정하고 의존성을 고정한다.
 - [ ] 얼굴 크기, blur, 가림, 각도와 밝기의 품질 거절 기준을 정의한다.
 - [ ] executor에서 embedding을 추출하고 model load·동시 호출·종료를 검증한다.
-- [ ] 등록 embedding cache가 저장·삭제 후 원자적으로 갱신되게 한다.
+- [x] v4 SQLite 표본 집합을 3~5개로 원자적 교체·삭제하고 metadata 불일치 표본을 비교에서 제외한다.
 
 ### 얼굴 등록 session
 
@@ -82,7 +82,7 @@ best-second margin을 함께 적용한다.
 ### background 식별
 
 - [ ] best match threshold와 best-second margin을 적용하는 open-set 비교를 구현한다.
-- [ ] 한 frame 후보와 확정 identity를 분리하고 연속 확인·freshness를 적용한다.
+- [x] fake clock/capture에서 한 frame 후보와 확정 identity를 분리하고 연속 확인·freshness를 적용한다.
 - [ ] 미등록, 다중 얼굴, 낮은 품질과 model 오류를 서로 구분해 내부 상태로 기록한다.
 - [ ] 새로운 등록이나 삭제가 진행 중이면 오래된 identity 결과를 발행하지 않는다.
 - [ ] 고품질 미등록 얼굴 3초와 단순 `NO_FACE`·낮은 품질을 구분한다.
@@ -94,13 +94,20 @@ best-second margin을 함께 적용한다.
 - [ ] 익명→등록, A→B와 A→익명마다 새 session ID, 전환 이유와 변경 시각을 발행한다.
 - [ ] 이전·현재 session ID, 전환 이유, 단조 증가 sequence와 변경 시각을 가진 내부 변경
   event를 발행하고 구독 해제까지 lifecycle에서 정리한다.
-- [ ] snapshot capture와 `is_current(sessionId)` 검증을 같은 session 상태 경계에서
+- [x] snapshot capture와 `is_current(sessionId)` 검증을 같은 session 상태 경계에서
   thread-safe하게 제공한다.
 - [ ] session service는 `DeskController`를 직접 호출하거나 mode를 소유하지 않고, task 06이
   목표 교체·MANUAL 보존·STOP 순서를 적용할 수 있는 불변 snapshot을 제공한다.
 - [ ] 서버 시작·재시작에서 session 없음으로 시작하고 fresh 관측을 요구한다.
 - [ ] profile 또는 얼굴 삭제 시 활성 session과 후보를 원자적으로 무효화한다.
-- [ ] `/api/current-user`와 등록 상태를 read-only snapshot으로 제공한다.
+- [x] `/api/current-user`와 등록 상태를 read-only snapshot으로 제공한다.
+
+## Task 05 구현 메모 (fake-driven)
+
+- SQLite schema는 v4이며 `face_embeddings.vector`는 little-endian float32 BLOB이다. 일반 API와 로그에는 vector, crop, box, similarity를 노출하지 않는다.
+- production extractor는 의도적으로 `MODEL_UNAVAILABLE` fail-closed adapter다. 모델, landmark alignment, 품질 기준, match threshold와 margin은 Pi/camera 실측 전에는 운영 기본값으로 정하지 않았다.
+- `FaceIdentityService`는 Vision의 fresh face observation만 소비하고 session change 구독 경계를 제공한다. Desk/Automation/WLED/Voice 호출은 Task 06/08 연결 대기다.
+- Task 09에서 실제 Pi CPU 지연, model load, 카메라 ROI/조명/가림 품질 및 threshold·margin을 현장 검증하고 production extractor를 연결해야 한다.
 
 ## 얼굴 일시 누락의 안전 원칙
 

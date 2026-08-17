@@ -20,6 +20,9 @@ from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.modules.wled.client import WledClient
 from smart_desk.modules.vision import NoopVisionDetector, VisionService
+from smart_desk.modules.identity import FaceIdentityService, UnavailableFaceEmbeddingExtractor
+from smart_desk.modules.identity.repository import FaceEmbeddingRepository
+from smart_desk.modules.identity.session import CurrentUserSessionService
 from smart_desk.storage import SQLiteDatabase
 
 
@@ -236,6 +239,16 @@ def build_container(settings: Settings) -> AppContainer:
             shutdown_order=60,
         )
     )
+    face_embeddings = FaceEmbeddingRepository(database)
+    current_user = CurrentUserSessionService()
+    identity = FaceIdentityService(vision=vision, repository=face_embeddings,
+                                   current_user=current_user,
+                                   extractor=UnavailableFaceEmbeddingExtractor())
+    container.face_embeddings = face_embeddings
+    container.current_user = current_user
+    container.identity = identity
+    container.register(ResourceRegistration(name="face-identity", resource=identity,
+                                            startup_order=70, shutdown_order=70))
     if settings.wled.enabled:
         wled = WledClient(settings.wled)
         container.wled = wled

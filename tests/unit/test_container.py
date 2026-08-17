@@ -47,6 +47,9 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
     assert container.profiles is not None
     assert container.activity_modes is not None
     assert container.dashboard is not None
+    assert container.face_embeddings is not None
+    assert container.current_user is not None
+    assert container.identity is not None
     assert container.assistant is None
     assert container.voice is None
     assert [registration.name for registration in container.resources] == [
@@ -55,20 +58,13 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
         "desk-height-monitor",
         "desk-controller",
         "vision",
+        "face-identity",
     ]
     assert [registration.startup_order for registration in container.resources] == [
-        5,
-        10,
-        20,
-        30,
-        60,
+        5, 10, 20, 30, 60, 70,
     ]
     assert [registration.shutdown_order for registration in container.resources] == [
-        5,
-        10,
-        20,
-        30,
-        60,
+        5, 10, 20, 30, 60, 70,
     ]
 
     qos, handler = container.mqtt._handlers[ESP32_STATUS_TOPIC]  # noqa: SLF001
@@ -94,6 +90,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         "desk-height-monitor",
         "desk-controller",
         "vision",
+        "face-identity",
     ]
     assert disabled.user_camera_publisher is None
     assert disabled.workspace_camera_publisher is None
@@ -109,6 +106,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         "camera-publisher-workspace",
         "rtsp-frame-source-user",
         "vision",
+        "face-identity",
     ]
     assert split.user_camera_publisher is None
     assert split.workspace_camera_publisher is not None
@@ -130,11 +128,11 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
         )
     )
 
-    assert [registration.startup_order for registration in enabled.resources][-7:] == [
-        40, 41, 42, 50, 51, 52, 60
+    assert [registration.startup_order for registration in enabled.resources][-8:] == [
+        40, 41, 42, 50, 51, 52, 60, 70
     ]
-    assert [registration.shutdown_order for registration in enabled.resources][-7:] == [
-        40, 41, 42, 50, 51, 52, 60
+    assert [registration.shutdown_order for registration in enabled.resources][-8:] == [
+        40, 41, 42, 50, 51, 52, 60, 70
     ]
     assert [
         registration.name
@@ -143,7 +141,8 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             key=lambda registration: registration.shutdown_order,
             reverse=True,
         )
-    ][:7] == [
+    ][:8] == [
+        "face-identity",
         "vision",
         "rtsp-frame-source-workspace",
         "rtsp-frame-source-posture",

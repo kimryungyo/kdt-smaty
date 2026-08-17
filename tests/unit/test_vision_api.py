@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
 from smart_desk.api.routes import vision as vision_route
 from smart_desk.modules.vision.models import (
@@ -44,6 +45,7 @@ def test_vision_status_is_camel_case_and_hides_raw_frames(monkeypatch) -> None: 
     application = FastAPI()
     application.include_router(vision_route.router)
     monkeypatch.setattr(vision_route, "get_vision", lambda: FakeVision())
+    monkeypatch.setattr(vision_route, "get_container", lambda: SimpleNamespace(identity=None))
 
     response = TestClient(application).get("/api/vision/status")
 

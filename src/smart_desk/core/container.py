@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from smart_desk.modules.desk.relay import RelayClient
     from smart_desk.modules.media import CameraPublisher, RtspFrameSource
     from smart_desk.modules.vision.service import VisionService
+    from smart_desk.modules.identity.service import FaceIdentityService
+    from smart_desk.modules.identity.repository import FaceEmbeddingRepository
+    from smart_desk.modules.identity.session import CurrentUserSessionService
     from smart_desk.modules.mqtt.client import MqttClient
     from smart_desk.modules.profiles.repository import ProfileRepository
     from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
@@ -74,6 +77,9 @@ class AppContainer:
     workspace_frame_source: RtspFrameSource | None = None
     posture_frame_source: RtspFrameSource | None = None
     vision: VisionService | None = None
+    face_embeddings: FaceEmbeddingRepository | None = None
+    current_user: CurrentUserSessionService | None = None
+    identity: FaceIdentityService | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
     def register(self, registration: ResourceRegistration) -> None:

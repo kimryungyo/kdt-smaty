@@ -7,7 +7,9 @@ from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, Response, status
 
+from smart_desk.core.container import get_container
 from smart_desk.modules.dashboard import get_dashboard
+from smart_desk.modules.identity.service import EnrollmentConflictError
 from smart_desk.modules.profiles.models import Profile, ProfileCreate, ProfileUpdate
 from smart_desk.modules.profiles.repository import (
     ProfileConflictError,
@@ -57,5 +59,21 @@ async def update_profile(profile_id: str, update: ProfileUpdate) -> Profile:
 
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_profile(profile_id: str) -> Response:
-    await _run(lambda: get_dashboard().delete_profile(profile_id))
+    # Confirm 404 before invalidating identity.  Identity is optional in isolated
+    # profile route composition, but operational failures must remain visible.
+    await _run(lambda: get_dashboard().get_profile(profile_id))
+    identity = get_container().identity
+    if identity is not None:
+        try:
+            await identity.prepare_profile_delete(profile_id)
+        except EnrollmentConflictError as error:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    try:
+        await _run(lambda: get_dashboard().delete_profile(profile_id))
+    except BaseException:
+        if identity is not None:
+            await identity.abort_profile_delete(profile_id)
+        raise
+    if identity is not None:
+        await identity.finalize_profile_delete(profile_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

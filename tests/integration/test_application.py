@@ -284,6 +284,23 @@ async def test_missing_arduino_does_not_prevent_application_start(
 
         assert container.runtime.snapshot().status is ApplicationStatus.READY
         assert container.height_monitor.get_snapshot().status is HeightStatus.ERROR
+        transport = ASGITransport(app=application)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = await client.post(
+                "/api/profiles",
+                json={
+                    "name": "Face enrollment test",
+                    "sittingHeightCm": 80,
+                    "standingHeightCm": 100,
+                },
+            )
+            assert created.status_code == 201
+            profile_id = created.json()["id"]
+            assert (await client.get("/api/vision/status")).status_code == 200
+            enrollment = await client.post(
+                f"/api/profiles/{profile_id}/face-enrollments"
+            )
+            assert enrollment.status_code == 503
 
     assert container.runtime.snapshot().status is ApplicationStatus.STOPPED
 
