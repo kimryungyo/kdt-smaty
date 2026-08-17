@@ -1,121 +1,189 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ApiError, controlWled, getAutomationStatus, getCurrentUser, getDeskStatus, getProfile, getVisionStatus, getWledStatus, listActivityModes, setActivityMode, setControlMode, type ActivityMode, type AutomationStatus } from "./api/dashboard";
-import { AssistantPanel } from "./features/assistant/AssistantPanel";
+import {
+  ApiError,
+  controlWled,
+  createProfile,
+  getAutomationStatus,
+  getCurrentUser,
+  getDeskStatus,
+  getProfile,
+  getTiltStatus,
+  getWledStatus,
+  listActivityModes,
+  setActivityMode,
+  setControlMode,
+  setTarget,
+  updateProfile,
+  type ActivityMode,
+  type Profile,
+} from "./api/dashboard";
 import { DebugPanel } from "./features/debug/DebugPanel";
-import { DeskPanel } from "./features/desk/DeskPanel";
 import { ProfileSettings } from "./features/profiles/ProfileSettings";
-import { useSnapshotPoll, type Polled } from "./hooks/useSnapshotPoll";
+import { useSnapshotPoll } from "./hooks/useSnapshotPoll";
 import { navigate, usePathname } from "./routes";
 import "./styles.css";
 
-const age = (at: number | null) => at === null ? "아직 성공 snapshot 없음" : `${Math.max(0, Math.round((Date.now() - at) / 1000))}초 전`;
-const commandMessage = (error: unknown) => error instanceof ApiError ? error.status === 422 ? "입력값 또는 범위를 확인해 주세요." : error.status === 503 ? "관련 장치 또는 서비스가 아직 준비되지 않았습니다." : error.message : error instanceof Error ? `네트워크 오류: ${error.message}` : "요청을 처리하지 못했습니다.";
-const statusText = (item: Polled<unknown>) => item.error ? `오류 · ${item.error}` : `마지막 성공 ${age(item.lastSuccessAt)}`;
-const wledDescription = (snapshot: ReturnType<typeof getWledStatus> extends Promise<infer T> ? T | null : never) => {
-  if (!snapshot || snapshot.status === "UNKNOWN") return "조명 상태를 아직 확인하지 못했습니다.";
-  if (snapshot.status === "DISABLED") return "조명 기능이 비활성화되어 있습니다.";
-  if (snapshot.status === "ERROR") return "조명 상태를 읽는 중 오류가 있습니다.";
-  if (snapshot.on === false || snapshot.mode === "OFF") return "조명이 꺼져 있습니다.";
-  if (snapshot.mode === "EFFECT") return snapshot.effectName ? `효과 ${snapshot.effectName} 실행 중` : "효과 실행 중";
-  if (snapshot.mode === "MIXED") return "여러 조명 segment 상태입니다.";
-  return snapshot.color ? `현재 색상 #${snapshot.color}` : "현재 조명 상태입니다.";
+type Panel = "profile" | "height" | "led" | "mode" | "tilt" | null;
+const MIN_HEIGHT = 75;
+const MAX_HEIGHT = 115;
+
+const Icon = ({ name }: { name: Exclude<Panel, null> }) => (
+  <span className="ico" aria-hidden="true">{{ profile: "◯", height: "↕", led: "✦", mode: "◷", tilt: "⌁" }[name]}</span>
+);
+
+const errorText = (error: unknown) => {
+  if (error instanceof ApiError) {
+    if (error.status === 409) return "현재 사용자 session이 변경되었습니다. 최신 상태를 다시 확인해 주세요.";
+    if (error.status === 503) return "연결된 장치 또는 서비스가 아직 준비되지 않았습니다.";
+    return error.message;
+  }
+  return error instanceof Error ? error.message : "요청을 처리하지 못했습니다.";
 };
 
-function Dashboard() {
+function SmatyDashboard() {
   const current = useSnapshotPoll(useCallback((signal) => getCurrentUser(signal), []), 1000);
-  const vision = useSnapshotPoll(useCallback((signal) => getVisionStatus(signal), []), 1000);
-  const automation = useSnapshotPoll(useCallback((signal) => getAutomationStatus(signal), []), 1000);
-  const desk = useSnapshotPoll(useCallback((signal) => getDeskStatus(signal), []), 750);
+  const desk = useSnapshotPoll(useCallback((signal) => getDeskStatus(signal), []), 1000);
   const wled = useSnapshotPoll(useCallback((signal) => getWledStatus(signal), []), 2000);
-  const [profileName, setProfileName] = useState<{ profileId: string; name: string } | null>(null);
+  const automation = useSnapshotPoll(useCallback((signal) => getAutomationStatus(signal), []), 1000);
+  const tilt = useSnapshotPoll(useCallback((signal) => getTiltStatus(signal), []), 5000);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [dark, setDark] = useState(() => localStorage.getItem("theme") === "dark");
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [modes, setModes] = useState<ActivityMode[]>([]);
-  const [modeError, setModeError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const modeSequence = useRef(0);
-  const sessionGeneration = useRef(0);
+  const [name, setName] = useState("");
+  const [sittingHeight, setSittingHeight] = useState(75);
+  const [standingHeight, setStandingHeight] = useState(100);
+  const [targetHeight, setTargetHeight] = useState(75);
+  const [ledOn, setLedOn] = useState(false);
+  const [color, setColor] = useState("FFFFFF");
+  const [notice, setNotice] = useState("");
   const session = current.value?.session ?? null;
-  const expectedSessionId = session?.sessionId ?? null;
   const registeredProfileId = session?.kind === "REGISTERED" ? session.profileId : null;
-  const renderedSessionId = useRef(expectedSessionId);
-  if (renderedSessionId.current !== expectedSessionId) {
-    renderedSessionId.current = expectedSessionId;
-    ++sessionGeneration.current;
-  }
+  const expectedSessionId = session?.sessionId ?? null;
+  const selectedMode = automation.value?.activityMode ?? null;
+  const automationMode = automation.value?.controlMode ?? null;
+
+  const toast = (message: string) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 2800);
+  };
 
   useEffect(() => {
-    const mine = ++modeSequence.current;
-    setProfileName(null); setModes([]); setModeError(null); setNotice(null);
-    if (!expectedSessionId || !registeredProfileId) return;
-    const controller = new AbortController();
-    void Promise.all([getProfile(registeredProfileId, controller.signal), listActivityModes(registeredProfileId, controller.signal)])
-      .then(([profile, availableModes]) => {
-        if (mine !== modeSequence.current || controller.signal.aborted) return;
-        setProfileName({ profileId: profile.id, name: profile.name }); setModes(availableModes);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    localStorage.setItem("theme", dark ? "dark" : "light");
+  }, [dark]);
+
+  useEffect(() => {
+    let live = true;
+    setProfile(null); setModes([]);
+    if (!registeredProfileId) return () => { live = false; };
+    void Promise.all([getProfile(registeredProfileId), listActivityModes(registeredProfileId)])
+      .then(([nextProfile, nextModes]) => {
+        if (!live) return;
+        setProfile(nextProfile); setModes(nextModes);
+        setName(nextProfile.name); setSittingHeight(nextProfile.sittingHeightCm); setStandingHeight(nextProfile.standingHeightCm);
+        if (nextProfile.ledColor) setColor(nextProfile.ledColor);
       })
-      .catch((error) => {
-        if (mine !== modeSequence.current || controller.signal.aborted) return;
-        setModeError(error instanceof Error ? error.message : "프로필 작업 모드를 읽지 못했습니다.");
-      });
-    return () => { controller.abort(); ++modeSequence.current; };
-  }, [expectedSessionId, registeredProfileId]);
+      .catch((error) => { if (live) toast(errorText(error)); });
+    return () => { live = false; };
+  }, [registeredProfileId]);
 
-  const resync = async () => {
-    await Promise.allSettled([current.refresh(), automation.refresh()]);
-  };
-  const mode = async (next: "AUTO" | "MANUAL") => {
-    if (!expectedSessionId) return;
-    const generation = sessionGeneration.current;
+  useEffect(() => {
+    const liveHeight = desk.value?.height.heightCm;
+    if (liveHeight !== null && liveHeight !== undefined && panel !== "height") setTargetHeight(liveHeight);
+  }, [desk.value?.height.heightCm, panel]);
+  useEffect(() => {
+    const snapshot = wled.value;
+    if (!snapshot) return;
+    setLedOn(snapshot.on === true && snapshot.mode !== "OFF");
+    if (snapshot.color) setColor(snapshot.color);
+  }, [wled.value]);
+
+  const refresh = async () => { await Promise.allSettled([current.refresh(), desk.refresh(), wled.refresh(), automation.refresh()]); };
+  const close = () => setPanel(null);
+  const currentHeight = desk.value?.height.heightCm ?? targetHeight;
+  const deskOnline = desk.value?.height.status === "ONLINE" && Boolean(desk.value?.relay.receivedAt) && !desk.value?.relay.lastError;
+
+  const saveProfile = async () => {
     try {
-      await setControlMode(next, expectedSessionId);
-      await automation.refresh();
-      if (generation === sessionGeneration.current) setNotice(`${next === "AUTO" ? "AUTO" : "MANUAL"} 전환 요청을 반영했습니다.`);
-    } catch (error) {
-      if (generation !== sessionGeneration.current) return;
-      if (error instanceof ApiError && error.status === 409) {
-        await resync();
-        if (generation === sessionGeneration.current) setNotice("사용자 session이 변경되었습니다. 성공으로 처리하지 않고 최신 상태를 다시 읽습니다.");
-      } else setNotice(commandMessage(error));
-    }
+      if (profile) {
+        const saved = await updateProfile(profile.id, { name, sittingHeightCm: sittingHeight, standingHeightCm: standingHeight, ledColor: color });
+        setProfile(saved);
+      } else {
+        const saved = await createProfile({ name: name.trim() || "새 사용자", sittingHeightCm: sittingHeight, standingHeightCm: standingHeight, ledColor: color });
+        setProfile(saved);
+      }
+      close(); toast("프로필 설정을 저장했어요.");
+    } catch (error) { toast(errorText(error)); }
   };
-  const activity = async (key: string) => {
-    if (!expectedSessionId) return;
-    const generation = sessionGeneration.current;
+
+  const applyHeight = async () => {
     try {
-      const result = await setActivityMode(key, expectedSessionId);
-      await automation.refresh();
-      if (generation === sessionGeneration.current) setNotice(result.controlMode === "MANUAL" ? "작업 모드를 바꿨습니다. MANUAL에서는 LED만 즉시 바뀌며 책상은 움직이지 않습니다." : "작업 모드를 바꿨습니다. AUTO에서는 서버가 안전 조건에 따라 목표를 재평가합니다.");
-    } catch (error) {
-      if (generation !== sessionGeneration.current) return;
-      if (error instanceof ApiError && error.status === 409) {
-        await resync();
-        if (generation === sessionGeneration.current) setNotice("사용자 session이 변경되었습니다. 성공으로 처리하지 않고 최신 상태를 다시 읽습니다.");
-      } else setNotice(commandMessage(error));
-    }
+      if (profile) setProfile(await updateProfile(profile.id, { sittingHeightCm: sittingHeight, standingHeightCm: standingHeight }));
+      if (automationMode === "MANUAL" || !expectedSessionId) {
+        await setTarget(targetHeight);
+        await desk.refresh();
+        toast("목표 높이 이동을 요청했어요.");
+      } else {
+        toast("AUTO 모드에서는 감지된 자세에 따라 서버가 높이를 결정합니다. 프로필 높이만 저장했어요.");
+      }
+      close();
+    } catch (error) { toast(errorText(error)); }
   };
-  const led = async () => {
-    const generation = sessionGeneration.current;
-    const command = expectedSessionId ? { action: "OFF" as const, expectedSessionId } : { action: "OFF" as const };
+
+  const changeControlMode = async (next: "AUTO" | "MANUAL") => {
+    if (!expectedSessionId) { toast("현재 사용자 session이 있어야 제어 방식을 바꿀 수 있어요."); return; }
+    try { await setControlMode(next, expectedSessionId); await automation.refresh(); }
+    catch (error) { await refresh(); toast(errorText(error)); }
+  };
+
+  const applyLed = async () => {
     try {
+      const command = ledOn ? { action: "SOLID" as const, color, ...(expectedSessionId ? { expectedSessionId } : {}) } : { action: "OFF" as const, ...(expectedSessionId ? { expectedSessionId } : {}) };
       await controlWled(command);
-      if (generation !== sessionGeneration.current) return;
-      await wled.refresh();
-      if (generation === sessionGeneration.current) setNotice(expectedSessionId ? "현재 session의 수동 조명 override를 껐습니다. 저장 작업 모드·profile 값은 바뀌지 않습니다." : "session 없이 수동 조명을 껐습니다. 저장 작업 모드·profile 값은 바뀌지 않습니다.");
-    } catch (error) {
-      if (generation !== sessionGeneration.current) return;
-      if (error instanceof ApiError && error.status === 409) {
-        await Promise.allSettled([current.refresh(), automation.refresh(), wled.refresh()]);
-        if (generation === sessionGeneration.current) setNotice("사용자 session이 변경되었습니다. 조명 제어 성공으로 처리하지 않고 최신 상태를 다시 읽습니다.");
-      } else setNotice(commandMessage(error));
-    }
+      if (profile) setProfile(await updateProfile(profile.id, { ledColor: color }));
+      await wled.refresh(); close(); toast("조명 설정을 적용했어요.");
+    } catch (error) { await refresh(); toast(errorText(error)); }
   };
-  const automationValue: AutomationStatus | null = automation.value;
-  const manual = automationValue?.controlMode === "MANUAL";
-  const relay = desk.value?.relay;
-  const canControl = !desk.error && desk.value?.height.status === "ONLINE" && Boolean(relay?.event) && relay?.event !== "offline" && relay?.event !== "rejected" && Boolean(relay?.receivedAt) && !relay?.lastError;
 
-  const registeredProfileName = profileName?.profileId === registeredProfileId ? profileName.name : null;
-  return <><header className="site-header"><a className="logo" href="/">SMART DESK</a><nav><button onClick={() => navigate("/settings/profiles")}>프로필 설정</button><button onClick={() => navigate("/debug/vision")}>Vision 진단</button></nav></header><main className="dashboard-main"><section className="page-heading"><div><p className="eyebrow">CURRENT DASHBOARD</p><h1>메인 대시보드</h1><p>서버가 결정한 현재 사용자와 기능별 snapshot입니다.</p></div></section>{notice && <p className="connection-error" role="status">{notice}</p>}<section className="dashboard-grid"><article className="card"><p className="card-label">CURRENT USER</p><h2>{session ? session.kind === "ANONYMOUS" ? "게스트" : registeredProfileName ?? "등록 사용자 확인 중" : "사용자 없음"}</h2><p className="control-note">{session ? `session ${session.sessionId} · ${session.kind}` : "재실 안정화 뒤 등록 사용자 또는 게스트 session이 시작됩니다."}</p><p className="control-note">{statusText(current)}</p></article><article className="card"><p className="card-label">VISION</p><h2>{vision.value?.posture.status ?? "UNKNOWN"}</h2><p className="control-note">재실 {vision.value?.presence.status ?? "UNKNOWN"} (raw {vision.value?.presence.rawStatus ?? "UNKNOWN"}) · 신원 {vision.value?.identity.status ?? "UNKNOWN"}</p><p className="control-note">{statusText(vision)} · {vision.value?.association.reasonCodes.join(", ") || "association 정상"}</p></article><article className="card"><p className="card-label">CONTROL MODE · 제어 방식</p><h2>{automationValue?.controlMode ?? "없음"}</h2><div className="led-actions"><button className="previous-button" disabled={!expectedSessionId} onClick={() => void mode("AUTO")}>AUTO</button><button className="previous-button" disabled={!expectedSessionId} onClick={() => void mode("MANUAL")}>MANUAL</button></div><p className="control-note">{statusText(automation)}</p></article><article className="card"><p className="card-label">ACTIVITY MODE · 작업 모드</p><h2>{automationValue?.activityMode?.name ?? (session?.kind === "ANONYMOUS" ? "없음 (게스트)" : "없음")}</h2>{registeredProfileId ? <><label className="activity-picker">작업 모드<select value={automationValue?.activityMode?.key ?? ""} disabled={!expectedSessionId || modes.length === 0} onChange={(event) => void activity(event.target.value)}><option value="" disabled>선택</option>{modes.map((item) => <option key={item.key} value={item.key}>{item.kind === "DEFAULT" ? "기본 · " : "사용자 · "}{item.name}</option>)}</select></label><p className="control-note">{manual ? "MANUAL에서 이 선택은 LED만 즉시 바뀌며 책상은 이동하지 않습니다." : "AUTO에서는 서버가 안전 조건을 확인해 목표 높이를 재평가합니다."}</p>{modeError && <p className="inline-error">{modeError}</p>}</> : <p className="control-note">게스트/사용자 없음에서는 개인 mode와 profile 저장값을 사용하지 않습니다. 게스트 높이 정책은 75/110cm입니다.</p>}</article></section><section className="card dashboard-section"><p className="card-label">AUTOMATION</p><h2>{automationValue?.state ?? "확인 중"}</h2><p className="control-note">차단: {automationValue?.blockedReasonCodes.join(", ") || "없음"} · target intent: {automationValue?.intentSource ?? "없음"} · transition: {automationValue?.lastTransitionReason ?? "확인 중"}</p></section><DeskPanel status={desk.value} canControl={canControl} controlError={desk.error} onStatus={() => void desk.refresh()} onError={setNotice} /><section className="card dashboard-section"><p className="card-label">WLED</p><h2>{wled.value?.status ?? "확인 중"}</h2><p className="control-note">{wledDescription(wled.value)} · {statusText(wled)}</p><p className="control-note">{expectedSessionId ? "수동 조명 제어는 현재 session override이며 저장한 작업 모드·profile은 바꾸지 않습니다." : "현재 session이 없어 session 없이 수동 제어하며 저장한 작업 모드·profile은 바꾸지 않습니다."}</p><button className="previous-button" disabled={wled.value?.status === "DISABLED"} onClick={() => void led()}>조명 끄기</button></section><AssistantPanel currentSessionId={expectedSessionId} currentSessionKind={session?.kind ?? null} registeredProfileName={registeredProfileName} /><p className="control-note">Desk 상태 {desk.value?.state ?? "확인 중"} · {statusText(desk)}. API 접수와 실제 이동/완료는 Desk snapshot으로 구분합니다.</p></main></>;
+  const chooseMode = async (mode: ActivityMode) => {
+    if (!expectedSessionId || !registeredProfileId) { toast("등록 사용자 session에서만 작업 모드를 바꿀 수 있어요."); return; }
+    try { await setActivityMode(mode.key, expectedSessionId); await automation.refresh(); close(); toast(`${mode.name}로 변경했어요.`); }
+    catch (error) { await refresh(); toast(errorText(error)); }
+  };
+
+  const cards = useMemo(() => [
+    { id: "profile" as const, label: "사용자 프로필", value: profile?.name ?? (session?.kind === "ANONYMOUS" ? "게스트" : "프로필 설정"), sub: profile ? "나에게 맞춘 스마트 데스크" : "프로필 관리 및 얼굴 등록" },
+    { id: "height" as const, label: "책상 높이", value: `${currentHeight.toFixed(1)} cm`, sub: `${automationMode === "AUTO" ? "자동" : "수동"} 제어 · 설정 변경` },
+    { id: "led" as const, label: "LED 조명", value: ledOn ? "켜짐" : "꺼짐", sub: `#${color}` },
+    { id: "mode" as const, label: "현재 모드", value: selectedMode?.name ?? "기본 모드", sub: "작업 환경 변경" },
+    { id: "tilt" as const, label: "데스크 틸팅", value: tilt.value?.status === "ONLINE" && tilt.value.level !== null ? `${tilt.value.level}단계` : "준비 중", sub: tilt.value?.detail ?? "기울기 단계 변경" },
+  ], [automationMode, color, currentHeight, ledOn, profile, selectedMode?.name, session?.kind, tilt.value]);
+
+  return <div className="smaty-page">
+    <header><a className="brand" href="/">▰ <b>SMATY</b></a><div className="head"><span className={deskOnline ? "online" : "online offline"}>● {deskOnline ? "책상 연결됨" : "연결 확인 중"}</span><button className="theme" type="button" onClick={() => setDark((value) => !value)}>☀ <i>{dark ? "●" : "○"}</i> ☾</button></div></header>
+    <main><section className="hero"><div><small>MY WORKSPACE</small><h1>안녕하세요, {profile?.name ?? (session?.kind === "ANONYMOUS" ? "게스트" : "사용자")}님.</h1><p>{session ? "오늘도 편안한 환경에서 집중해 보세요." : "카메라가 사용자를 인식하면 개인 설정을 불러옵니다."}</p></div><aside><span>현재 책상 높이</span><b>{currentHeight.toFixed(1)} <small>cm</small></b></aside></section>
+      <section className="grid">{cards.map((card, index) => <button key={card.id} type="button" className={`card c${index}`} onClick={() => { if (card.id === "profile" && !profile) navigate("/settings/profiles"); else setPanel(card.id); }}><div className="cardtop"><Icon name={card.id} /><span>↗</span></div><small>{card.label}</small><h2>{card.value}</h2>{card.id === "led" && <span className="dot" style={{ background: `#${color}` }} />}{card.id === "tilt" && <div className="steps">{[0, 1, 2, 3, 4, 5].map((item) => <i key={item} />)}</div>}<p>{card.sub}<b>›</b></p></button>)}</section>
+    </main><footer>SMATY <span>나에게 맞춰지는 더 나은 작업 환경</span></footer>
+    {notice && <div className="toast" role="status">✓ {notice}</div>}
+    {panel && <div className="shade" onMouseDown={close}><section className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="x" type="button" onClick={close} aria-label="닫기">×</button>
+      {panel === "profile" && <><Title icon="profile" eyebrow="PROFILE" title="프로필 수정" /><Field title="사용자 이름"><input value={name} onChange={(event) => setName(event.target.value)} autoFocus maxLength={100} /></Field><Primary onClick={() => void saveProfile}>변경사항 저장</Primary></>}
+      {panel === "height" && <><Title icon="height" eyebrow="DESK HEIGHT" title="높이 및 제어 설정" /><div className="tabs"><button type="button" className={automationMode === "AUTO" ? "on" : ""} onClick={() => void changeControlMode("AUTO")}>자동 제어</button><button type="button" className={automationMode === "MANUAL" ? "on" : ""} onClick={() => void changeControlMode("MANUAL")}>수동 제어</button></div><div className="read"><span>목표 높이</span><b>{targetHeight.toFixed(1)} cm</b></div><input className="range" aria-label="목표 높이" type="range" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.5" value={targetHeight} onChange={(event) => setTargetHeight(Number(event.target.value))} /><div className="twocol"><Field title="앉은 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={sittingHeight} onChange={(event) => setSittingHeight(Number(event.target.value))} /></Field><Field title="서있는 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={standingHeight} onChange={(event) => setStandingHeight(Number(event.target.value))} /></Field></div><Primary disabled={!deskOnline} onClick={() => void applyHeight}>설정 적용하기</Primary></>}
+      {panel === "led" && <><Title icon="led" eyebrow="LED LIGHT" title="조명 설정" /><div className="power"><span><b>LED 전원</b><small>{ledOn ? "조명이 켜져 있어요" : "조명이 꺼져 있어요"}</small></span><button type="button" className={ledOn ? "on" : ""} onClick={() => setLedOn((value) => !value)} aria-label="LED 전원"><i /></button></div><Field title="모든 색상에서 선택"><div className="color"><input type="color" value={`#${color}`} onChange={(event) => setColor(event.target.value.slice(1).toUpperCase())} /><b>#{color}</b></div></Field><div className="swatches">{["765CF6", "50C59D", "F5B544", "F06C7E", "4D9CF0", "FFFFFF"].map((item) => <button type="button" key={item} aria-label={`#${item}`} style={{ background: `#${item}` }} onClick={() => setColor(item)} />)}</div><Primary onClick={() => void applyLed}>조명에 적용하기</Primary></>}
+      {panel === "mode" && <><Title icon="mode" eyebrow="WORK MODE" title="모드 선택" /><div className="options">{modes.length ? modes.map((mode) => <button type="button" key={mode.key} className={selectedMode?.key === mode.key ? "on" : ""} onClick={() => void chooseMode(mode)}><Icon name="mode" /><span><b>{mode.name}</b><small>{mode.kind === "DEFAULT" ? "기본 작업 환경" : `앉기 ${mode.sittingHeightCm.toFixed(1)}cm · 서기 ${mode.standingHeightCm.toFixed(1)}cm`}</small></span>{selectedMode?.key === mode.key && "✓"}</button>) : <p className="modal-note">등록 사용자가 인식되면 저장한 작업 모드를 선택할 수 있어요.</p>}</div></>}
+      {panel === "tilt" && <><Title icon="tilt" eyebrow="DESK TILTING" title="틸팅 단계 선택" /><p className="desc">{tilt.value?.detail ?? "틸팅 제어 장치를 확인하고 있습니다."} 단계 제어는 준비 후 이 화면에서 바로 사용할 수 있어요.</p><div className="tilts six">{["틸팅 없음 · 수평", "낮게", "약간 낮게", "편안하게", "높게", "아주 높게"].map((text, index) => <button type="button" key={text} disabled><span style={{ transform: `rotate(${-index * 4}deg)` }}>━</span><b>{index}단계</b><small>{text}</small></button>)}</div></>}
+    </section></div>}
+  </div>;
 }
 
-export default function App() { const pathname = usePathname(); if (pathname.startsWith("/settings/profiles")) return <ProfileSettings pathname={pathname} />; if (pathname === "/debug/vision") return <DebugPanel />; return <Dashboard />; }
+function Title({ icon, eyebrow, title }: { icon: Exclude<Panel, null>; eyebrow: string; title: string }) { return <div className="title"><Icon name={icon} /><span><small>{eyebrow}</small><h2>{title}</h2></span></div>; }
+function Field({ title, children }: { title: string; children: React.ReactNode }) { return <label className="field"><span>{title}</span>{children}</label>; }
+function Primary(props: React.ButtonHTMLAttributes<HTMLButtonElement>) { return <button {...props} type="button" className="primary" />; }
+
+export default function App() {
+  const pathname = usePathname();
+  if (pathname.startsWith("/settings/profiles")) return <ProfileSettings pathname={pathname} />;
+  if (pathname === "/debug/vision") return <DebugPanel />;
+  return <SmatyDashboard />;
+}
