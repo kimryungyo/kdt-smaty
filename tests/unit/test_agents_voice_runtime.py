@@ -304,9 +304,14 @@ async def test_runtime_cancel_cleans_final_transcript_side_channel() -> None:
 
 
 async def test_runtime_build_exposes_fixed_sdk_assembly() -> None:
+    from agents import WebSearchTool
+
     runtime = AgentsVoiceRuntime.build(api_key="test-key")
     try:
         pipeline = runtime._pipeline  # noqa: SLF001 - assembly boundary assertion
+        workflow = runtime._workflow  # noqa: SLF001 - assembly boundary assertion
+        assert workflow is not None
+        assert [type(tool) for tool in workflow.agent.tools] == [WebSearchTool]
         assert pipeline._stt_model_name == "gpt-4o-transcribe"  # noqa: SLF001
         assert pipeline._tts_model_name == "tts-1"  # noqa: SLF001
         assert pipeline.config.stt_settings.turn_detection == {

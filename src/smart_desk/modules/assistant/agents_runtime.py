@@ -188,7 +188,7 @@ class AgentsVoiceRuntime:
             raise ValueError("api_key must be non-empty")
         # optional dependency imports: Voice disabled 상태의 app import를 막지 않는다.
         from openai import AsyncOpenAI
-        from agents import Agent, ModelSettings, Runner
+        from agents import Agent, ModelSettings, Runner, WebSearchTool
         from agents.models.openai_responses import OpenAIResponsesModel
         from agents.voice import (OpenAIVoiceModelProvider, STTModelSettings,
                                   StreamedAudioInput, TTSModelSettings, VoicePipeline,
@@ -204,7 +204,7 @@ class AgentsVoiceRuntime:
                 "You are a concise Korean Smart Desk voice assistant. "
                 "Do not claim physical actions without a provided tool."
             ),
-            tools=tools or [],
+            tools=[WebSearchTool(), *(tools or [])],
         )
         workflow = SmartDeskVoiceWorkflow(
             agent=agent,
