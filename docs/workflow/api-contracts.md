@@ -54,6 +54,11 @@ WLED API는 구현돼 있지만 사용자·Vision·자동화·작업 모드·Ass
 }
 ```
 
+Task 04는 identity 판정을 아직 수행하지 않으므로 같은 shape의
+`{"status":"UNKNOWN","profileId":null,"observedAt":null,"expiresAt":null}`를 반환한다.
+Task 05가 이 공개 shape의 실제 identity 값을 채운다. raw frame, 얼굴 box, crop, embedding
+vector와 detector 내부 threshold는 이 endpoint에 노출하지 않는다.
+
 신원은 `MATCHED`, `UNKNOWN_FACE`, `AMBIGUOUS`, `NO_FACE`, `UNKNOWN`, 재실은
 `PRESENT_SINGLE`, `VACANT`, `MULTIPLE`, `UNKNOWN`, 자세는 `SITTING`, `STANDING`,
 `UNKNOWN`을 사용한다. raw confidence와 얼굴 threshold는 일반 응답에서 제외한다.

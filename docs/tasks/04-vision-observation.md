@@ -14,9 +14,10 @@
 
 - 사용자·자세 카메라용 `CameraPublisher`와 `RtspFrameSource`가 lifecycle에 등록된다.
 - 각 source는 queue 없이 최신 `(frame, captured_at)` 하나를 유지하고 재연결한다.
-- source 객체가 `bootstrap.py`에서 resource로만 생성돼 후속 Vision service가 직접 참조할
-  container 필드는 아직 없다.
-- 사람 수, 재실, 자세 detector·모델과 `/api/vision/status`는 없다.
+- `VisionService`가 container의 user(상단)·posture(하단) source를 소유하고 최신 frame만
+  소비한다. `workspace`는 Vision 자세 입력으로 대체하지 않는다.
+- `/api/vision/status`는 fail-closed raw/stable snapshot과 camera freshness를 제공한다.
+- 기본 `NoopVisionDetector`는 실제 관측인 척하지 않고 `MODEL_UNAVAILABLE`를 반환한다.
 - Dashboard와 debug 화면의 Vision 내용은 placeholder다.
 
 ## 첫 구현의 관측 범위
@@ -58,30 +59,33 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 
 ### 입력과 전처리
 
-- [ ] 두 `RtspFrameSource`를 container에서 Vision service에 주입할 수 있게 보관한다.
+- [x] 두 `RtspFrameSource`를 container에서 Vision service에 주입할 수 있게 보관한다.
 - [ ] 설정 기반 카메라 경로·방향·해상도·FPS와 책상 ROI 구조를 만들고 실물 연결 뒤 값을 확인한다.
 - [ ] 카메라별 처리 주기, frame 만료와 detector 결과 만료 설정을 정의한다.
 - [ ] 상단 몸체/얼굴과 하단 하체의 책상 ROI 및 singleton 결합을 구현한다.
 - [ ] 상단 얼굴 detector를 한 번 load·실행하고 fresh box/count snapshot을 task 05가 재사용할
   수 있게 한다. task 05가 별도 얼굴 detector loop를 만들지 않게 한다.
-- [ ] 같은 frame을 중복 추론하지 않도록 frame sequence 또는 captured time을 추적한다.
+- [x] 같은 frame을 중복 추론하지 않도록 captured time을 추적한다.
 - [ ] resize, crop과 색공간 변환을 담당하는 최소 전처리 경계를 구현한다.
 
 ### detector와 안정화
 
 - [ ] 사람 수·재실 detector와 자세 detector의 모델·입력·출력을 선정한다.
-- [ ] 무거운 model load와 추론을 event loop 밖에서 수행한다.
-- [ ] model 인스턴스는 시작 시 한 번 생성하고 동시 호출 안전성을 보장한다.
-- [ ] raw 결과와 안정화 결과를 구분하고 앉음·섬 후보 유지 timer를 구현한다.
-- [ ] frame·결과 만료, model 오류와 task 종료에서 `UNKNOWN`으로 전환한다.
-- [ ] 두 카메라 결과의 시각·인원수 일치 여부를 계산한다.
-- [ ] 단일 재실과 자세의 3초 안정화에 distinct frame과 monotonic clock을 사용한다.
+- [x] detector 추론을 event loop 밖에서 수행한다.
+- [x] 같은 detector/model의 upper/lower 호출은 작은 lock으로 직렬화한다.
+- [x] raw 결과와 안정화 결과를 구분하고 앉음·섬 후보 유지 timer를 구현한다.
+- [x] frame·결과 만료, model 오류와 task 종료에서 `UNKNOWN`으로 전환한다.
+- [x] 두 카메라 결과의 시각·인원수 일치 여부를 계산한다.
+- [x] 단일 재실과 자세의 안정화는 monotonic clock과 이전 결합 이후 양쪽 모두 새 frame인
+  distinct pair에서만 전진한다.
 
 ### lifecycle과 API
 
-- [ ] Vision loop를 container singleton과 lifecycle resource로 등록한다.
-- [ ] 시작 전에는 안전한 초기 snapshot, 종료 시에는 만료된 snapshot을 제공한다.
-- [ ] `/api/vision/status`에 raw·안정화 상태와 차단 이유를 노출한다.
+- [x] Vision loop를 container singleton과 lifecycle resource로 등록한다.
+- [x] 시작 전에는 안전한 초기 snapshot, 종료 시에는 만료된 snapshot을 제공한다.
+- [x] `/api/vision/status`에 raw·안정화 상태와 차단 이유를 camelCase로 노출한다.
+- [x] Task 04의 `identity`는 `UNKNOWN` placeholder이며 raw frame·face box·vector는 API에
+  노출하지 않는다. Task 05는 `get_fresh_face_observation()`의 내부 frame+box만 소비한다.
 - [ ] debug 화면용 데이터와 일반 Dashboard용 최소 상태의 노출 범위를 구분한다.
 - [ ] MediaMTX WebRTC/HLS preview를 실제 브라우저에서 실측해 한 방식을 확정한다.
 
@@ -104,6 +108,10 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 
 ## 실물 확인 항목
 
+- 실제 detector/model과 ROI는 아직 연결하지 않았다. fake/noop adapter의 자동 검증만 완료됐으며
+  model load/import, CPU 지연, threshold와 ROI 보정은 실제 camera에서 수행해야 한다.
+- MediaMTX WebRTC/HLS preview 방식과 상단·하단 camera 배치, FPS·조명·책상 주변 통행에 대한
+  실측은 아직 수행하지 않았다.
 - 앉음·섬·이탈과 책상 주변 통행을 ROI에서 촬영해 오검출 패턴을 기록한다.
 - 조명, 안경·모자, 의자 위치와 책상 높이 변화가 사람 수·자세 판정에 미치는 영향을 본다.
 - camera 한 대 제거, MediaMTX 중단과 복귀 후 snapshot과 memory 사용량을 확인한다.

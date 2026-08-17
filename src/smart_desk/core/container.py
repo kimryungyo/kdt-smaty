@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
     from smart_desk.modules.desk.relay import RelayClient
     from smart_desk.modules.media import CameraPublisher, RtspFrameSource
+    from smart_desk.modules.vision.service import VisionService
     from smart_desk.modules.mqtt.client import MqttClient
     from smart_desk.modules.profiles.repository import ProfileRepository
     from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
@@ -72,6 +73,7 @@ class AppContainer:
     user_frame_source: RtspFrameSource | None = None
     workspace_frame_source: RtspFrameSource | None = None
     posture_frame_source: RtspFrameSource | None = None
+    vision: VisionService | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)
     def register(self, registration: ResourceRegistration) -> None:

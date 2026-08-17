@@ -356,6 +356,26 @@ class MediaSettings(BaseModel):
         return normalized
 
 
+class VisionSettings(BaseModel):
+    """최신 frame 기반 Vision 관측의 보수적인 초기 실행값이다.
+
+    ROI와 detector threshold는 실제 카메라 실측 전에는 확정하지 않는다. 이 설정은
+    frame/result freshness와 polling cadence만 한곳에서 정의한다.
+    """
+
+    poll_interval_seconds: float = Field(default=0.1, gt=0, le=2, allow_inf_nan=False)
+    frame_stale_after_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
+    result_stale_after_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
+    stable_after_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
+    max_camera_skew_seconds: float = Field(default=0.5, gt=0, le=10, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_freshness(self) -> VisionSettings:
+        if self.result_stale_after_seconds < self.poll_interval_seconds:
+            raise ValueError("Vision result 만료 시간은 poll 주기보다 짧을 수 없습니다.")
+        return self
+
+
 class StorageSettings(BaseModel):
     """로컬 영속 데이터 저장 경로를 보관한다."""
 
@@ -581,6 +601,7 @@ class Settings(BaseSettings):
     serial: SerialSettings = SerialSettings()
     desk: DeskSettings = DeskSettings()
     media: MediaSettings = MediaSettings()
+    vision: VisionSettings = VisionSettings()
     storage: StorageSettings = StorageSettings()
     dashboard: DashboardSettings = DashboardSettings()
     wled: WledSettings = WledSettings()

@@ -1,0 +1,215 @@
+"""Vision의 distinct frame, fail-closed, executor/lifecycle 경계를 검증한다."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime
+import threading
+import time
+
+import numpy as np
+
+from smart_desk.config.settings import VisionSettings
+from smart_desk.modules.vision import FaceBox, LowerDetection, PostureStatus, UpperDetection
+from smart_desk.modules.vision.models import BlockCode, PresenceStatus
+from smart_desk.modules.vision.service import VisionService
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def monotonic(self) -> float:
+        return self.value
+
+    def utc_now(self) -> datetime:
+        return datetime(2026, 8, 17, tzinfo=UTC)
+
+
+class FakeSource:
+    def __init__(self) -> None:
+        self.frame: tuple[np.ndarray, float] | None = None
+        self.connected = True
+        self.error: str | None = None
+
+    def get_latest_frame(self):  # type: ignore[no-untyped-def]
+        return self.frame
+
+    def is_connected(self) -> bool:
+        return self.connected
+
+    def get_last_error(self) -> str | None:
+        return self.error
+
+
+class FakeDetector:
+    def __init__(self, upper: UpperDetection, lower: LowerDetection) -> None:
+        self.upper = upper
+        self.lower = lower
+        self.upper_calls = 0
+        self.lower_calls = 0
+        self.thread_ids: list[int] = []
+
+    def detect_upper(self, _frame: np.ndarray) -> UpperDetection:
+        self.upper_calls += 1
+        self.thread_ids.append(threading.get_ident())
+        return self.upper
+
+    def detect_lower(self, _frame: np.ndarray) -> LowerDetection:
+        self.lower_calls += 1
+        self.thread_ids.append(threading.get_ident())
+        return self.lower
+
+
+def make_service(clock: Clock, detector: FakeDetector, upper: FakeSource, lower: FakeSource) -> VisionService:
+    return VisionService(
+        upper_source=upper,  # type: ignore[arg-type]
+        lower_source=lower,  # type: ignore[arg-type]
+        detector=detector,
+        settings=VisionSettings(stable_after_seconds=3, frame_stale_after_seconds=2, result_stale_after_seconds=2),
+        monotonic=clock.monotonic,
+        utc_now=clock.utc_now,
+    )
+
+
+async def test_same_frame_cannot_complete_stabilization() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(UpperDetection(body_count=1, face_boxes=(FaceBox(0, 0, 1, 1),)), LowerDetection(1, PostureStatus.SITTING))
+    upper.frame = (np.zeros((1, 1)), 0.0)
+    lower.frame = (np.zeros((1, 1)), 0.0)
+    service = make_service(clock, detector, upper, lower)
+
+    await service.process_once()
+    clock.value = 1.5
+    await service.process_once()
+
+    snapshot = service.get_snapshot()
+    assert detector.upper_calls == detector.lower_calls == 1
+    assert snapshot.raw_presence is PresenceStatus.PRESENT_SINGLE
+    assert snapshot.stable_presence is PresenceStatus.UNKNOWN
+
+
+async def test_one_camera_new_frames_cannot_advance_combined_stabilization() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING))
+    service = make_service(clock, detector, upper, lower)
+
+    upper.frame = lower.frame = (np.zeros((1, 1)), 0.0)
+    await service.process_once()
+    for value in (1.0, 3.1, 4.0):
+        clock.value = value
+        upper.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+
+    snapshot = service.get_snapshot()
+    assert snapshot.raw_presence is PresenceStatus.UNKNOWN
+    assert snapshot.stable_presence is PresenceStatus.UNKNOWN
+    assert snapshot.stable_posture is PostureStatus.UNKNOWN
+    assert BlockCode.LOWER_FRAME_STALE in snapshot.reason_codes
+
+
+async def test_distinct_frames_stabilize_and_face_result_is_shared() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    box = FaceBox(1, 2, 3, 4)
+    detector = FakeDetector(UpperDetection(body_count=1, face_boxes=(box,)), LowerDetection(1, PostureStatus.STANDING))
+    service = make_service(clock, detector, upper, lower)
+
+    for value in (0.0, 1.0, 3.1):
+        clock.value = value
+        upper.frame = (np.zeros((1, 1)), value)
+        lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+
+    snapshot = service.get_snapshot()
+    face = service.get_fresh_face_observation()
+    assert snapshot.usable is True
+    assert snapshot.stable_presence is PresenceStatus.PRESENT_SINGLE
+    assert snapshot.stable_posture is PostureStatus.STANDING
+    assert face is not None and face.boxes == (box,)
+    assert detector.upper_calls == 3
+
+
+async def test_multiple_skew_stale_and_detector_error_are_fail_closed() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(UpperDetection(body_count=2), LowerDetection(1, PostureStatus.SITTING))
+    service = make_service(clock, detector, upper, lower)
+    upper.frame, lower.frame = (np.zeros((1, 1)), 0.0), (np.zeros((1, 1)), 0.0)
+    await service.process_once()
+    assert BlockCode.MULTIPLE_PEOPLE in service.get_snapshot().reason_codes
+
+    detector.upper, detector.lower = UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING)
+    clock.value = 0.1
+    upper.frame, lower.frame = (np.zeros((1, 1)), 0.1), (np.zeros((1, 1)), 1.0)
+    await service.process_once()
+    assert BlockCode.CAMERA_TIMESTAMP_MISMATCH in service.get_snapshot().reason_codes
+
+    clock.value = 4.0
+    assert BlockCode.UPPER_FRAME_STALE in service.get_snapshot().reason_codes
+
+
+async def test_count_mismatch_disconnect_and_detector_exception_are_fail_closed() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=1, face_boxes=(FaceBox(0, 0, 1, 1),)),
+        LowerDetection(2, PostureStatus.SITTING),
+    )
+    service = make_service(clock, detector, upper, lower)
+    upper.frame = lower.frame = (np.zeros((1, 1)), 0.0)
+    await service.process_once()
+    assert BlockCode.COUNT_MISMATCH in service.get_snapshot().reason_codes
+
+    clock.value = 0.1
+    upper.connected = False
+    assert BlockCode.UPPER_CAMERA_UNAVAILABLE in service.get_snapshot().reason_codes
+    assert BlockCode.MODEL_ERROR not in service.get_snapshot().reason_codes
+    assert service.get_fresh_face_observation() is None
+
+    upper.connected = True
+    detector.upper = RuntimeError("detector unavailable")  # type: ignore[assignment]
+    upper.frame = lower.frame = (np.zeros((1, 1)), 0.2)
+    await service.process_once()
+    assert BlockCode.MODEL_ERROR in service.get_snapshot().reason_codes
+    assert service.get_fresh_face_observation() is None
+
+
+async def test_posture_candidate_resets_when_distinct_pair_changes() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING))
+    service = make_service(clock, detector, upper, lower)
+
+    for value in (0.0, 1.0):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    detector.lower = LowerDetection(1, PostureStatus.STANDING)
+    clock.value = 3.1
+    upper.frame = lower.frame = (np.zeros((1, 1)), 3.1)
+    await service.process_once()
+
+    snapshot = service.get_snapshot()
+    assert snapshot.raw_posture is PostureStatus.STANDING
+    assert snapshot.stable_posture is PostureStatus.UNKNOWN
+    assert snapshot.posture_candidate_since == clock.utc_now()
+
+
+class SlowDetector(FakeDetector):
+    def detect_upper(self, frame: np.ndarray) -> UpperDetection:
+        time.sleep(0.05)
+        return super().detect_upper(frame)
+
+
+async def test_slow_detector_runs_outside_event_loop_and_stop_cleans_task() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = SlowDetector(UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING))
+    upper.frame, lower.frame = (np.zeros((1, 1)), 0.0), (np.zeros((1, 1)), 0.0)
+    service = make_service(clock, detector, upper, lower)
+
+    running = asyncio.create_task(service.process_once())
+    await asyncio.sleep(0.005)
+    await asyncio.wait_for(asyncio.sleep(0), timeout=0.01)
+    await running
+    assert all(identifier != threading.get_ident() for identifier in detector.thread_ids)
+
+    await service.start()
+    await service.stop()
+    assert service.get_snapshot().usable is False

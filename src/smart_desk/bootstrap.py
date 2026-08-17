@@ -19,6 +19,7 @@ from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.modules.wled.client import WledClient
+from smart_desk.modules.vision import NoopVisionDetector, VisionService
 from smart_desk.storage import SQLiteDatabase
 
 
@@ -218,6 +219,23 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=52,
             )
         )
+    # Vision은 user(상단)와 posture(하단)만 소비한다. workspace 영상은 AI 작업공간
+    # 역할이므로 편의상 자세 입력으로 대체하지 않는다.
+    vision = VisionService(
+        upper_source=container.user_frame_source,
+        lower_source=container.posture_frame_source,
+        detector=NoopVisionDetector(),
+        settings=settings.vision,
+    )
+    container.vision = vision
+    container.register(
+        ResourceRegistration(
+            name="vision",
+            resource=vision,
+            startup_order=60,
+            shutdown_order=60,
+        )
+    )
     if settings.wled.enabled:
         wled = WledClient(settings.wled)
         container.wled = wled

@@ -1,0 +1,186 @@
+"""Vision 내부 상태와 HTTP에 노출할 불변 관측 모델."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
+
+import numpy as np
+from pydantic import BaseModel, ConfigDict
+
+
+def _to_camel(field_name: str) -> str:
+    first, *rest = field_name.split("_")
+    return first + "".join(part.capitalize() for part in rest)
+
+
+class CameraStatus(StrEnum):
+    OFFLINE = "OFFLINE"
+    ONLINE = "ONLINE"
+    STALE = "STALE"
+    ERROR = "ERROR"
+
+
+class PresenceStatus(StrEnum):
+    PRESENT_SINGLE = "PRESENT_SINGLE"
+    VACANT = "VACANT"
+    MULTIPLE = "MULTIPLE"
+    UNKNOWN = "UNKNOWN"
+
+
+class PostureStatus(StrEnum):
+    SITTING = "SITTING"
+    STANDING = "STANDING"
+    UNKNOWN = "UNKNOWN"
+
+
+class IdentityStatus(StrEnum):
+    """Task 05가 채울 신원 상태 축의 안정된 공개 enum이다."""
+
+    MATCHED = "MATCHED"
+    UNKNOWN_FACE = "UNKNOWN_FACE"
+    AMBIGUOUS = "AMBIGUOUS"
+    NO_FACE = "NO_FACE"
+    UNKNOWN = "UNKNOWN"
+
+
+class BlockCode(StrEnum):
+    UPPER_CAMERA_UNAVAILABLE = "UPPER_CAMERA_UNAVAILABLE"
+    LOWER_CAMERA_UNAVAILABLE = "LOWER_CAMERA_UNAVAILABLE"
+    UPPER_FRAME_STALE = "UPPER_FRAME_STALE"
+    LOWER_FRAME_STALE = "LOWER_FRAME_STALE"
+    MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
+    MODEL_ERROR = "MODEL_ERROR"
+    MULTIPLE_PEOPLE = "MULTIPLE_PEOPLE"
+    COUNT_MISMATCH = "COUNT_MISMATCH"
+    CAMERA_TIMESTAMP_MISMATCH = "CAMERA_TIMESTAMP_MISMATCH"
+    POSTURE_UNASSOCIATED = "POSTURE_UNASSOCIATED"
+    PRESENCE_NOT_SINGLE = "PRESENCE_NOT_SINGLE"
+    POSTURE_UNKNOWN = "POSTURE_UNKNOWN"
+
+
+@dataclass(frozen=True, slots=True)
+class FaceBox:
+    """상단 detector가 한 번 만든 얼굴 영역이다. 일반 API에는 노출하지 않는다."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True, slots=True)
+class UpperDetection:
+    body_count: int | None
+    face_boxes: tuple[FaceBox, ...] = ()
+
+    @property
+    def count(self) -> int | None:
+        if self.body_count is None:
+            return len(self.face_boxes) if self.face_boxes else None
+        # 얼굴과 상단 몸체는 같은 사람의 복수 근거라 더하지 않는다.
+        return max(self.body_count, len(self.face_boxes))
+
+
+@dataclass(frozen=True, slots=True)
+class LowerDetection:
+    count: int | None
+    posture: PostureStatus = PostureStatus.UNKNOWN
+
+
+@dataclass(frozen=True, slots=True)
+class FreshFaceObservation:
+    """Task 05 전용 fresh 얼굴 결과 경계. DB/API로 raw image를 넘기지 않는다."""
+
+    frame: np.ndarray
+    boxes: tuple[FaceBox, ...]
+    captured_monotonic: float
+    observed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CameraObservation:
+    connected: bool
+    captured_monotonic: float | None
+    observed_monotonic: float | None
+    observed_at: datetime | None
+    error: str | None
+    count: int | None = None
+    posture: PostureStatus = PostureStatus.UNKNOWN
+    face_observation: FreshFaceObservation | None = None
+    detector_error: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class VisionSnapshot:
+    upper: CameraObservation
+    lower: CameraObservation
+    raw_presence: PresenceStatus
+    stable_presence: PresenceStatus
+    raw_posture: PostureStatus
+    stable_posture: PostureStatus
+    presence_candidate_since: datetime | None
+    posture_candidate_since: datetime | None
+    usable: bool
+    reason_codes: tuple[BlockCode, ...]
+
+
+class VisionApiModel(BaseModel):
+    """일반 HTTP Vision 응답은 기존 계약과 같이 camelCase를 쓴다."""
+
+    model_config = ConfigDict(
+        alias_generator=_to_camel,
+        extra="forbid",
+        frozen=True,
+        serialize_by_alias=True,
+        validate_by_alias=True,
+        validate_by_name=True,
+    )
+
+
+class CameraStatusResponse(VisionApiModel):
+    status: CameraStatus
+    observed_at: datetime | None = None
+    expires_at: datetime | None = None
+    age_seconds: float | None = None
+    error: str | None = None
+
+
+class IdentityResponse(VisionApiModel):
+    """Task 04는 신원을 판정하지 않으므로 UNKNOWN만 반환한다."""
+
+    status: IdentityStatus = IdentityStatus.UNKNOWN
+    profile_id: str | None = None
+    observed_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class PresenceResponse(VisionApiModel):
+    raw_status: PresenceStatus
+    status: PresenceStatus
+    upper_count: int | None = None
+    lower_count: int | None = None
+    observed_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class PostureResponse(VisionApiModel):
+    raw_status: PostureStatus
+    status: PostureStatus
+    candidate_since: datetime | None = None
+    observed_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class AssociationResponse(VisionApiModel):
+    usable: bool
+    reason_codes: list[BlockCode]
+
+
+class VisionStatusResponse(VisionApiModel):
+    cameras: dict[str, CameraStatusResponse]
+    identity: IdentityResponse
+    presence: PresenceResponse
+    posture: PostureResponse
+    association: AssociationResponse

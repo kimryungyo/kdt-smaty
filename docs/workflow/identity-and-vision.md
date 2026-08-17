@@ -12,13 +12,16 @@ CameraPublisher.start()
   → frame 전처리
   → PresenceDetector / shared FaceDetector / PostureDetector
   → fresh face box를 FaceRecognizer가 재사용
-  → VisionStateService
+  → VisionService
   → CurrentUserSessionService
 ```
 
 처리가 입력 FPS보다 느려도 과거 frame queue를 쌓지 않고 최신 frame 하나만 처리한다. 같은
-frame을 여러 관측으로 세지 않고, 오래된 frame은 새 관측으로 사용하지 않으며 무거운 추론은
-event loop 밖에서 수행한다.
+frame을 여러 관측으로 세지 않고, 이전 결합 관측 뒤 상단·하단이 모두 distinct frame을 낸
+pair에서만 안정화 timer를 전진한다. 오래된 frame은 새 관측으로 사용하지 않으며 무거운
+추론은 event loop 밖에서 수행한다. Task 04의 기본 Noop detector는 model 미구성 상태를
+`MODEL_UNAVAILABLE`로 fail-closed하며, 실제 ROI·model·threshold와 preview 실측은 별도
+camera 검증이 필요하다.
 
 ## 분리된 공개 상태
 
