@@ -1,157 +1,107 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { type DeskStatus, type Profile, type WledCapabilities, type WledSnapshot, controlWled, getDeskStatus, getWledCapabilities, getWledStatus, updateProfile } from "./api/dashboard";
-import { DeskPanel } from "./features/desk/DeskPanel";
+import { ApiError, controlWled, getAutomationStatus, getCurrentUser, getDeskStatus, getProfile, getVisionStatus, getWledStatus, listActivityModes, setActivityMode, setControlMode, type ActivityMode, type AutomationStatus } from "./api/dashboard";
 import { DebugPanel } from "./features/debug/DebugPanel";
-import { HeightSetup, ProfileBasics, ProfilePicker } from "./features/profiles/ProfilesPanel";
-import { LegacyStyle } from "./legacy/LegacyStyle";
-import dashboardCss from "./legacy/dashboard.css?raw";
+import { DeskPanel } from "./features/desk/DeskPanel";
 import { ProfileSettings } from "./features/profiles/ProfileSettings";
-import { usePathname } from "./routes";
+import { useSnapshotPoll, type Polled } from "./hooks/useSnapshotPoll";
+import { navigate, usePathname } from "./routes";
+import "./styles.css";
 
-type Page = "picker" | "dashboard" | "basics" | "height-setup" | "debug";
+const age = (at: number | null) => at === null ? "아직 성공 snapshot 없음" : `${Math.max(0, Math.round((Date.now() - at) / 1000))}초 전`;
+const commandMessage = (error: unknown) => error instanceof ApiError ? error.status === 422 ? "입력값 또는 범위를 확인해 주세요." : error.status === 503 ? "관련 장치 또는 서비스가 아직 준비되지 않았습니다." : error.message : error instanceof Error ? `네트워크 오류: ${error.message}` : "요청을 처리하지 못했습니다.";
+const statusText = (item: Polled<unknown>) => item.error ? `오류 · ${item.error}` : `마지막 성공 ${age(item.lastSuccessAt)}`;
+const wledDescription = (snapshot: ReturnType<typeof getWledStatus> extends Promise<infer T> ? T | null : never) => {
+  if (!snapshot || snapshot.status === "UNKNOWN") return "조명 상태를 아직 확인하지 못했습니다.";
+  if (snapshot.status === "DISABLED") return "조명 기능이 비활성화되어 있습니다.";
+  if (snapshot.status === "ERROR") return "조명 상태를 읽는 중 오류가 있습니다.";
+  if (snapshot.on === false || snapshot.mode === "OFF") return "조명이 꺼져 있습니다.";
+  if (snapshot.mode === "EFFECT") return snapshot.effectName ? `효과 ${snapshot.effectName} 실행 중` : "효과 실행 중";
+  if (snapshot.mode === "MIXED") return "여러 조명 segment 상태입니다.";
+  return snapshot.color ? `현재 색상 #${snapshot.color}` : "현재 조명 상태입니다.";
+};
 
-function LegacyApp() {
-  const [deskStatus, setDeskStatus] = useState<DeskStatus | null>(null);
-  const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
-  const [page, setPage] = useState<Page>("picker");
-  const [draftName, setDraftName] = useState("");
-  const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [controlError, setControlError] = useState<string | null>(null);
-  const requestInFlight = useRef(false);
-  const [wledStatus, setWledStatus] = useState<WledSnapshot | null>(null);
-  const [wledCapabilities, setWledCapabilities] = useState<WledCapabilities | null>(null);
-  const [wledError, setWledError] = useState<string | null>(null);
-  const [wledBusy, setWledBusy] = useState(false);
-  const [ledColor, setLedColor] = useState(selectedProfile?.ledColor ?? "0080FF");
-  const [ledTab, setLedTab] = useState<"solid" | "effect">("solid");
-  const [effectId, setEffectId] = useState(1);
-  const [paletteId, setPaletteId] = useState(0);
-  const [speed, setSpeed] = useState(128);
-  const [intensity, setIntensity] = useState(128);
-  const [brightness, setBrightness] = useState(255);
+function Dashboard() {
+  const current = useSnapshotPoll(useCallback((signal) => getCurrentUser(signal), []), 1000);
+  const vision = useSnapshotPoll(useCallback((signal) => getVisionStatus(signal), []), 1000);
+  const automation = useSnapshotPoll(useCallback((signal) => getAutomationStatus(signal), []), 1000);
+  const desk = useSnapshotPoll(useCallback((signal) => getDeskStatus(signal), []), 750);
+  const wled = useSnapshotPoll(useCallback((signal) => getWledStatus(signal), []), 2000);
+  const [profileName, setProfileName] = useState<string | null>(null);
+  const [modes, setModes] = useState<ActivityMode[]>([]);
+  const [modeError, setModeError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const modeSequence = useRef(0);
+  const sessionGeneration = useRef(0);
+  const session = current.value?.session ?? null;
+  const expectedSessionId = session?.sessionId ?? null;
+  const registeredProfileId = session?.kind === "REGISTERED" ? session.profileId : null;
+  const renderedSessionId = useRef(expectedSessionId);
+  if (renderedSessionId.current !== expectedSessionId) {
+    renderedSessionId.current = expectedSessionId;
+    ++sessionGeneration.current;
+  }
 
   useEffect(() => {
-    if (page !== "dashboard") return;
-    let active = true;
-    const refresh = async () => {
-      if (requestInFlight.current) return;
-      requestInFlight.current = true;
-      try {
-        const status = await getDeskStatus();
-        if (active) { setDeskStatus(status); setConnectionError(null); }
-      } catch (error) {
-        if (active) setConnectionError(error instanceof Error ? error.message : "서버 상태를 확인하지 못했습니다.");
-      } finally {
-        requestInFlight.current = false;
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 750);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [page]);
+    const mine = ++modeSequence.current;
+    setProfileName(null); setModes([]); setModeError(null); setNotice(null);
+    if (!expectedSessionId || !registeredProfileId) return;
+    const controller = new AbortController();
+    void Promise.all([getProfile(registeredProfileId, controller.signal), listActivityModes(registeredProfileId, controller.signal)])
+      .then(([profile, availableModes]) => {
+        if (mine !== modeSequence.current || controller.signal.aborted) return;
+        setProfileName(profile.name); setModes(availableModes);
+      })
+      .catch((error) => {
+        if (mine !== modeSequence.current || controller.signal.aborted) return;
+        setModeError(error instanceof Error ? error.message : "프로필 작업 모드를 읽지 못했습니다.");
+      });
+    return () => { controller.abort(); ++modeSequence.current; };
+  }, [expectedSessionId, registeredProfileId]);
 
-  useEffect(() => { setLedColor(selectedProfile?.ledColor ?? "0080FF"); }, [selectedProfile]);
-  useEffect(() => {
-    if (page !== "dashboard") return;
-    let active = true;
-    void (async () => {
-      try {
-        const state = await getWledStatus();
-        if (!active) return;
-        setWledStatus(state);
-        if (state.brightness !== null) setBrightness(state.brightness);
-        if (state.status !== "DISABLED") {
-          const capabilities = await getWledCapabilities();
-          if (active) { setWledCapabilities(capabilities); setEffectId((current) => capabilities.effects.some((item) => item.id === current) ? current : (capabilities.effects.find((item) => item.id > 0)?.id ?? 1)); }
-        }
-      } catch (error) { if (active) setWledError(error instanceof Error ? error.message : "WLED 상태를 확인하지 못했습니다."); }
-    })();
-    return () => { active = false; };
-  }, [page]);
-
-  const applySolid = async () => {
-    if (!selectedProfile || wledBusy) return;
-    setWledBusy(true); setWledError(null);
+  const resync = async () => {
+    await Promise.allSettled([current.refresh(), automation.refresh()]);
+  };
+  const mode = async (next: "AUTO" | "MANUAL") => {
+    if (!expectedSessionId) return;
+    const generation = sessionGeneration.current;
     try {
-      const profile = await updateProfile(selectedProfile.id, { ledColor });
-      setSelectedProfile(profile);
-      try { setWledStatus(await controlWled({ action: "SOLID", color: ledColor })); }
-      catch (error) { setWledError(`색상은 저장했지만 조명 적용에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`); }
-    } catch (error) { setWledError(error instanceof Error ? error.message : "색상을 저장하지 못했습니다."); }
-    finally { setWledBusy(false); }
+      await setControlMode(next, expectedSessionId);
+      await automation.refresh();
+      if (generation === sessionGeneration.current) setNotice(`${next === "AUTO" ? "AUTO" : "MANUAL"} 전환 요청을 반영했습니다.`);
+    } catch (error) {
+      if (generation !== sessionGeneration.current) return;
+      if (error instanceof ApiError && error.status === 409) {
+        await resync();
+        if (generation === sessionGeneration.current) setNotice("사용자 session이 변경되었습니다. 성공으로 처리하지 않고 최신 상태를 다시 읽습니다.");
+      } else setNotice(commandMessage(error));
+    }
   };
-  const saveProfileColor = async () => {
-    if (!selectedProfile || wledBusy) return;
-    setWledBusy(true); setWledError(null);
-    try { setSelectedProfile(await updateProfile(selectedProfile.id, { ledColor })); }
-    catch (error) { setWledError(error instanceof Error ? error.message : "색상을 저장하지 못했습니다."); }
-    finally { setWledBusy(false); }
+  const activity = async (key: string) => {
+    if (!expectedSessionId) return;
+    const generation = sessionGeneration.current;
+    try {
+      const result = await setActivityMode(key, expectedSessionId);
+      await automation.refresh();
+      if (generation === sessionGeneration.current) setNotice(result.controlMode === "MANUAL" ? "작업 모드를 바꿨습니다. MANUAL에서는 LED만 즉시 바뀌며 책상은 움직이지 않습니다." : "작업 모드를 바꿨습니다. AUTO에서는 서버가 안전 조건에 따라 목표를 재평가합니다.");
+    } catch (error) {
+      if (generation !== sessionGeneration.current) return;
+      if (error instanceof ApiError && error.status === 409) {
+        await resync();
+        if (generation === sessionGeneration.current) setNotice("사용자 session이 변경되었습니다. 성공으로 처리하지 않고 최신 상태를 다시 읽습니다.");
+      } else setNotice(commandMessage(error));
+    }
   };
-  const applyEffect = async () => { if (wledBusy) return; setWledBusy(true); setWledError(null); try { setWledStatus(await controlWled({ action: "EFFECT", effectId, paletteId, speed, intensity, color: ledColor })); } catch (error) { setWledError(error instanceof Error ? error.message : "이펙트를 적용하지 못했습니다."); } finally { setWledBusy(false); } };
-  const turnOffLed = async () => { if (wledBusy) return; setWledBusy(true); setWledError(null); try { setWledStatus(await controlWled({ action: "OFF" })); } catch (error) { setWledError(error instanceof Error ? error.message : "조명을 끄지 못했습니다."); } finally { setWledBusy(false); } };
-  const applyBrightness = async () => { if (wledBusy) return; setWledBusy(true); setWledError(null); try { setWledStatus(await controlWled({ action: "BRIGHTNESS", brightness })); } catch (error) { setWledError(error instanceof Error ? error.message : "밝기를 적용하지 못했습니다."); } finally { setWledBusy(false); } };
+  const led = async () => {
+    try { await controlWled({ action: "OFF" }); await wled.refresh(); setNotice("현재 서버 계약의 수동 LED 끄기 요청을 보냈습니다. 저장 profile 색상은 변경하지 않습니다."); }
+    catch (error) { setNotice(commandMessage(error)); }
+  };
+  const automationValue: AutomationStatus | null = automation.value;
+  const manual = automationValue?.controlMode === "MANUAL";
+  const relay = desk.value?.relay;
+  const canControl = !desk.error && desk.value?.height.status === "ONLINE" && Boolean(relay?.event) && relay?.event !== "offline" && relay?.event !== "rejected" && Boolean(relay?.receivedAt) && !relay?.lastError;
 
-  const updateStatus = useCallback((status: DeskStatus) => { setDeskStatus(status); setControlError(null); }, []);
-  const reportControlError = useCallback((message: string) => setControlError(message), []);
-  const canControl =
-    connectionError === null &&
-    deskStatus !== null &&
-    ["ONLINE", "STALE", "SENSOR_SLEEPING"].includes(deskStatus.height.status) &&
-    deskStatus.relay.event !== null &&
-    deskStatus.relay.event !== "offline" &&
-    deskStatus.relay.event !== "rejected" &&
-    deskStatus.relay.receivedAt !== null &&
-    deskStatus.relay.lastError === null;
-
-  if (page === "picker") {
-    return <><header className="site-header"><a className="logo" href="/" aria-label="SMART DESK 홈"><span className="logo-mark" aria-hidden="true" />SMART DESK</a></header><ProfilePicker onSelect={(profile) => { setSelectedProfile(profile); setDraftName(profile.name); setPage("dashboard"); }} onCreate={() => { setSelectedProfile(null); setDraftName(""); setPage("basics"); }} /></>;
-  }
-
-  if (page === "basics") {
-    return <><header className="site-header"><a className="logo" href="/" aria-label="SMART DESK 홈"><span className="logo-mark" aria-hidden="true" />SMART DESK</a><span className="progress">1 / 2</span></header><ProfileBasics name={draftName} onNameChange={setDraftName} onNext={() => setPage("height-setup")} /></>;
-  }
-
-  if (page === "height-setup") {
-    return <><header className="site-header"><a className="logo" href="/" aria-label="SMART DESK 홈"><span className="logo-mark" aria-hidden="true" />SMART DESK</a><span className="progress">2 / 2</span></header><HeightSetup profile={selectedProfile} name={draftName} onSaved={(profile) => { setSelectedProfile(profile); setPage("dashboard"); }} onPrevious={() => setPage("basics")} /></>;
-  }
-
-  if (page === "debug") {
-    return <><header className="site-header"><a className="logo" href="/" aria-label="SMART DESK 홈"><span className="logo-mark" aria-hidden="true" />SMART DESK</a></header><DebugPanel onBack={() => setPage("dashboard")} /></>;
-  }
-
-  return (
-    <>
-      <LegacyStyle css={dashboardCss} />
-      <header className="site-header">
-        <a className="logo" href="/" aria-label="SMART DESK 홈"><span className="logo-mark" aria-hidden="true" />SMART DESK</a>
-        <div className={`live-status ${connectionError ? "offline" : ""}`}><span /><b>{connectionError ? "SYSTEM CHECK" : "SYSTEM ONLINE"}</b></div>
-      </header>
-      <main>
-        <section className="page-heading">
-          <div><p className="eyebrow">OVERVIEW</p><h1>메인 대시보드</h1><p>현재 모션데스크의 상태를 확인할 수 있습니다.</p></div>
-          <p className="current-time">{deskStatus ? new Date(deskStatus.updatedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "상태 확인 중"}</p>
-        </section>
-        {connectionError && <p className="connection-error" role="alert">Dashboard 연결 오류: {connectionError} 마지막 표시값은 현재 상태가 아닐 수 있습니다.</p>}
-        <section className="dashboard-grid">
-          <article className="card profile-card"><div className="card-header"><div><p className="card-label">USER</p><h2>사용자 정보</h2></div><span className="card-number">01</span></div><div className="profile-content"><div className="avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 12.4a4.4 4.4 0 1 0 0-8.8 4.4 4.4 0 0 0 0 8.8Zm0 1.8c-5.15 0-8.7 2.6-8.7 5.25 0 .53.43.95.95.95h15.5c.52 0 .95-.42.95-.95 0-2.65-3.55-5.25-8.7-5.25Z" /></svg></div><div><strong>{selectedProfile?.name ?? "사용자"}</strong><p><span>--</span> cm</p></div></div></article>
-          <article className="card posture-card"><div className="card-header"><div><p className="card-label">POSTURE</p><h2>현재 사용자 상태</h2></div><span className="recognition"><i /> <b>확인 중</b></span></div><div className="posture-content"><div className="posture-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2" /><path d="M12 8.2v5.3m0 0H8.5m3.5 0 3.2 3.2M8.5 13.5v5M5.5 18.5h6" /></svg></div><div><span>현재 자세</span><strong>확인 중</strong></div></div><p className="posture-note">Vision 상태를 기다리고 있습니다.</p></article>
-          <article className="card height-card"><div className="card-header"><div><p className="card-label">HEIGHT PRESET</p><h2>저장된 높이</h2></div><span className="card-number">03</span></div><div className="height-list"><div><span><i className="sitting-dot" /> 앉은 자세</span><strong>{selectedProfile?.sittingHeightCm.toFixed(1) ?? "--.-"}<small>cm</small></strong></div><div><span><i className="standing-dot" /> 서 있는 자세</span><strong>{selectedProfile?.standingHeightCm.toFixed(1) ?? "--.-"}<small>cm</small></strong></div></div></article>
-          <article className="card automation-card"><div className="card-header"><div><p className="card-label">AUTOMATION</p><h2>자동 높이 조절</h2></div><span className="card-number">04</span></div><div className="automation-content"><div><span>자동 조절 상태</span><strong>ON</strong></div><label className="switch" aria-label="자동 높이 조절"><input type="checkbox" checked disabled readOnly /><span /></label></div><p>자세 변화 감지 후 <strong>5초</strong> 뒤 높이를 조절합니다.</p></article>
-        </section>
-        <DeskPanel status={deskStatus} profile={selectedProfile} canControl={canControl} controlError={controlError} onStatus={updateStatus} onError={reportControlError} />
-        <section className="led-grid" aria-label="LED 조명 제어"><article className="card led-card"><div className="card-header"><div><p className="card-label">LED</p><h2>LED 조명 제어</h2></div><span className="led-mode-badge">{wledStatus?.status ?? "확인 중"}</span></div><div className="led-actions"><button type="button" className="previous-button" onClick={() => setLedTab("solid")}>단색</button><button type="button" className="previous-button" onClick={() => setLedTab("effect")}>이펙트</button></div>{ledTab === "solid" ? <div className="led-content"><label className="led-swatch"><input type="color" value={`#${ledColor}`} onChange={(event) => setLedColor(event.target.value.slice(1).toUpperCase())} /></label><div className="led-actions"><button type="button" className="previous-button" disabled={wledBusy || !selectedProfile} onClick={() => void saveProfileColor()}>색상 저장</button><button type="button" className="complete-button" disabled={wledBusy || wledStatus?.status === "DISABLED" || !selectedProfile} onClick={() => void applySolid()}>이 색상 적용</button></div></div> : <div className="led-actions"><label>이펙트 <select value={effectId} onChange={(event) => setEffectId(Number(event.target.value))}>{wledCapabilities?.effects.filter((item) => item.id > 0).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>팔레트 <select value={paletteId} onChange={(event) => setPaletteId(Number(event.target.value))}>{wledCapabilities?.palettes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>속도 <input type="range" min="0" max="255" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} /></label><label>강도 <input type="range" min="0" max="255" value={intensity} onChange={(event) => setIntensity(Number(event.target.value))} /></label><button type="button" className="complete-button" disabled={wledBusy || wledStatus?.status === "DISABLED" || !wledCapabilities} onClick={() => void applyEffect()}>이 이펙트 적용</button></div>}<div className="led-actions"><label>밝기 {brightness}<input type="range" min="0" max="255" value={brightness} onChange={(event) => setBrightness(Number(event.target.value))} /></label><button type="button" className="complete-button" disabled={wledBusy || wledStatus?.status === "DISABLED"} onClick={() => void applyBrightness()}>밝기 적용</button></div><div className="led-actions"><button type="button" className="previous-button" disabled={wledBusy || wledStatus?.status === "DISABLED"} onClick={() => void turnOffLed()}>조명 끄기</button></div><p className="control-note">프로필 색상 저장과 장치 적용은 별도입니다. WLED가 비활성화되어도 프로필 색상 편집은 계속할 수 있습니다.</p>{wledError && <p className="status-message" role="alert">{wledError}</p>}{wledStatus?.lastError && <p className="status-message" role="status">WLED 오류: {wledStatus.lastError}</p>}</article></section>
-        <nav className="dashboard-actions" aria-label="설정 바로가기"><a href="#profiles" onClick={(event) => { event.preventDefault(); setPage("picker"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 12h11M4 17h16" /></svg>프로필 전환</a><a href="#profile-edit" onClick={(event) => { event.preventDefault(); setDraftName(selectedProfile?.name ?? ""); setPage("basics"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3" /><path d="M5.5 20c.5-4 2.8-6 6.5-6s6 2 6.5 6" /></svg>프로필 수정</a><a className="primary-action" href="#height-settings" onClick={(event) => { event.preventDefault(); setPage("height-setup"); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M8 4v6m8 4v6" /></svg>높이 설정</a><a href="#vision-debug" onClick={(event) => { event.preventDefault(); setPage("debug"); }}>Vision 디버그</a></nav>
-      </main>
-    </>
-  );
+  return <><header className="site-header"><a className="logo" href="/">SMART DESK</a><nav><button onClick={() => navigate("/settings/profiles")}>프로필 설정</button><button onClick={() => navigate("/debug/vision")}>Vision 진단</button></nav></header><main className="dashboard-main"><section className="page-heading"><div><p className="eyebrow">CURRENT DASHBOARD</p><h1>메인 대시보드</h1><p>서버가 결정한 현재 사용자와 기능별 snapshot입니다.</p></div></section>{notice && <p className="connection-error" role="status">{notice}</p>}<section className="dashboard-grid"><article className="card"><p className="card-label">CURRENT USER</p><h2>{session ? session.kind === "ANONYMOUS" ? "게스트" : profileName ?? "등록 사용자 확인 중" : "사용자 없음"}</h2><p className="control-note">{session ? `session ${session.sessionId} · ${session.kind}` : "재실 안정화 뒤 등록 사용자 또는 게스트 session이 시작됩니다."}</p><p className="control-note">{statusText(current)}</p></article><article className="card"><p className="card-label">VISION</p><h2>{vision.value?.posture.status ?? "UNKNOWN"}</h2><p className="control-note">재실 {vision.value?.presence.status ?? "UNKNOWN"} (raw {vision.value?.presence.rawStatus ?? "UNKNOWN"}) · 신원 {vision.value?.identity.status ?? "UNKNOWN"}</p><p className="control-note">{statusText(vision)} · {vision.value?.association.reasonCodes.join(", ") || "association 정상"}</p></article><article className="card"><p className="card-label">CONTROL MODE · 제어 방식</p><h2>{automationValue?.controlMode ?? "없음"}</h2><div className="led-actions"><button className="previous-button" disabled={!expectedSessionId} onClick={() => void mode("AUTO")}>AUTO</button><button className="previous-button" disabled={!expectedSessionId} onClick={() => void mode("MANUAL")}>MANUAL</button></div><p className="control-note">{statusText(automation)}</p></article><article className="card"><p className="card-label">ACTIVITY MODE · 작업 모드</p><h2>{automationValue?.activityMode?.name ?? (session?.kind === "ANONYMOUS" ? "없음 (게스트)" : "없음")}</h2>{registeredProfileId ? <><label className="activity-picker">작업 모드<select value={automationValue?.activityMode?.key ?? ""} disabled={!expectedSessionId || modes.length === 0} onChange={(event) => void activity(event.target.value)}><option value="" disabled>선택</option>{modes.map((item) => <option key={item.key} value={item.key}>{item.kind === "DEFAULT" ? "기본 · " : "사용자 · "}{item.name}</option>)}</select></label><p className="control-note">{manual ? "MANUAL에서 이 선택은 LED만 즉시 바뀌며 책상은 이동하지 않습니다." : "AUTO에서는 서버가 안전 조건을 확인해 목표 높이를 재평가합니다."}</p>{modeError && <p className="inline-error">{modeError}</p>}</> : <p className="control-note">게스트/사용자 없음에서는 개인 mode와 profile 저장값을 사용하지 않습니다. 게스트 높이 정책은 75/110cm입니다.</p>}</article></section><section className="card dashboard-section"><p className="card-label">AUTOMATION</p><h2>{automationValue?.state ?? "확인 중"}</h2><p className="control-note">차단: {automationValue?.blockedReasonCodes.join(", ") || "없음"} · target intent: {automationValue?.intentSource ?? "없음"} · transition: {automationValue?.lastTransitionReason ?? "확인 중"}</p></section><DeskPanel status={desk.value} canControl={canControl} controlError={desk.error} onStatus={() => void desk.refresh()} onError={setNotice} /><section className="card dashboard-section"><p className="card-label">WLED</p><h2>{wled.value?.status ?? "확인 중"}</h2><p className="control-note">{wledDescription(wled.value)} · {statusText(wled)}</p><button className="previous-button" disabled={wled.value?.status === "DISABLED"} onClick={() => void led()}>조명 끄기</button></section><section className="card dashboard-section"><p className="card-label">VOICE / AI</p><h2>Assistant API 통합 전</h2><p className="control-note">연결 상태나 응답을 표시하지 않습니다. Assistant polling은 후속 작업 범위입니다.</p></section><p className="control-note">Desk 상태 {desk.value?.state ?? "확인 중"} · {statusText(desk)}. API 접수와 실제 이동/완료는 Desk snapshot으로 구분합니다.</p></main></>;
 }
 
-export default function App() {
-  const pathname = usePathname();
-  if (pathname.startsWith("/settings/profiles")) return <ProfileSettings pathname={pathname} />;
-  return <LegacyApp />;
-}
+export default function App() { const pathname = usePathname(); if (pathname.startsWith("/settings/profiles")) return <ProfileSettings pathname={pathname} />; if (pathname === "/debug/vision") return <DebugPanel />; return <Dashboard />; }

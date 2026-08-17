@@ -71,15 +71,16 @@ Vision debug `/debug/vision`
 
 ### API client와 상태 분리
 
-- [ ] profile·activity mode·얼굴 등록·현재 사용자·Vision·자동화 TypeScript 계약을 추가한다. (07A: profile·activity mode만 완료)
-- [ ] 첫 profile 선택을 제거하고 `/`을 항상 메인 Dashboard로 표시한다.
-- [ ] 설정 route의 `editingProfile`과 서버 current user를 분리하고 `selectedProfile` 기반 제어를
+- [x] profile·activity mode·얼굴 등록·현재 사용자·Vision·자동화 TypeScript 계약을 추가한다. (07A: profile·activity mode만 완료)
+- [x] 첫 profile 선택을 제거하고 `/`을 항상 메인 Dashboard로 표시한다.
+- [x] 설정 route의 `editingProfile`과 서버 current user를 분리하고 `selectedProfile` 기반 제어를
   제거한다.
-- [ ] 기능별 polling 중복과 stale 응답 덮어쓰기를 방지한다.
+- [x] 기능별 polling 중복과 stale 응답 덮어쓰기를 방지한다.
 - [ ] Assistant turn의 `turnId`, `sessionId`, progress/tool/final phase와 sequence 계약을
   TypeScript 모델에 추가한다.
-- [ ] 사용자 의존 명령에 화면이 읽은 `expectedSessionId`를 전달한다.
-- [ ] `409` session 충돌 시 명령 성공처럼 보이지 않게 새 snapshot을 다시 읽는다.
+- [x] control/activity mode 명령에 화면이 읽은 `expectedSessionId`를 전달한다. WLED의 stale-session
+  검증은 현재 backend request model에 필드가 없어 Task 08B 의존으로 남긴다.
+- [x] `409` session 충돌 시 명령 성공처럼 보이지 않게 새 snapshot을 다시 읽는다.
 
 ### profile 설정 흐름
 
@@ -89,21 +90,22 @@ Vision debug `/debug/vision`
   5초 확인합니다”라는 읽기 전용 안내만 표시한다.
 - [x] 최신 height가 ONLINE일 때만 “현재 높이 사용”을 draft에 복사한다.
 - [x] 기본 작업 모드의 비편집 이름과 custom 작업 모드 생성·수정·삭제 UI를 구현한다.
-- [ ] 얼굴 등록 진행, 취소·재시도·건너뛰기와 재등록·삭제를 연결한다.
+- [x] 얼굴 등록 진행, 취소·재시도·건너뛰기와 재등록·삭제를 연결한다.
 - [x] profile 삭제 확인에는 현 범위의 custom 작업 모드 cascade와 얼굴·Mem0 완전 삭제 미연결을 명시한다.
 
 ### 메인 Dashboard
 
-- [ ] 서버 current user와 연결 profile을 사용자 카드에 표시한다.
-- [ ] 익명 session을 오류가 아닌 “게스트”로 표시하고 작업 모드 없이 기본 75/110cm를 제공한다.
-- [ ] 재실·자세·관측 age와 얼굴 재확인 필요·불확실 상태를 구분해 표시한다.
-- [ ] `controlMode`를 `제어 방식`, `activityMode`를 `작업 모드`로 구분해 표시한다.
-- [ ] 작업 모드 선택과 control mode 변경·직접 제어를 명령 API에 연결한다.
-- [ ] MANUAL 작업 모드 선택은 LED만 바뀌고 책상이 움직이지 않음을 명확히 표시한다.
-- [ ] 수동 LED 변경은 저장값이 아니라 현재 session override임을 표시한다.
-- [ ] session이 없으면 개인 작업 모드와 profile 값을 사용하지 않되 HOLD·직접 높이·STOP은 제공한다.
-- [ ] control/activity mode 요청에는 화면이 읽은 `expectedSessionId`를 자동 첨부한다.
-- [ ] WLED, Voice/AI, Vision, Desk의 기능별 연결 상태를 하나의 `SYSTEM ONLINE`과 분리한다.
+- [x] 서버 current user와 연결 profile을 사용자 카드에 표시한다.
+- [x] 익명 session을 오류가 아닌 “게스트”로 표시하고 작업 모드 없이 기본 75/110cm를 제공한다.
+- [x] 재실·자세·관측 age와 얼굴 재확인 필요·불확실 상태를 구분해 표시한다.
+- [x] `controlMode`를 `제어 방식`, `activityMode`를 `작업 모드`로 구분해 표시한다.
+- [x] 작업 모드 선택과 control mode 변경·직접 제어를 명령 API에 연결한다.
+- [x] MANUAL 작업 모드 선택은 LED만 바뀌고 책상이 움직이지 않음을 명확히 표시한다.
+- [ ] 수동 LED 변경은 저장값이 아니라 현재 session override임을 표시한다. (Task 08B의 WLED
+  `expectedSessionId` backend 계약 필요)
+- [x] session이 없으면 개인 작업 모드와 profile 값을 사용하지 않되 HOLD·직접 높이·STOP은 제공한다.
+- [x] control/activity mode 요청에는 화면이 읽은 `expectedSessionId`를 자동 첨부한다.
+- [x] WLED, Voice/AI, Vision, Desk의 기능별 연결 상태를 하나의 `SYSTEM ONLINE`과 분리한다.
 - [ ] current `sessionId`가 바뀌거나 없어지면 이전 AI 상세 응답을 즉시 화면에서 제거한다.
 - [ ] `/api/assistant/latest`를 polling해 진행 안내, tool 실행 상태와 최종 응답을 같은
   `turnId` 안에서 순서대로 갱신하고 낮은
@@ -113,8 +115,8 @@ Vision debug `/debug/vision`
 
 ### Vision debug
 
-- [ ] 두 카메라 preview와 각 frame age·연결 상태를 표시한다.
-- [ ] raw detector, 안정화 재실·자세·신원과 현재 사용자 session 근거를 표시한다.
+- [ ] 두 카메라 preview와 각 frame age·연결 상태를 표시한다. (camera 상태·age와 browser preview URL 미구성 안내만 구현)
+- [x] raw detector, 안정화 재실·자세·신원과 현재 사용자 session 근거를 표시한다.
 - [ ] 얼굴 등록 session, control/activity mode 전환 이유와 자동화 차단 코드를 표시한다.
 - [ ] 얼굴 원본·crop 저장이나 embedding 노출 기능은 추가하지 않는다.
 

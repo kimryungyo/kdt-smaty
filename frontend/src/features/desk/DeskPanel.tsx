@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  type DeskStatus, type Profile,
+  type DeskStatus,
   type Direction,
   ApiError,
   cancelTarget,
@@ -16,14 +16,13 @@ import {
 
 type Props = {
   status: DeskStatus | null;
-  profile: Profile | null;
   canControl: boolean;
   controlError: string | null;
   onStatus: (status: DeskStatus) => void;
   onError: (message: string) => void;
 };
 
-export function DeskPanel({ status, profile, canControl, controlError, onStatus, onError }: Props) {
+export function DeskPanel({ status, canControl, controlError, onStatus, onError }: Props) {
   const [target, setTargetValue] = useState("");
   const direction = useRef<Direction | null>(null);
   const holdInFlight = useRef(false);
@@ -82,6 +81,10 @@ export function DeskPanel({ status, profile, canControl, controlError, onStatus,
       if (document.visibilityState === "hidden") stop();
     };
     const pageHide = () => {
+      if (interval.current !== null) {
+        window.clearInterval(interval.current);
+        interval.current = null;
+      }
       if (direction.current !== null) {
         direction.current = null;
         void sendStop(true).catch(() => undefined);
@@ -120,16 +123,6 @@ export function DeskPanel({ status, profile, canControl, controlError, onStatus,
     }
   };
 
-  const usePreset = async (height: number | undefined) => {
-    if (height === undefined) return;
-    setTargetValue(String(height));
-    try {
-      onStatus(await setTarget(height));
-    } catch (error) {
-      onError(error instanceof Error ? error.message : "목표 높이를 설정하지 못했습니다.");
-    }
-  };
-
   const press = (nextDirection: Direction, event: React.PointerEvent<HTMLButtonElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
     void beginHolding(nextDirection);
@@ -159,17 +152,16 @@ export function DeskPanel({ status, profile, canControl, controlError, onStatus,
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d={value === "UP" ? "M12 19V5m0 0-6 6m6-6 6 6" : "M12 5v14m0 0 6-6m-6 6-6-6"} /></svg>{value === "UP" ? "올리기" : "내리기"}
           </button>)}
         </div>
-        <button className="stop-button" type="button" onClick={() => void stopHolding(true)} disabled={status === null}>정지</button>
+        <button className="stop-button" type="button" onClick={() => void stopHolding(true)}>정지</button>
         <p className="control-note">{status?.state === "WAKING" ? "높이 센서를 한 번 깨운 뒤 새 관측과 릴레이 준비 상태를 확인하고 있습니다." : "버튼을 누르고 있는 동안만 이동하며, 손을 떼거나 화면을 벗어나거나 연결이 끊기면 즉시 정지합니다."}</p>
       </article>
       <article className="card control-card">
         <div className="card-header"><div><p className="card-label">AUTO MOVE</p><h2>목표 높이로 자동 이동</h2></div><span className="card-number">06</span></div>
-        <div className="target-presets"><button className="preset-button" type="button" disabled={!canControl || profile === null} onClick={() => void usePreset(profile?.sittingHeightCm)}>앉은 높이로</button><button className="preset-button" type="button" disabled={!canControl || profile === null} onClick={() => void usePreset(profile?.standingHeightCm)}>서 있는 높이로</button></div>
         <form onSubmit={(event) => void submitTarget(event)}>
           <label className="height-field" htmlFor="targetHeightInput"><span>목표 높이 입력</span><div><input id="targetHeightInput" type="number" min={DESK_CONTROL_MIN_CM} max={DESK_CONTROL_MAX_CM} step="0.1" value={target} onChange={(event) => setTargetValue(event.target.value)} disabled={!canControl} required /><span>cm</span></div></label>
-          <div className="target-actions"><button type="button" className="previous-button" onClick={() => void cancel()} disabled={!canControl || status?.targetHeightCm === null}>취소</button><button className="complete-button" type="submit" disabled={!canControl}>이동 시작</button></div>
+          <div className="target-actions"><button type="button" className="previous-button" onClick={() => void cancel()} disabled={status?.targetHeightCm === null || status?.targetHeightCm === undefined}>취소</button><button className="complete-button" type="submit" disabled={!canControl}>이동 시작</button></div>
         </form>
-        <p className="status-message" role="status">{profile ? `${profile.name} 프로필의 높이를 빠르게 설정할 수 있습니다.` : "프로필을 선택하면 저장된 높이를 바로 적용할 수 있습니다."}</p>
+        <p className="status-message" role="status">직접 목표는 session 없이도 사용할 수 있으며, API 접수 뒤 실제 이동 상태를 확인합니다.</p>
       </article>
     </section>
   );

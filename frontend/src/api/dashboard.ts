@@ -79,7 +79,7 @@ const json = (body: object): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-export const getDeskStatus = () => request<DeskStatus>("/api/status");
+export const getDeskStatus = (signal?: AbortSignal) => request<DeskStatus>("/api/status", { signal });
 export const sendHold = (direction: Direction) => request<DeskStatus>("/api/control", json({ action: "HOLD", direction }));
 export const sendStop = (keepalive = false) =>
   request<DeskStatus>("/api/control", { ...json({ action: "STOP" }), keepalive });
@@ -87,7 +87,7 @@ export const setTarget = (targetCm: number) => request<DeskStatus>("/api/target"
 export const cancelTarget = () => request<DeskStatus>("/api/target", json({ action: "CANCEL" }));
 
 export const listProfiles = () => request<Profile[]>("/api/profiles");
-export const getProfile = (id: string) => request<Profile>(`/api/profiles/${encodeURIComponent(id)}`);
+export const getProfile = (id: string, signal?: AbortSignal) => request<Profile>(`/api/profiles/${encodeURIComponent(id)}`, { signal });
 export const createProfile = (profile: ProfileInput) => request<Profile>("/api/profiles", json(profile));
 export const updateProfile = (id: string, profile: Partial<ProfileInput>) =>
   request<Profile>(`/api/profiles/${encodeURIComponent(id)}`, {
@@ -96,8 +96,8 @@ export const updateProfile = (id: string, profile: Partial<ProfileInput>) =>
     body: JSON.stringify(profile),
   });
 export const deleteProfile = (id: string) => request<void>(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
-export const listActivityModes = (profileId: string) =>
-  request<ActivityMode[]>(`/api/profiles/${encodeURIComponent(profileId)}/activity-modes`);
+export const listActivityModes = (profileId: string, signal?: AbortSignal) =>
+  request<ActivityMode[]>(`/api/profiles/${encodeURIComponent(profileId)}/activity-modes`, { signal });
 export const createActivityMode = (profileId: string, mode: ActivityModeInput) =>
   request<ActivityMode>(`/api/profiles/${encodeURIComponent(profileId)}/activity-modes`, json(mode));
 export const updateActivityMode = (modeId: string, mode: Partial<ActivityModeInput>) =>
@@ -108,6 +108,21 @@ export const updateActivityMode = (modeId: string, mode: Partial<ActivityModeInp
   });
 export const deleteActivityMode = (modeId: string) =>
   request<void>(`/api/activity-modes/${encodeURIComponent(modeId)}`, { method: "DELETE" });
-export const getWledStatus = () => request<WledSnapshot>("/api/wled/status");
+export const getWledStatus = (signal?: AbortSignal) => request<WledSnapshot>("/api/wled/status", { signal });
 export const getWledCapabilities = () => request<WledCapabilities>("/api/wled/capabilities");
 export const controlWled = (command: WledControl) => request<WledSnapshot>("/api/wled/control", json(command));
+
+export type CurrentUser = { session: { sessionId: string; kind: "REGISTERED" | "ANONYMOUS"; profileId: string | null; startedAt: string; changedAt: string } | null };
+export type VisionStatus = { cameras: Record<string, { status: "OFFLINE" | "ONLINE" | "STALE" | "ERROR"; observedAt: string | null; expiresAt: string | null; ageSeconds: number | null; error: string | null }>; identity: { status: string; profileId: string | null; observedAt: string | null; expiresAt: string | null }; presence: { rawStatus: string; status: string; upperCount: number | null; lowerCount: number | null; observedAt: string | null; expiresAt: string | null }; posture: { rawStatus: string; status: string; candidateSince: string | null; observedAt: string | null; expiresAt: string | null }; association: { usable: boolean; reasonCodes: string[] } };
+export type AutomationStatus = { sessionId: string | null; controlMode: "AUTO" | "MANUAL" | null; activityMode: ActivityMode | null; state: string; heightPolicy: string | null; postureCandidate: string | null; candidateSince: string | null; targetHeightCm: number | null; intentSource: string | null; blockedReasonCodes: string[]; initialMoveDueAt: string | null; parkDueAt: string | null; generation: number; revision: number; lastTransitionReason: string; lastTransitionSource: string; lastTransitionAt: string; updatedAt: string };
+export type Enrollment = { enrollmentId: string; profileId: string; state: "WAITING_FACE" | "CAPTURING" | "PROCESSING" | "SUCCEEDED" | "CANCELLED" | "FAILED"; requiredSamples: number; acceptedSamples: number; startedAt: string; changedAt: string; failureCode: string | null };
+
+export const getCurrentUser = (signal?: AbortSignal) => request<CurrentUser>("/api/current-user", { signal });
+export const getVisionStatus = (signal?: AbortSignal) => request<VisionStatus>("/api/vision/status", { signal });
+export const getAutomationStatus = (signal?: AbortSignal) => request<AutomationStatus>("/api/automation/status", { signal });
+export const setControlMode = (controlMode: "AUTO" | "MANUAL", expectedSessionId: string) => request<AutomationStatus>("/api/desk/control-mode", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ controlMode, expectedSessionId }) });
+export const setActivityMode = (activityModeKey: string, expectedSessionId: string) => request<AutomationStatus>("/api/desk/activity-mode", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ activityModeKey, expectedSessionId }) });
+export const startFaceEnrollment = (profileId: string) => request<Enrollment>(`/api/profiles/${encodeURIComponent(profileId)}/face-enrollments`, json({}));
+export const getFaceEnrollment = (enrollmentId: string, signal?: AbortSignal) => request<Enrollment>(`/api/face-enrollments/${encodeURIComponent(enrollmentId)}`, { signal });
+export const cancelFaceEnrollment = (enrollmentId: string) => request<void>(`/api/face-enrollments/${encodeURIComponent(enrollmentId)}`, { method: "DELETE" });
+export const deleteFace = (profileId: string) => request<void>(`/api/profiles/${encodeURIComponent(profileId)}/face`, { method: "DELETE" });
