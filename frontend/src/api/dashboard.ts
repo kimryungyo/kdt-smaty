@@ -31,6 +31,22 @@ export type Profile = {
 };
 
 export type ProfileInput = Omit<Profile, "id">;
+export type ActivityMode = {
+  key: string;
+  kind: "DEFAULT" | "CUSTOM";
+  name: string;
+  sittingHeightCm: number;
+  standingHeightCm: number;
+  ledColor: string | null;
+  editable: boolean;
+};
+
+export type ActivityModeInput = {
+  name: string;
+  sittingHeightCm: number;
+  standingHeightCm: number;
+  ledColor: string | null;
+};
 export type WledMode = "OFF" | "SOLID" | "EFFECT" | "MIXED";
 export type WledStatus = "DISABLED" | "UNKNOWN" | "ONLINE" | "ERROR";
 export type WledSnapshot = { status: WledStatus; on: boolean | null; brightness: number | null; mode: WledMode | null; color: string | null; effectId: number | null; effectName: string | null; paletteId: number | null; speed: number | null; intensity: number | null; observedAt: string | null; lastError: string | null };
@@ -71,6 +87,7 @@ export const setTarget = (targetCm: number) => request<DeskStatus>("/api/target"
 export const cancelTarget = () => request<DeskStatus>("/api/target", json({ action: "CANCEL" }));
 
 export const listProfiles = () => request<Profile[]>("/api/profiles");
+export const getProfile = (id: string) => request<Profile>(`/api/profiles/${encodeURIComponent(id)}`);
 export const createProfile = (profile: ProfileInput) => request<Profile>("/api/profiles", json(profile));
 export const updateProfile = (id: string, profile: Partial<ProfileInput>) =>
   request<Profile>(`/api/profiles/${encodeURIComponent(id)}`, {
@@ -79,6 +96,18 @@ export const updateProfile = (id: string, profile: Partial<ProfileInput>) =>
     body: JSON.stringify(profile),
   });
 export const deleteProfile = (id: string) => request<void>(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const listActivityModes = (profileId: string) =>
+  request<ActivityMode[]>(`/api/profiles/${encodeURIComponent(profileId)}/activity-modes`);
+export const createActivityMode = (profileId: string, mode: ActivityModeInput) =>
+  request<ActivityMode>(`/api/profiles/${encodeURIComponent(profileId)}/activity-modes`, json(mode));
+export const updateActivityMode = (modeId: string, mode: Partial<ActivityModeInput>) =>
+  request<ActivityMode>(`/api/activity-modes/${encodeURIComponent(modeId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(mode),
+  });
+export const deleteActivityMode = (modeId: string) =>
+  request<void>(`/api/activity-modes/${encodeURIComponent(modeId)}`, { method: "DELETE" });
 export const getWledStatus = () => request<WledSnapshot>("/api/wled/status");
 export const getWledCapabilities = () => request<WledCapabilities>("/api/wled/capabilities");
 export const controlWled = (command: WledControl) => request<WledSnapshot>("/api/wled/control", json(command));

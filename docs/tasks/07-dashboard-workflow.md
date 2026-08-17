@@ -71,7 +71,7 @@ Vision debug `/debug/vision`
 
 ### API client와 상태 분리
 
-- [ ] profile·activity mode·얼굴 등록·현재 사용자·Vision·자동화 TypeScript 계약을 추가한다.
+- [ ] profile·activity mode·얼굴 등록·현재 사용자·Vision·자동화 TypeScript 계약을 추가한다. (07A: profile·activity mode만 완료)
 - [ ] 첫 profile 선택을 제거하고 `/`을 항상 메인 Dashboard로 표시한다.
 - [ ] 설정 route의 `editingProfile`과 서버 current user를 분리하고 `selectedProfile` 기반 제어를
   제거한다.
@@ -83,14 +83,14 @@ Vision debug `/debug/vision`
 
 ### profile 설정 흐름
 
-- [ ] 메인 우측 상단 설정 버튼과 profile 목록·생성·상세 설정 route를 연결한다.
-- [ ] 이름, 앉은·선 높이와 조명 입력을 profile API에 연결한다.
-- [ ] 사용자 키 입력·state와 자세 유지 시간 입력을 제거하고, 필요하면 “모든 사용자는 자세를
+- [x] profile 목록·생성·상세 설정 route를 연결한다. (메인 설정 버튼은 07B 범위)
+- [x] 이름, 앉은·선 높이와 조명 입력을 profile API에 연결한다.
+- [x] 사용자 키 입력·state와 자세 유지 시간 입력을 제거하고, 필요하면 “모든 사용자는 자세를
   5초 확인합니다”라는 읽기 전용 안내만 표시한다.
-- [ ] 최신 height가 ONLINE일 때만 “현재 높이 사용”을 draft에 복사한다.
-- [ ] 기본 작업 모드의 비편집 이름과 custom 작업 모드 생성·수정·삭제 UI를 구현한다.
+- [x] 최신 height가 ONLINE일 때만 “현재 높이 사용”을 draft에 복사한다.
+- [x] 기본 작업 모드의 비편집 이름과 custom 작업 모드 생성·수정·삭제 UI를 구현한다.
 - [ ] 얼굴 등록 진행, 취소·재시도·건너뛰기와 재등록·삭제를 연결한다.
-- [ ] profile 삭제 확인에는 연관 작업 모드·얼굴·장기 기억 삭제와 활성 session 종료를 명시한다.
+- [x] profile 삭제 확인에는 현 범위의 custom 작업 모드 cascade와 얼굴·Mem0 완전 삭제 미연결을 명시한다.
 
 ### 메인 Dashboard
 

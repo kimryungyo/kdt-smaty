@@ -6,10 +6,12 @@ import { DebugPanel } from "./features/debug/DebugPanel";
 import { HeightSetup, ProfileBasics, ProfilePicker } from "./features/profiles/ProfilesPanel";
 import { LegacyStyle } from "./legacy/LegacyStyle";
 import dashboardCss from "./legacy/dashboard.css?raw";
+import { ProfileSettings } from "./features/profiles/ProfileSettings";
+import { usePathname } from "./routes";
 
 type Page = "picker" | "dashboard" | "basics" | "height-setup" | "debug";
 
-export default function App() {
+function LegacyApp() {
   const [deskStatus, setDeskStatus] = useState<DeskStatus | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
   const [page, setPage] = useState<Page>("picker");
@@ -146,4 +148,10 @@ export default function App() {
       </main>
     </>
   );
+}
+
+export default function App() {
+  const pathname = usePathname();
+  if (pathname.startsWith("/settings/profiles")) return <ProfileSettings pathname={pathname} />;
+  return <LegacyApp />;
 }
