@@ -137,6 +137,10 @@ broker는 이번 범위에 추가하지 않는다.
 - [ ] WLED tool은 WLED public service만 호출하고 내부 client 상태를 우회하지 않게 유지한다.
 - [ ] Desk tool은 Agents SDK function tool로 구현하되 `AutomationService`의 session·mode·안전
   검증을 반드시 통한다.
+- [x] `AutomationService.hold`와 `set_target`은 선택적 `expectedSessionId`를 받아 Voice turn의
+  시작 session을 실제 Desk 부작용 직전까지 재검증한다. `None`은 기존 Dashboard의 신원 독립
+  명령 경로이고, stale turn은 필요한 자동 이동 안전 STOP만 남기고 `SESSION_MISMATCH`로
+  거절된다.
 - [ ] 작업 모드 선택 tool은 `activityModeKey`와 turn 시작 `expectedSessionId`로
   `AutomationService`를 호출하며 AUTO/MANUAL 보존 규칙을 그대로 따른다.
 - [ ] WLED 수동 변경 tool은 저장된 작업 모드를 수정하지 않고 현재 session override만 만든다.

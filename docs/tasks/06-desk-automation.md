@@ -86,9 +86,13 @@ control mode, activity mode와 자동화 상태는 같은 enum으로 합치지 �
 - [x] 같은 session의 명시적 AUTO 재활성화는 진행 이동 STOP → 후보 초기화 → AUTO 전환 →
   fresh 자세 5초 확인 순서로 처리한다.
 - [x] control/activity mode의 `expectedSessionId`를 command lock 안에서 비교한다.
-- [ ] Agents SDK Desk function tool의 `expectedSessionId` 비교는 Task 08에서 구현한다.
-- [ ] function tool은 model이 tool call을 만든 시점이 아니라 AutomationService command가
-  실제 부작용을 실행하기 직전에 turn 시작 `sessionId`를 재검증한다.
+- [x] HOLD·직접 목표는 Dashboard 호환을 위해 sessionless 호출을 허용하되, Voice 같은
+  사용자 종속 호출은 선택적 `expectedSessionId`를 command lock 안에서 current-user와
+  automation snapshot에 비교한다.
+- [x] 사용자 종속 HOLD·직접 목표는 첫 expected-session 검증 뒤 `_state_lock` 안에서
+  MANUAL mutation 직전에 automation snapshot을 다시 비교하고, 자동 이동 STOP 전과 Desk
+  부작용 직전에 turn 시작 `sessionId`를 재검증한다. 교대 경합에서는 stale 부작용을 거절하고
+  필요한 안전 STOP만 보존한다.
 - [x] 작업 모드 선택 시 현재 profile의 default/custom 소유권과 값을 서버에서 다시 조회한다.
 - [x] AUTO에서 작업 모드를 바꾸면 control mode를 유지하고 이전 generation을 무효화한 뒤
   fresh·안정된 현재 자세로 새 높이를 평가한다. Vision이 불확실하면 mode·LED만 바꾸고 이동은 차단한다.

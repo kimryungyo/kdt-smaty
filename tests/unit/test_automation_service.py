@@ -434,6 +434,114 @@ async def test_hold_and_target_preempt_shadow_without_safety_stop() -> None:
     assert service.get_snapshot().control_mode is ControlMode.MANUAL
 
 
+async def test_user_bound_hold_and_target_reject_stale_or_missing_session() -> None:
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock)
+    await observe(service, camera, (1, 1), clock)
+
+    await service.hold(Direction.UP, "session-a")
+    await service.set_target(89, "session-a")
+    assert desk.calls == [("hold", "UP"), ("target", 89)]
+
+    users.current = user("session-b")
+    with pytest.raises(AutomationConflictError, match="SESSION_MISMATCH"):
+        await service.hold(Direction.DOWN, "session-a")
+    with pytest.raises(AutomationConflictError, match="SESSION_MISMATCH"):
+        await service.set_target(90, "session-a")
+    # Current user B alone is insufficient until AutomationService has also
+    # installed B's snapshot.
+    with pytest.raises(AutomationConflictError, match="SESSION_MISMATCH"):
+        await service.set_target(88, "session-b")
+
+    users.current = None
+    with pytest.raises(AutomationConflictError, match="SESSION_MISMATCH"):
+        await service.set_target(91, "session-a")
+    assert desk.calls == [("hold", "UP"), ("target", 89)]
+
+
+@pytest.mark.parametrize("command", ["hold", "target"])
+async def test_user_bound_manual_rechecks_replaced_snapshot_before_mutation(
+    command: str,
+) -> None:
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock)
+    await observe(service, camera, (1, 1), clock)
+
+    validate = service._validate_expected_session
+    first_validation = True
+
+    async def validate_then_install_b(expected_session_id: str | None) -> None:
+        nonlocal first_validation
+        await validate(expected_session_id)
+        if first_validation:
+            first_validation = False
+            users.current = user("session-b")
+            await observe(service, camera, (2, 2), clock)
+
+    service._validate_expected_session = validate_then_install_b  # type: ignore[method-assign]
+
+    with pytest.raises(AutomationConflictError, match="SESSION_MISMATCH"):
+        if command == "hold":
+            await service.hold(Direction.UP, "session-a")
+        else:
+            await service.set_target(90, "session-a")
+
+    snapshot = service.get_snapshot()
+    assert snapshot.session_id == "session-b"
+    assert snapshot.control_mode is ControlMode.AUTO
+    assert snapshot.state is AutomationState.OBSERVING
+    assert not desk.calls
+
+
+@pytest.mark.parametrize("command", ["hold", "target"])
+async def test_user_bound_manual_race_keeps_safety_stop_but_rejects_stale_effect(
+    command: str,
+) -> None:
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    await observe(service, camera, (3, 3), clock, 2)
+    await asyncio.sleep(0)
+    assert ("target", 75.0) in desk.calls
+
+    stop_started, release_stop = desk.delay_next_stop()
+    manual = asyncio.create_task(
+        service.hold(Direction.UP, "session-a")
+        if command == "hold" else service.set_target(90, "session-a")
+    )
+    await stop_started.wait()
+    users.current = user("session-b")
+    await observe(service, camera, (4, 4), clock)
+    release_stop.set()
+
+    with pytest.raises(AutomationConflictError, match="SESSION_MISMATCH"):
+        await manual
+
+    snapshot = service.get_snapshot()
+    assert snapshot.session_id == "session-b"
+    assert snapshot.control_mode is ControlMode.AUTO
+    assert snapshot.state is AutomationState.OBSERVING
+    assert len([call for call in desk.calls if call[0] == "stop"]) == 1
+    assert ("hold", "UP") not in desk.calls
+    assert ("target", 90) not in desk.calls
+
+
+async def test_stop_remains_session_independent_during_session_replacement() -> None:
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock)
+    await observe(service, camera, (1, 1), clock)
+    users.current = user("session-b")
+
+    await service.stop_motion()
+
+    assert [call for call in desk.calls if call[0] == "stop"]
+
+
 @pytest.mark.parametrize("command", ["hold", "target"])
 async def test_preempting_live_automatic_stop_failure_prevents_manual_command(command: str) -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())

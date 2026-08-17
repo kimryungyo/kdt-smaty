@@ -157,26 +157,31 @@ class AutomationService:
     def _on_session_change(self, _event: object) -> None:
         self._wake.set()
 
-    async def hold(self, direction: Direction) -> None:
+    async def hold(self, direction: Direction, expected_session_id: str | None = None) -> None:
         async with self._command_lock:
-            live = await self._make_manual("HOLD")
+            live = await self._make_manual("HOLD", expected_session_id)
             self._raise_if_stop_failed()
-            if live:
-                # A user command must not run after its required preemption
-                # STOP failed.  _make_manual deliberately happened first, so
-                # the caller can safely retry from the preserved MANUAL state.
-                await self._stop_or_block("수동 HOLD가 자동 이동을 선점했습니다.")
+            await self._preempt_for_manual_command(
+                expected_session_id, live, "수동 HOLD가 자동 이동을 선점했습니다."
+            )
+            # A Voice turn can become stale while a preemption STOP is in
+            # flight.  Never let its HOLD become the new user's command.
+            await self._validate_expected_session(expected_session_id)
             if direction is Direction.UP:
                 await self._desk.hold_up()
             else:
                 await self._desk.hold_down()
 
-    async def set_target(self, target_cm: float) -> None:
+    async def set_target(self, target_cm: float, expected_session_id: str | None = None) -> None:
         async with self._command_lock:
-            live = await self._make_manual("SET_TARGET")
+            live = await self._make_manual("SET_TARGET", expected_session_id)
             self._raise_if_stop_failed()
-            if live:
-                await self._stop_or_block("직접 목표가 자동 이동을 선점했습니다.")
+            await self._preempt_for_manual_command(
+                expected_session_id, live, "직접 목표가 자동 이동을 선점했습니다."
+            )
+            # Keep the sessionless Dashboard command path unchanged, while a
+            # user-bound caller is checked at the final physical boundary.
+            await self._validate_expected_session(expected_session_id)
             await self._desk.set_target(target_cm)
 
     async def stop_motion(self, reason: str = "사용자 STOP") -> None:
@@ -297,8 +302,18 @@ class AutomationService:
             raise AutomationConflictError("ACTIVITY_MODE_OWNERSHIP") from error
         return effective_mode_from_activity(mode)
 
-    async def _make_manual(self, reason: str) -> bool:
+    async def _make_manual(self, reason: str, expected_session_id: str | None = None) -> bool:
+        # This validation deliberately does not hold the current-user lock
+        # across Desk I/O.  Every later physical boundary revalidates instead,
+        # so session replacement remains quick and stale commands cannot act.
+        await self._validate_expected_session(expected_session_id)
         async with self._state_lock:
+            # The first check released this lock.  A session replacement can
+            # install B in that gap, so A must not invalidate or mark B's
+            # snapshot MANUAL before the later Desk-bound checks reject it.
+            if (expected_session_id is not None
+                    and self._snapshot.session_id != expected_session_id):
+                raise AutomationConflictError("SESSION_MISMATCH")
             live = self._invalidate_locked(reason)
             if self._snapshot.session_id is not None:
                 state = (AutomationState.BLOCKED if "DESK_STOP_FAILED" in self._snapshot.blocked_reason_codes
@@ -309,6 +324,39 @@ class AutomationService:
             else:
                 self._set_waiting_locked(reason)
             return live
+
+    async def _validate_expected_session(self, expected_session_id: str | None) -> None:
+        """Require both current-user and automation ownership when supplied.
+
+        ``None`` is intentionally the Dashboard/HTTP compatibility path: it
+        is identity-independent and remains usable with no active session.
+        """
+        if expected_session_id is None:
+            return
+        current = await self._users.snapshot()
+        if current is None or current.session_id != expected_session_id:
+            raise AutomationConflictError("SESSION_MISMATCH")
+        async with self._state_lock:
+            if self._snapshot.session_id != expected_session_id:
+                raise AutomationConflictError("SESSION_MISMATCH")
+
+    async def _preempt_for_manual_command(
+        self, expected_session_id: str | None, live: bool, reason: str,
+    ) -> None:
+        """Preserve a needed safety STOP but reject stale manual side effects."""
+        try:
+            await self._validate_expected_session(expected_session_id)
+        except AutomationConflictError:
+            if live:
+                # The old AUTO target may still be moving.  STOP is a safety
+                # action, so it survives the same race that rejects HOLD/target.
+                await self._safe_stop(reason)
+            raise
+        if live:
+            # A user command must not run after its required preemption STOP
+            # failed.  _make_manual deliberately happened first, so the caller
+            # can safely retry from the preserved MANUAL state.
+            await self._stop_or_block(reason)
 
     async def _run_loop(self) -> None:
         while self._running:
