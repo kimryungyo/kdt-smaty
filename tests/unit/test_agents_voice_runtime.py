@@ -362,7 +362,7 @@ async def test_workflow_passes_sdk_context_and_session_searches_personalized() -
     assert captured["context"] is context and captured["session"] == "sdk-session"
     assert context.assistant_response == "화면에 보일 답변"
     assert context.searches == [("profile-a", "raw transcript")]
-    assert "likes tea" in captured["prompt"]
+    assert "<profile_memory>\nlikes tea\n</profile_memory>" in captured["prompt"]
 
 
 async def _context(value: Context) -> Context:
