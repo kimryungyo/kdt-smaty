@@ -395,7 +395,9 @@ class TiltController:
         if event == "status":
             # 서버 재시작이 ESP32 부팅보다 늦으면 ready 이벤트를 놓친다. heartbeat도
             # 같은 동기화 입력으로 처리해 현재 위치가 유효할 때 보정을 재주입한다.
-            await self._handle_ready_or_status(firmware_value, valid_position, position_mm)
+            await self._handle_ready_or_status(
+                firmware_value, valid_position, position_mm, heartbeat=True
+            )
             return
         if event == "moving":
             await self._replace_snapshot(
@@ -435,7 +437,15 @@ class TiltController:
         firmware: str | None,
         position_valid: bool,
         position_mm: float | None,
+        *,
+        heartbeat: bool = False,
     ) -> None:
+        # 이동 중에도 heartbeat는 계속 온다. 그때의 position_valid=false는 아직
+        # 목적지에 닿지 않았다는 뜻이지 장치가 죽었다는 뜻이 아니므로, 진행 중인
+        # 이동을 ERROR로 갈아엎지 않는다. 이동의 끝은 at_target/stopped가 알린다.
+        if heartbeat and self._snapshot.state is TiltState.MOVING:
+            await self._replace_snapshot(firmware=firmware, position_mm=position_mm)
+            return
         await self._replace_snapshot(
             state=TiltState.ERROR,
             target_level=None,

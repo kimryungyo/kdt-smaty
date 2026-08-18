@@ -141,6 +141,28 @@ async def test_device_with_a_known_position_is_left_alone(tmp_path: Path) -> Non
         await controller.stop()
 
 
+async def test_heartbeat_during_a_move_does_not_cancel_it(tmp_path: Path) -> None:
+    """이동 중 heartbeat의 position_valid=false는 아직 도착 전이라는 뜻일 뿐이다.
+
+    실제 장치는 RUN이 도는 동안 status를 계속 보낸다. 이걸 준비 실패로 읽으면
+    진행 중인 이동이 ERROR로 지워지고, 곧바로 자동 영점 복귀가 다시 돌아
+    끝없이 오르내린다.
+    """
+
+    controller, _mqtt, link = await started(tmp_path)
+    try:
+        await controller.set_target(0)
+        await wait_until(lambda: controller.get_snapshot().state is TiltState.MOVING)
+
+        link.push({"event": "status", "firmware": "tilt-test", "position_valid": False})
+        await wait_until(lambda: controller.get_snapshot().firmware == "tilt-test")
+
+        assert controller.get_snapshot().state is TiltState.MOVING
+        assert controller.get_snapshot().last_error is None
+    finally:
+        await controller.stop()
+
+
 async def test_other_levels_still_use_position_based_moves(tmp_path: Path) -> None:
     controller, _mqtt, link = await started(tmp_path)
     try:
