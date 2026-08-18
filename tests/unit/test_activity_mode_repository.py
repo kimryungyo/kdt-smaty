@@ -22,18 +22,18 @@ async def test_default_is_synthesized_and_custom_modes_are_profile_scoped(tmp_pa
     profile_ids = iter(["profile-" + "a" * 32, "profile-" + "b" * 32])
     profiles = ProfileRepository(database, id_factory=lambda: next(profile_ids))
     modes = ActivityModeRepository(database, id_factory=lambda: "mode-" + "c" * 32)
-    first = await profiles.create_profile(ProfileCreate(name="A", sittingHeightCm=80, standingHeightCm=105, ledColor="FF0000"))
+    first = await profiles.create_profile(ProfileCreate(name="A", sittingHeightCm=80, standingHeightCm=105, ledColor="FF0000", ledBrightness=200))
     second = await profiles.create_profile(ProfileCreate(name="B", sittingHeightCm=81, standingHeightCm=106))
 
     created = await modes.create_mode(
         first.id,
-        ActivityModeCreate(name=" 독서 ", sittingHeightCm=82, standingHeightCm=108, ledColor="ffd080"),
+        ActivityModeCreate(name=" 독서 ", sittingHeightCm=82, standingHeightCm=108, ledColor="ffd080", ledBrightness=40),
     )
     effective = await modes.list_effective_modes(first.id)
 
     assert [item.model_dump() for item in effective] == [
-        {"key": "default", "kind": "DEFAULT", "name": "기본", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "FF0000", "tiltLevel": None, "description": None, "editable": False},
-        {"key": created.id, "kind": "CUSTOM", "name": "독서", "sittingHeightCm": 82.0, "standingHeightCm": 108.0, "ledColor": "FFD080", "tiltLevel": None, "description": None, "editable": True},
+        {"key": "default", "kind": "DEFAULT", "name": "기본", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "FF0000", "ledBrightness": 200, "tiltLevel": None, "description": None, "editable": False},
+        {"key": created.id, "kind": "CUSTOM", "name": "독서", "sittingHeightCm": 82.0, "standingHeightCm": 108.0, "ledColor": "FFD080", "ledBrightness": 40, "tiltLevel": None, "description": None, "editable": True},
     ]
     with pytest.raises(ActivityModeOwnershipError):
         await modes.get_mode_for_profile(second.id, created.id)

@@ -58,7 +58,12 @@ class DeskPort(Protocol):
 
 class WledPort(Protocol):
     async def set_solid(self, color: str) -> None: ...
+    async def set_brightness(self, brightness: int) -> None: ...
     async def turn_off(self) -> None: ...
+
+
+# 작업 모드가 조명에 지시하는 한 벌. 밝기가 None이면 지금 밝기를 그대로 둔다.
+LedSetting = tuple[str | None, int | None]
 
 
 class ActivityModeUsagePort(Protocol):
@@ -295,7 +300,7 @@ class AutomationService:
                     self._last_pair = self._pair(self._vision.get_snapshot())
             # Mode selection and its LED are committed independently of the
             # Desk preemption outcome; a failed STOP must not roll either back.
-            self._queue_led(selected.led_color)
+            self._queue_led(selected.led_color, selected.led_brightness)
             self._remember_mode(current.profile_id, selected.key)
             await self._begin_usage(current.profile_id, selected)
             if live:
@@ -487,11 +492,13 @@ class AutomationService:
                 await self._queue_install_led(
                     current.session_id, expected_generation,
                     activity.led_color if activity is not None else None,
+                    activity.led_brightness if activity is not None else None,
                 )
                 return True
         if not await self._queue_install_led(
             current.session_id, expected_generation,
             activity.led_color if activity is not None else None,
+            activity.led_brightness if activity is not None else None,
         ):
             return True
         if anonymous_upgrade and control is ControlMode.AUTO and failure is None and self._auto_usable(vision):
@@ -500,6 +507,7 @@ class AutomationService:
 
     async def _queue_install_led(
         self, expected_session_id: str, expected_generation: int, color: str | None,
+        brightness: int | None = None,
     ) -> bool:
         """Queue an installed session's LED only while that install still owns state."""
         if not await self._users.is_current(expected_session_id):
@@ -511,7 +519,7 @@ class AutomationService:
                 return False
             # This only queues background WLED I/O; it does not await it while
             # holding state ownership.
-            self._queue_led_sequence(color)
+            self._queue_led_sequence(color, brightness)
             return True
 
     async def _schedule_upgrade_target(
@@ -1048,14 +1056,16 @@ class AutomationService:
             return None
         return mode_key
 
-    def _queue_led(self, color: str | None) -> None:
-        self._queue_led_values((color,))
+    def _queue_led(self, color: str | None, brightness: int | None = None) -> None:
+        self._queue_led_values(((color, brightness),))
 
-    def _queue_led_sequence(self, color: str | None) -> None:
-        values: tuple[str | None, ...] = (None,) if color is None else (None, color)
+    def _queue_led_sequence(self, color: str | None, brightness: int | None = None) -> None:
+        values: tuple[LedSetting, ...] = (
+            ((None, None),) if color is None else ((None, None), (color, brightness))
+        )
         self._queue_led_values(values)
 
-    def _queue_led_values(self, values: tuple[str | None, ...]) -> None:
+    def _queue_led_values(self, values: tuple[LedSetting, ...]) -> None:
         """Coalesce LED ownership; an older session cannot paint over a newer one."""
         if self._wled is None:
             return
@@ -1066,14 +1076,14 @@ class AutomationService:
         async def apply() -> None:
             if previous is not None:
                 await asyncio.gather(previous, return_exceptions=True)
-            for color in values:
+            for color, brightness in values:
                 if sequence != self._wled_sequence:
                     return
-                await self._apply_led(color, sequence)
+                await self._apply_led(color, brightness, sequence)
 
         self._wled_task = asyncio.create_task(apply(), name="desk-automation-wled")
 
-    async def _apply_led(self, color: str | None, sequence: int) -> None:
+    async def _apply_led(self, color: str | None, brightness: int | None, sequence: int) -> None:
         try:
             async with self._wled_io_lock:
                 if sequence != self._wled_sequence or self._wled is None:
@@ -1081,6 +1091,10 @@ class AutomationService:
                 if color is None:
                     await self._wled.turn_off()
                 else:
+                    # 밝기를 먼저 맞춘 뒤 색을 올린다. 색이 나타나는 순간
+                    # 이미 그 모드의 밝기여서 직전 밝기가 스치지 않는다.
+                    if brightness is not None:
+                        await self._wled.set_brightness(brightness)
                     await self._wled.set_solid(color)
         except Exception:
             async with self._state_lock:

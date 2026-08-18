@@ -188,7 +188,9 @@ def build_smart_desk_tools() -> list[Any]:
         except Exception:
             return _error("activity_modes_failed")
         return _ok(modes=[
-            {"key": mode.key, "name": mode.name, "description": mode.description}
+            {"key": mode.key, "name": mode.name, "description": mode.description,
+             "led_color": mode.led_color, "led_brightness": mode.led_brightness,
+             "tilt_level": mode.tilt_level}
             for mode in modes
         ])
 

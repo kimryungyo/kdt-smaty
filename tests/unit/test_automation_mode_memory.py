@@ -59,7 +59,7 @@ class FakeModes:
     async def list_effective_modes(self, _profile_id: str) -> list[EffectiveActivityMode]:
         return [EffectiveActivityMode(
             key="default", kind="DEFAULT", name="기본", sitting_height_cm=75,
-            standing_height_cm=110, led_color=None, tilt_level=None,
+            standing_height_cm=110, led_color=None, led_brightness=None, tilt_level=None,
             description=None, editable=False,
         )]
 
@@ -68,7 +68,7 @@ class FakeModes:
             raise KeyError(mode_id)
         return ActivityMode(
             id=mode_id, profile_id=PROFILE, name="공부", sitting_height_cm=80,
-            standing_height_cm=112, led_color=None, tilt_level=None, description=None,
+            standing_height_cm=112, led_color=None, led_brightness=None, tilt_level=None, description=None,
         )
 
     async def delete_mode(self, _mode_id: str) -> None:

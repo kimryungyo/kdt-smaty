@@ -59,6 +59,7 @@ class FakeProfiles:
             sitting_height_cm=create.sitting_height_cm,
             standing_height_cm=create.standing_height_cm,
             led_color=create.led_color,
+            led_brightness=create.led_brightness,
             tilt_level=create.tilt_level,
             description=create.description,
         )

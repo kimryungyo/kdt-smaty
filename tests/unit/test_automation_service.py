@@ -90,6 +90,7 @@ class FakeModes:
                                 sitting_height_cm=self.custom.sitting_height_cm,
                                 standing_height_cm=self.custom.standing_height_cm,
                                 led_color=self.custom.led_color,
+                                led_brightness=self.custom.led_brightness,
                                 tilt_level=self.custom.tilt_level,
                                 description=self.custom.description)
         raise AutomationNotFoundError("missing")
@@ -174,6 +175,11 @@ class FakeWled:
         if self.fail:
             raise RuntimeError("wled down")
 
+    async def set_brightness(self, brightness: int) -> None:
+        self.calls.append(("brightness", brightness))
+        if self.fail:
+            raise RuntimeError("wled down")
+
 
 def user(session_id: str = "session-a", *, registered: bool = False) -> CurrentUserSnapshot:
     return CurrentUserSnapshot(session_id, SessionKind.REGISTERED if registered else SessionKind.ANONYMOUS,
@@ -182,13 +188,13 @@ def user(session_id: str = "session-a", *, registered: bool = False) -> CurrentU
 
 def mode() -> EffectiveActivityMode:
     return EffectiveActivityMode(key="default", kind="DEFAULT", name="Default", sitting_height_cm=80,
-                                 standing_height_cm=112, led_color="112233", tilt_level=None,
+                                 standing_height_cm=112, led_color="112233", led_brightness=None, tilt_level=None,
                                  description=None, editable=False)
 
 
 def focus_mode() -> EffectiveActivityMode:
     return EffectiveActivityMode(key="mode-" + "2" * 32, kind="CUSTOM", name="Focus", sitting_height_cm=85,
-                                 standing_height_cm=115, led_color="445566", tilt_level=None,
+                                 standing_height_cm=115, led_color="445566", led_brightness=None, tilt_level=None,
                                  description=None, editable=True)
 
 
@@ -656,6 +662,41 @@ async def test_user_stop_preserves_manual_intent_and_propagates_error() -> None:
     with pytest.raises(RuntimeError, match="stop failed"):
         await service.stop_motion()
     assert service.get_snapshot().control_mode is ControlMode.MANUAL
+
+
+async def test_mode_brightness_is_applied_before_its_colour() -> None:
+    """색이 켜지는 순간 이미 그 모드의 밝기여야 직전 밝기가 스치지 않는다."""
+
+    clock, desk, users, led = Clock(), FakeDesk(), FakeUsers(user("a", registered=True)), FakeWled()
+    camera = FakeVision(vision((1, 1)))
+    dim = EffectiveActivityMode(
+        key="default", kind="DEFAULT", name="독서", sitting_height_cm=80,
+        standing_height_cm=112, led_color="112233", led_brightness=30,
+        tilt_level=None, description=None, editable=False,
+    )
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock,
+                          modes=FakeModes(dim), wled=led)
+    await observe(service, camera, (1, 1), clock)
+    await asyncio.sleep(0)
+    await service.set_activity_mode("default", "a")
+    await asyncio.sleep(.01)
+
+    assert led.calls[-2:] == [("brightness", 30), ("color", "112233")]
+
+
+async def test_mode_without_brightness_leaves_the_current_level_alone() -> None:
+    """밝기를 지정하지 않은 모드는 지금 밝기를 건드리지 않는다."""
+
+    clock, desk, users, led = Clock(), FakeDesk(), FakeUsers(user("a", registered=True)), FakeWled()
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock,
+                          modes=FakeModes(mode()), wled=led)
+    await observe(service, camera, (1, 1), clock)
+    await asyncio.sleep(0)
+    await service.set_activity_mode("default", "a")
+    await asyncio.sleep(.01)
+
+    assert not any(call == "brightness" for call, _ in led.calls)
 
 
 async def test_wled_session_order_and_failure_never_rolls_back_mode() -> None:

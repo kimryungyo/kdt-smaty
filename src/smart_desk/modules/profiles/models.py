@@ -16,6 +16,9 @@ LED_COLOR_PATTERN = re.compile(r"^[0-9A-Fa-f]{6}$")
 # tilt 자동화가 연결된 뒤 API/자동화 계층에서 수행한다.
 TILT_LEVEL_MIN = 0
 TILT_LEVEL_MAX = 10
+# WLED가 그대로 받는 밝기 범위. None은 "이 모드는 밝기를 건드리지 않는다"는 뜻이다.
+LED_BRIGHTNESS_MIN = 0
+LED_BRIGHTNESS_MAX = 255
 DESCRIPTION_MAX_LENGTH = 300
 
 
@@ -85,6 +88,9 @@ class Profile(_ProfileModel):
         allow_inf_nan=False,
     )
     led_color: str | None = Field(strict=True)
+    led_brightness: int | None = Field(
+        strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
+    )
     has_pin: bool = Field(default=False, strict=True)
     tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
@@ -108,6 +114,9 @@ class ProfileCreate(_ProfileModel):
         allow_inf_nan=False,
     )
     led_color: str | None = Field(default=None, strict=True)
+    led_brightness: int | None = Field(
+        default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
+    )
     tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -131,6 +140,9 @@ class ProfileUpdate(_ProfileModel):
         allow_inf_nan=False,
     )
     led_color: str | None = Field(default=None, strict=True)
+    led_brightness: int | None = Field(
+        default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
+    )
     tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -160,6 +172,9 @@ class ActivityModeCreate(_ActivityModeModel):
     sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     led_color: str | None = Field(default=None, strict=True)
+    led_brightness: int | None = Field(
+        default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
+    )
     tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -175,6 +190,9 @@ class ActivityModeUpdate(_ActivityModeModel):
         default=None, strict=True, ge=75, le=115, allow_inf_nan=False
     )
     led_color: str | None = Field(default=None, strict=True)
+    led_brightness: int | None = Field(
+        default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
+    )
     tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -199,6 +217,9 @@ class ActivityMode(_ActivityModeModel):
     sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     led_color: str | None = Field(strict=True)
+    led_brightness: int | None = Field(
+        strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
+    )
     tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -212,6 +233,9 @@ class EffectiveActivityMode(_ActivityModeModel):
     sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     led_color: str | None = Field(strict=True)
+    led_brightness: int | None = Field(
+        strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
+    )
     tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
     editable: bool = Field(strict=True)

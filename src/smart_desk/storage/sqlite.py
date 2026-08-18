@@ -13,7 +13,7 @@ from typing import TypeVar
 
 
 LOGGER = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 SQLITE_TIMEOUT_SECONDS = 5.0
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -159,7 +159,11 @@ class SQLiteDatabase:
             if version == 6:
                 _verify_version_6_schema(connection)
                 _migrate_to_version_7(connection)
-            _verify_version_7_schema(connection)
+                version = 7
+            if version == 7:
+                _verify_version_7_schema(connection)
+                _migrate_to_version_8(connection)
+            _verify_version_8_schema(connection)
         finally:
             connection.close()
 
@@ -704,6 +708,108 @@ def _migrate_to_version_7(connection: Connection) -> None:
         raise
 
 
+def _migrate_to_version_8(connection: Connection) -> None:
+    """프로필과 작업 모드에 LED 밝기를 추가한다.
+
+    색만 저장하면 모드를 바꿔도 밝기는 직전 값을 물고 있어, 어두운 독서 모드를
+    만들 수 없었다. 0~255는 WLED가 받는 범위 그대로다. NULL은 "이 모드는 밝기를
+    건드리지 않는다"는 뜻이라 기존 행의 동작은 그대로 남는다.
+    """
+
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        for table in ("profiles", "profile_modes"):
+            connection.execute(
+                f"""
+                ALTER TABLE {table} ADD COLUMN led_brightness INTEGER
+                    CHECK (
+                        led_brightness IS NULL
+                        OR (
+                            typeof(led_brightness) = 'integer'
+                            AND led_brightness BETWEEN 0 AND 255
+                        )
+                    )
+                """
+            )
+        connection.execute("PRAGMA user_version = 8")
+        connection.execute("COMMIT")
+    except BaseException:
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            LOGGER.exception(
+                "SQLite migration rollback에 실패했습니다.",
+                extra={"component": "sqlite", "event": "migration_rollback_failed"},
+            )
+        raise
+
+
+def _verify_version_8_schema(connection: Connection) -> None:
+    """version 8은 v7에 LED 밝기 column을 더한다."""
+
+    if _read_user_version(connection) != 8:
+        raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if tables != {
+        "profiles", "desk_height_cache", "profile_modes", "face_embeddings",
+        "activity_mode_usage",
+    }:
+        raise StorageVersionError("SQLite version 8 table 구성이 올바르지 않습니다.")
+    _verify_profile_schema_v8(connection)
+    _verify_height_cache_schema(connection)
+    _verify_profile_modes_schema_v8(connection)
+    _verify_face_embeddings_table_schema(connection)
+    _verify_face_embedding_constraints(connection)
+    _verify_activity_mode_usage_schema(connection)
+
+
+def _verify_led_brightness_constraint(connection: Connection, table: str) -> None:
+    """범위 밖 밝기를 실제로 거부하는지 확인한다."""
+
+    profile_id = "__brightness_schema__"
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            "INSERT INTO profiles (id, name, sitting_height_cm, standing_height_cm) "
+            "VALUES (?, ?, ?, ?)",
+            (profile_id, "__brightness__", 75.0, 100.0),
+        )
+        if table == "profiles":
+            statement = "UPDATE profiles SET led_brightness = ? WHERE id = ?"
+            parameters: tuple[object, ...] = (256, profile_id)
+        else:
+            statement = (
+                "INSERT INTO profile_modes "
+                "(id, profile_id, name, normalized_name, sitting_height_cm, "
+                "standing_height_cm, led_brightness) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            )
+            parameters = (
+                "__brightness_mode__", profile_id, "밝기", "밝기", 75.0, 100.0, 256,
+            )
+        try:
+            connection.execute(statement, parameters)
+        except sqlite3.IntegrityError:
+            pass
+        else:
+            raise StorageVersionError(
+                f"SQLite version 8 {table} led_brightness 제약이 올바르지 않습니다."
+            )
+    finally:
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            LOGGER.exception(
+                "SQLite schema 확인 rollback에 실패했습니다.",
+                extra={"component": "sqlite", "event": "schema_probe_rollback_failed"},
+            )
+
+
 def _verify_version_7_schema(connection: Connection) -> None:
     """version 7은 v6에 작업 모드 사용 기록 table을 더한다."""
 
@@ -1129,6 +1235,49 @@ def _verify_profile_schema_v6(connection: Connection) -> None:
     _verify_profile_pin_constraints(connection)
 
 
+def _verify_profile_schema_v8(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(profiles)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "TEXT", 0, 1),
+        ("name", "TEXT", 1, 0),
+        ("sitting_height_cm", "REAL", 1, 0),
+        ("standing_height_cm", "REAL", 1, 0),
+        ("led_color", "TEXT", 0, 0),
+        ("tilt_level", "INTEGER", 0, 0),
+        ("description", "TEXT", 0, 0),
+        ("pin_hash", "TEXT", 0, 0),
+        ("led_brightness", "INTEGER", 0, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 8 profiles schema가 올바르지 않습니다.")
+    _verify_profile_constraints(connection)
+    _verify_profile_v5_constraints(connection)
+    _verify_profile_pin_constraints(connection)
+    _verify_led_brightness_constraint(connection, "profiles")
+
+
+def _verify_profile_modes_schema_v8(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(profile_modes)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "TEXT", 0, 1),
+        ("profile_id", "TEXT", 1, 0),
+        ("name", "TEXT", 1, 0),
+        ("normalized_name", "TEXT", 1, 0),
+        ("sitting_height_cm", "REAL", 1, 0),
+        ("standing_height_cm", "REAL", 1, 0),
+        ("led_color", "TEXT", 0, 0),
+        ("tilt_level", "INTEGER", 0, 0),
+        ("description", "TEXT", 0, 0),
+        ("led_brightness", "INTEGER", 0, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 8 profile modes schema가 올바르지 않습니다.")
+    _verify_profile_modes_relations(connection)
+    _verify_led_brightness_constraint(connection, "profile_modes")
+
+
 def _verify_profile_modes_schema_v5(connection: Connection) -> None:
     columns = connection.execute("PRAGMA table_info(profile_modes)").fetchall()
     actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
@@ -1145,6 +1294,14 @@ def _verify_profile_modes_schema_v5(connection: Connection) -> None:
     ]
     if actual != expected:
         raise StorageVersionError("SQLite version 5 profile modes schema가 올바르지 않습니다.")
+    _verify_profile_modes_relations(connection)
+
+
+def _verify_profile_modes_relations(connection: Connection) -> None:
+    """column 목록과 무관한 profile_modes의 관계·제약을 확인한다.
+
+    밝기 column이 붙어도 이 부분은 그대로여서 v5와 v8이 함께 쓴다.
+    """
 
     foreign_keys = connection.execute("PRAGMA foreign_key_list(profile_modes)").fetchall()
     if [

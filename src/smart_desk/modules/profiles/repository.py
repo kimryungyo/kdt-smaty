@@ -16,13 +16,14 @@ ProfileIdFactory: TypeAlias = Callable[[], str]
 
 PROFILE_SELECT_COLUMNS = (
     "id, name, sitting_height_cm, standing_height_cm, led_color, "
-    "tilt_level, description, pin_hash"
+    "led_brightness, tilt_level, description, pin_hash"
 )
 PROFILE_UPDATE_COLUMNS = {
     "name": "name",
     "sitting_height_cm": "sitting_height_cm",
     "standing_height_cm": "standing_height_cm",
     "led_color": "led_color",
+    "led_brightness": "led_brightness",
     "tilt_level": "tilt_level",
     "description": "description",
 }
@@ -82,14 +83,15 @@ class ProfileRepository:
                 connection.execute(
                     "INSERT INTO profiles "
                     "(id, name, sitting_height_cm, standing_height_cm, led_color, "
-                    "tilt_level, description) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "led_brightness, tilt_level, description) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         profile_id,
                         create.name,
                         create.sitting_height_cm,
                         create.standing_height_cm,
                         create.led_color,
+                        create.led_brightness,
                         create.tilt_level,
                         create.description,
                     ),
@@ -186,6 +188,7 @@ def _profile_from_row(row: Row) -> Profile:
             "sitting_height_cm": row["sitting_height_cm"],
             "standing_height_cm": row["standing_height_cm"],
             "led_color": row["led_color"],
+            "led_brightness": row["led_brightness"],
             "tilt_level": row["tilt_level"],
             "description": row["description"],
             # PIN 해시 자체는 공개하지 않고 잠금 여부만 노출한다.

@@ -286,10 +286,11 @@ async def test_dashboard_api_contract_and_storage_crud_ignore_global_readiness(
             "/api/target", json={"action": "CANCEL"}
         )).status_code == 200
 
-        created = await client.post("/api/profiles", json={"name": " 홍길동 ", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "ff3000"})
+        created = await client.post("/api/profiles", json={"name": " 홍길동 ", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "ff3000", "ledBrightness": 180})
         assert created.status_code == 201
         assert created.json()["name"] == "홍길동"
         assert created.json()["ledColor"] == "FF3000"
+        assert created.json()["ledBrightness"] == 180
         profile_id = created.json()["id"]
 
         modes = await client.get(f"/api/profiles/{profile_id}/activity-modes")
@@ -297,16 +298,19 @@ async def test_dashboard_api_contract_and_storage_crud_ignore_global_readiness(
         assert modes.json() == [{
             "key": "default", "kind": "DEFAULT", "name": "기본",
             "sittingHeightCm": 80.0, "standingHeightCm": 105.0,
-            "ledColor": "FF3000", "tiltLevel": None, "description": None,
+            "ledColor": "FF3000", "ledBrightness": 180, "tiltLevel": None,
+            "description": None,
             "editable": False,
         }]
         custom = await client.post(
             f"/api/profiles/{profile_id}/activity-modes",
-            json={"name": " 독서 ", "sittingHeightCm": 82, "standingHeightCm": 108, "ledColor": "ffd080"},
+            json={"name": " 독서 ", "sittingHeightCm": 82, "standingHeightCm": 108,
+                  "ledColor": "ffd080", "ledBrightness": 40},
         )
         assert custom.status_code == 201
         assert custom.json()["kind"] == "CUSTOM"
         assert custom.json()["name"] == "독서"
+        assert custom.json()["ledBrightness"] == 40
         mode_id = custom.json()["key"]
         assert (await client.post(
             f"/api/profiles/{profile_id}/activity-modes",
@@ -317,6 +321,13 @@ async def test_dashboard_api_contract_and_storage_crud_ignore_global_readiness(
         )).json()["standingHeightCm"] == 109.0
         assert (await client.patch(
             f"/api/activity-modes/{mode_id}", json={"unknown": True}
+        )).status_code == 422
+        # 밝기만 따로 고칠 수 있고, 범위를 벗어나면 거부한다.
+        assert (await client.patch(
+            f"/api/activity-modes/{mode_id}", json={"ledBrightness": 255}
+        )).json()["ledBrightness"] == 255
+        assert (await client.patch(
+            f"/api/activity-modes/{mode_id}", json={"ledBrightness": 256}
         )).status_code == 422
         assert (await client.delete(f"/api/activity-modes/{mode_id}")).status_code == 204
         assert (await client.delete(f"/api/activity-modes/{mode_id}")).status_code == 404
