@@ -31,6 +31,7 @@ LOGGER = logging.getLogger(__name__)
 TILT_READER_TASK_NAME = "tilt-serial-reader"
 TILT_PREPARE_TASK_NAME = "tilt-prepare"
 TILT_MOTION_TASK_NAME = "tilt-motion"
+TILT_AUTO_HOME_TASK_NAME = "tilt-auto-home"
 # 0단계는 위치를 믿지 않고 바닥까지 내려 영점을 다시 잡는다. 여유 2초는
 # 전체 행정을 다 내려간 뒤 실제 바닥에 닿게 하는 몫이다.
 HOMING_MARGIN_MS = 2000
@@ -87,6 +88,8 @@ class TiltController:
         self._synced_generation = -1
         self._command_generation = 0
         self._homing_generation: int | None = None
+        # 연결 세대마다 자동 영점 복귀는 한 번만 시도한다.
+        self._auto_home_generation: int | None = None
         self._pending_calibration: tuple[int, str, int, asyncio.Future[None]] | None = None
 
     async def start(self) -> None:
@@ -97,6 +100,7 @@ class TiltController:
         await self._link.start()
         self._running = True
         self._synced_generation = -1
+        self._auto_home_generation = None
         await self._replace_snapshot(
             state=TiltState.ERROR,
             level=None,
@@ -443,7 +447,36 @@ class TiltController:
         )
         if position_valid:
             await self._start_prepare_task()
+        else:
+            await self._start_auto_home()
         await self._publish_status()
+
+    async def _start_auto_home(self) -> None:
+        """위치를 모르는 채 올라온 장치를 스스로 0단계로 내려 되살린다.
+
+        장치는 연결될 때마다 위치를 모르는 상태로 부팅한다. 사람이 직접
+        0단계를 누르기 전까지는 어떤 이동도 못 하므로, 연결 세대마다 한 번만
+        영점 복귀를 걸어 준다. 실패해도 다시 시도하지 않아 계속 움직이지 않는다.
+        """
+
+        generation = self._link.connection_generation
+        if not self._running or self._auto_home_generation == generation:
+            return
+        self._auto_home_generation = generation
+        self._task_manager.create(
+            TILT_AUTO_HOME_TASK_NAME,
+            self._run_auto_home(),
+            critical=False,
+        )
+
+    async def _run_auto_home(self) -> None:
+        try:
+            await self.set_target(self._settings.min_level)
+        except TiltCommandRejectedError as error:
+            LOGGER.warning(
+                "틸팅 자동 영점 복귀를 시작하지 못했습니다.",
+                extra={"component": "tilt", "event": "auto_home_rejected", "detail": str(error)},
+            )
 
     async def _start_prepare_task(self) -> None:
         async with self._state_lock:

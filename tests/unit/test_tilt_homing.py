@@ -99,6 +99,48 @@ async def test_level_zero_recovers_a_device_that_booted_without_a_position(tmp_p
         await controller.stop()
 
 
+async def test_device_without_a_position_homes_itself(tmp_path: Path) -> None:
+    """위치를 모른 채 올라오면 사람이 누르지 않아도 스스로 0단계로 내려간다."""
+
+    controller, _mqtt, link = build(tmp_path)
+    await controller.start()
+    try:
+        link.push({"event": "ready", "firmware": "tilt-test", "position_valid": False})
+        await wait_until(lambda: any(line.startswith("RUN DOWN") for line in link.written))
+    finally:
+        await controller.stop()
+
+
+async def test_auto_homing_is_attempted_once_per_connection(tmp_path: Path) -> None:
+    """실패해도 계속 움직이지 않도록 연결 세대마다 한 번만 시도한다."""
+
+    controller, _mqtt, link = build(tmp_path)
+    await controller.start()
+    try:
+        link.push({"event": "ready", "firmware": "tilt-test", "position_valid": False})
+        await wait_until(lambda: any(line.startswith("RUN DOWN") for line in link.written))
+        first = len([line for line in link.written if line.startswith("RUN DOWN")])
+
+        # 같은 연결에서 다시 위치를 잃어도 자동 하강을 되풀이하지 않는다.
+        link.push({"event": "ready", "firmware": "tilt-test", "position_valid": False})
+        await wait_until(lambda: controller.get_snapshot().state is not None)
+        assert len([line for line in link.written if line.startswith("RUN DOWN")]) == first
+    finally:
+        await controller.stop()
+
+
+async def test_device_with_a_known_position_is_left_alone(tmp_path: Path) -> None:
+    """위치를 아는 장치는 건드리지 않는다."""
+
+    controller, _mqtt, link = build(tmp_path)
+    await controller.start()
+    try:
+        await ready(controller, link)
+        assert not any(line.startswith("RUN DOWN") for line in link.written)
+    finally:
+        await controller.stop()
+
+
 async def test_other_levels_still_use_position_based_moves(tmp_path: Path) -> None:
     controller, _mqtt, link = await started(tmp_path)
     try:
