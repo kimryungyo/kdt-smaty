@@ -28,6 +28,8 @@ export type Profile = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  tiltLevel: number | null;
+  description: string | null;
 };
 
 export type ProfileInput = Omit<Profile, "id">;
@@ -38,6 +40,8 @@ export type ActivityMode = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  tiltLevel: number | null;
+  description: string | null;
   editable: boolean;
 };
 
@@ -46,6 +50,8 @@ export type ActivityModeInput = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  tiltLevel: number | null;
+  description: string | null;
 };
 export type WledMode = "OFF" | "SOLID" | "EFFECT" | "MIXED";
 export type WledStatus = "DISABLED" | "UNKNOWN" | "ONLINE" | "ERROR";

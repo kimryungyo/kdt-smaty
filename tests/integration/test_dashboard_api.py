@@ -296,7 +296,8 @@ async def test_dashboard_api_contract_and_storage_crud_ignore_global_readiness(
         assert modes.json() == [{
             "key": "default", "kind": "DEFAULT", "name": "기본",
             "sittingHeightCm": 80.0, "standingHeightCm": 105.0,
-            "ledColor": "FF3000", "editable": False,
+            "ledColor": "FF3000", "tiltLevel": None, "description": None,
+            "editable": False,
         }]
         custom = await client.post(
             f"/api/profiles/{profile_id}/activity-modes",

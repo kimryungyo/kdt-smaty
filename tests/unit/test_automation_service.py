@@ -89,7 +89,9 @@ class FakeModes:
             return ActivityMode(id=mode_id, profile_id=PROFILE, name=self.custom.name,
                                 sitting_height_cm=self.custom.sitting_height_cm,
                                 standing_height_cm=self.custom.standing_height_cm,
-                                led_color=self.custom.led_color)
+                                led_color=self.custom.led_color,
+                                tilt_level=self.custom.tilt_level,
+                                description=self.custom.description)
         raise AutomationNotFoundError("missing")
 
     async def delete_mode(self, _mode_id: str) -> None:
@@ -166,12 +168,14 @@ def user(session_id: str = "session-a", *, registered: bool = False) -> CurrentU
 
 def mode() -> EffectiveActivityMode:
     return EffectiveActivityMode(key="default", kind="DEFAULT", name="Default", sitting_height_cm=80,
-                                 standing_height_cm=112, led_color="112233", editable=False)
+                                 standing_height_cm=112, led_color="112233", tilt_level=None,
+                                 description=None, editable=False)
 
 
 def focus_mode() -> EffectiveActivityMode:
     return EffectiveActivityMode(key="mode-" + "2" * 32, kind="CUSTOM", name="Focus", sitting_height_cm=85,
-                                 standing_height_cm=115, led_color="445566", editable=True)
+                                 standing_height_cm=115, led_color="445566", tilt_level=None,
+                                 description=None, editable=True)
 
 
 def vision(pair: tuple[float, float], *, posture: PostureStatus = PostureStatus.SITTING,

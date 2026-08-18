@@ -22,32 +22,56 @@ import {
   updateActivityMode,
   updateProfile,
 } from "../../api/dashboard";
-import { DESK_CONTROL_MAX_CM, DESK_CONTROL_MIN_CM } from "../../config";
+import {
+  DESK_CONTROL_MAX_CM,
+  DESK_CONTROL_MIN_CM,
+  MODE_DESCRIPTION_MAX_LENGTH,
+  MODE_TILT_LEVEL_MAX,
+  MODE_TILT_LEVEL_MIN,
+} from "../../config";
 import { navigate } from "../../routes";
 import "./profile-settings.css";
 
 type Props = { pathname: string };
-type Draft = { name: string; sittingHeightCm: string; standingHeightCm: string; ledColor: string };
+type Draft = {
+  name: string;
+  sittingHeightCm: string;
+  standingHeightCm: string;
+  ledColor: string;
+  tiltLevel: string;
+  description: string;
+};
 
-const emptyDraft = (): Draft => ({ name: "", sittingHeightCm: "75", standingHeightCm: "100", ledColor: "" });
+const emptyDraft = (): Draft => ({
+  name: "", sittingHeightCm: "75", standingHeightCm: "100", ledColor: "", tiltLevel: "", description: "",
+});
 const profileDraft = (profile: Profile): Draft => ({
   name: profile.name,
   sittingHeightCm: String(profile.sittingHeightCm),
   standingHeightCm: String(profile.standingHeightCm),
   ledColor: profile.ledColor ?? "",
+  tiltLevel: profile.tiltLevel === null ? "" : String(profile.tiltLevel),
+  description: profile.description ?? "",
 });
 const modeDraft = (mode?: ActivityMode): Draft => mode ? {
   name: mode.name,
   sittingHeightCm: String(mode.sittingHeightCm),
   standingHeightCm: String(mode.standingHeightCm),
   ledColor: mode.ledColor ?? "",
+  tiltLevel: mode.tiltLevel === null ? "" : String(mode.tiltLevel),
+  description: mode.description ?? "",
 } : emptyDraft();
 
 function toInput(draft: Draft): ProfileInput | ActivityModeInput | null {
   const sittingHeightCm = Number(draft.sittingHeightCm);
   const standingHeightCm = Number(draft.standingHeightCm);
   if (!draft.name.trim() || !Number.isFinite(sittingHeightCm) || !Number.isFinite(standingHeightCm)) return null;
-  return { name: draft.name.trim(), sittingHeightCm, standingHeightCm, ledColor: draft.ledColor || null };
+  const tiltLevel = draft.tiltLevel.trim() === "" ? null : Number(draft.tiltLevel);
+  if (tiltLevel !== null && (!Number.isInteger(tiltLevel) || tiltLevel < MODE_TILT_LEVEL_MIN || tiltLevel > MODE_TILT_LEVEL_MAX)) return null;
+  return {
+    name: draft.name.trim(), sittingHeightCm, standingHeightCm, ledColor: draft.ledColor || null,
+    tiltLevel, description: draft.description.trim() || null,
+  };
 }
 
 function Header() {
@@ -171,11 +195,11 @@ function ProfileEditor({ create = false, profileId }: { create?: boolean; profil
   if (loading) return <main className="settings-main"><p>프로필을 불러오는 중입니다.</p></main>;
   if (!create && !editingProfile) return <main className="settings-main"><section className="settings-heading"><div><p>PROFILE SETTINGS</p><h1>프로필을 찾을 수 없습니다.</h1><span>{error || "프로필을 불러오지 못했습니다."}</span></div><button type="button" className="settings-secondary" onClick={() => navigate("/settings/profiles")}>목록으로</button></section></main>;
   if (create && editingProfile) return <main className="settings-main"><section className="settings-heading"><div><p>FACE ENROLLMENT</p><h1>{editingProfile.name} 얼굴 등록</h1><span>얼굴 등록은 profile을 현재 사용자로 지정하지 않습니다.</span></div></section>{error && <p className="settings-error" role="alert">{error}</p>}{message && <p className="settings-message" role="status">{message}</p>}<FaceEnrollment profileId={editingProfile.id} initial={enrollment} onError={setError} /><div className="settings-actions"><button type="button" className="settings-secondary" onClick={() => navigate(`/settings/profiles/${encodeURIComponent(editingProfile.id)}`)}>얼굴 등록 건너뛰고 설정으로</button><button type="button" className="settings-primary" onClick={() => navigate("/settings/profiles")}>목록으로</button></div></main>;
-  return <main className="settings-main"><section className="settings-heading"><div><p>{create ? "NEW PROFILE" : "PROFILE SETTINGS"}</p><h1>{create ? "새 프로필" : editingProfile?.name ?? "프로필"}</h1><span>이 화면의 편집 내용은 설정 API에만 저장되며 현재 책상 실행 상태를 바꾸지 않습니다.</span></div><button type="button" className="settings-secondary" onClick={() => navigate("/settings/profiles")}>목록으로</button></section>{error && <p className="settings-error" role="alert">{error}</p>}{message && <p className="settings-message" role="status">{message}</p>}<form className="settings-card" onSubmit={(event) => void saveProfile(event)}><h2>기본 작업 모드 <small>이름: 기본</small></h2><p>기본 작업 모드의 이름은 바꿀 수 없습니다. 아래 값만 저장합니다.</p><ProfileFields draft={draft} onChange={updateDraft} onUseCurrent={useCurrentHeight} /><div className="settings-actions"><button type="submit" className="settings-primary" disabled={saving}>{create ? "프로필 만들기" : "기본값 저장"}</button></div></form>{!create && editingProfile && <><FaceEnrollment profileId={editingProfile.id} onError={setError} /><section className="settings-card settings-modes"><div className="settings-section-title"><div><h2>사용자 작업 모드</h2><p>작업 모드는 설정값입니다. 저장·삭제해도 현재 작업 모드나 LED, 책상은 즉시 바뀌지 않습니다.</p></div><button type="button" className="settings-primary" onClick={() => { setModeEditor("new"); setModeValue(emptyDraft()); }}>작업 모드 추가</button></div><div className="settings-mode-list">{modes.map((mode) => <div className="settings-mode" key={mode.key}><div><strong>{mode.name}</strong><span>{mode.kind === "DEFAULT" ? "기본 작업 모드" : "사용자 작업 모드"} · 앉기 {mode.sittingHeightCm.toFixed(1)}cm · 서기 {mode.standingHeightCm.toFixed(1)}cm · LED {mode.ledColor ? `#${mode.ledColor}` : "없음"}</span></div>{mode.editable ? <div><button type="button" onClick={() => { setModeEditor(mode); setModeValue(modeDraft(mode)); }}>수정</button><button type="button" className="settings-danger-text" onClick={() => void removeMode(mode)}>삭제</button></div> : <em>이름 고정</em>}</div>)}</div></section></>}{modeEditor && <div className="settings-modal" role="dialog" aria-modal="true" aria-label="작업 모드 편집"><form className="settings-card settings-dialog" onSubmit={(event) => void saveMode(event)}><h2>{modeEditor === "new" ? "작업 모드 추가" : "작업 모드 수정"}</h2><ProfileFields draft={modeValue} onChange={(key, value) => setModeValue((current) => ({ ...current, [key]: value }))} /><div className="settings-actions"><button type="button" className="settings-secondary" onClick={() => setModeEditor(null)}>취소</button><button type="submit" className="settings-primary" disabled={saving}>저장</button></div></form></div>}{!create && <section className="settings-delete"><h2>프로필 삭제</h2><p>얼굴과 custom 작업 모드, 향후 memory 및 활성 session에 영향을 줄 수 있습니다. 서버가 항목 삭제에 실패하면 profile을 보존하고 삭제 요청이 실패할 수 있습니다.</p><button type="button" className="settings-danger" onClick={() => void removeProfile()}>프로필 삭제</button></section>}</main>;
+  return <main className="settings-main"><section className="settings-heading"><div><p>{create ? "NEW PROFILE" : "PROFILE SETTINGS"}</p><h1>{create ? "새 프로필" : editingProfile?.name ?? "프로필"}</h1><span>이 화면의 편집 내용은 설정 API에만 저장되며 현재 책상 실행 상태를 바꾸지 않습니다.</span></div><button type="button" className="settings-secondary" onClick={() => navigate("/settings/profiles")}>목록으로</button></section>{error && <p className="settings-error" role="alert">{error}</p>}{message && <p className="settings-message" role="status">{message}</p>}<form className="settings-card" onSubmit={(event) => void saveProfile(event)}><h2>기본 작업 모드 <small>이름: 기본</small></h2><p>기본 작업 모드의 이름은 바꿀 수 없습니다. 아래 값만 저장합니다.</p><ProfileFields draft={draft} onChange={updateDraft} onUseCurrent={useCurrentHeight} /><div className="settings-actions"><button type="submit" className="settings-primary" disabled={saving}>{create ? "프로필 만들기" : "기본값 저장"}</button></div></form>{!create && editingProfile && <><FaceEnrollment profileId={editingProfile.id} onError={setError} /><section className="settings-card settings-modes"><div className="settings-section-title"><div><h2>사용자 작업 모드</h2><p>작업 모드는 설정값입니다. 저장·삭제해도 현재 작업 모드나 LED, 책상은 즉시 바뀌지 않습니다.</p></div><button type="button" className="settings-primary" onClick={() => { setModeEditor("new"); setModeValue(emptyDraft()); }}>작업 모드 추가</button></div><div className="settings-mode-list">{modes.map((mode) => <div className="settings-mode" key={mode.key}><div><strong>{mode.name}</strong><span>{mode.kind === "DEFAULT" ? "기본 작업 모드" : "사용자 작업 모드"} · 앉기 {mode.sittingHeightCm.toFixed(1)}cm · 서기 {mode.standingHeightCm.toFixed(1)}cm · LED {mode.ledColor ? `#${mode.ledColor}` : "없음"} · 틸트 {mode.tiltLevel === null ? "미설정" : mode.tiltLevel}</span>{mode.description && <p className="settings-mode-description">{mode.description}</p>}</div>{mode.editable ? <div><button type="button" onClick={() => { setModeEditor(mode); setModeValue(modeDraft(mode)); }}>수정</button><button type="button" className="settings-danger-text" onClick={() => void removeMode(mode)}>삭제</button></div> : <em>이름 고정</em>}</div>)}</div></section></>}{modeEditor && <div className="settings-modal" role="dialog" aria-modal="true" aria-label="작업 모드 편집"><form className="settings-card settings-dialog" onSubmit={(event) => void saveMode(event)}><h2>{modeEditor === "new" ? "작업 모드 추가" : "작업 모드 수정"}</h2><ProfileFields draft={modeValue} onChange={(key, value) => setModeValue((current) => ({ ...current, [key]: value }))} /><div className="settings-actions"><button type="button" className="settings-secondary" onClick={() => setModeEditor(null)}>취소</button><button type="submit" className="settings-primary" disabled={saving}>저장</button></div></form></div>}{!create && <section className="settings-delete"><h2>프로필 삭제</h2><p>얼굴과 custom 작업 모드, 향후 memory 및 활성 session에 영향을 줄 수 있습니다. 서버가 항목 삭제에 실패하면 profile을 보존하고 삭제 요청이 실패할 수 있습니다.</p><button type="button" className="settings-danger" onClick={() => void removeProfile()}>프로필 삭제</button></section>}</main>;
 }
 
 function ProfileFields({ draft, onChange, onUseCurrent }: { draft: Draft; onChange: (key: keyof Draft, value: string) => void; onUseCurrent?: (key: "sittingHeightCm" | "standingHeightCm") => void }) {
-  return <div className="settings-fields"><label>이름<input value={draft.name} maxLength={100} onChange={(event) => onChange("name", event.target.value)} required /></label><label>기본 LED 색상<input type="color" value={`#${draft.ledColor || "000000"}`} onChange={(event) => onChange("ledColor", event.target.value.slice(1).toUpperCase())} /><button type="button" className="settings-link" onClick={() => onChange("ledColor", "")}>색상 없음</button></label>{(["sittingHeightCm", "standingHeightCm"] as const).map((key) => <label key={key}>{key === "sittingHeightCm" ? "앉기 높이" : "서기 높이"}<div className="settings-height"><input type="number" min={DESK_CONTROL_MIN_CM} max={DESK_CONTROL_MAX_CM} step="0.1" value={draft[key]} onChange={(event) => onChange(key, event.target.value)} required /><span>cm</span>{onUseCurrent && <button type="button" onClick={() => void onUseCurrent(key)}>현재 높이 사용</button>}</div></label>)}</div>;
+  return <div className="settings-fields"><label>이름<input value={draft.name} maxLength={100} onChange={(event) => onChange("name", event.target.value)} required /></label><label>기본 LED 색상<input type="color" value={`#${draft.ledColor || "000000"}`} onChange={(event) => onChange("ledColor", event.target.value.slice(1).toUpperCase())} /><button type="button" className="settings-link" onClick={() => onChange("ledColor", "")}>색상 없음</button></label>{(["sittingHeightCm", "standingHeightCm"] as const).map((key) => <label key={key}>{key === "sittingHeightCm" ? "앉기 높이" : "서기 높이"}<div className="settings-height"><input type="number" min={DESK_CONTROL_MIN_CM} max={DESK_CONTROL_MAX_CM} step="0.1" value={draft[key]} onChange={(event) => onChange(key, event.target.value)} required /><span>cm</span>{onUseCurrent && <button type="button" onClick={() => void onUseCurrent(key)}>현재 높이 사용</button>}</div></label>)}<label>틸트 단계<input type="number" min={MODE_TILT_LEVEL_MIN} max={MODE_TILT_LEVEL_MAX} step="1" value={draft.tiltLevel} placeholder="미설정" onChange={(event) => onChange("tiltLevel", event.target.value)} /><button type="button" className="settings-link" onClick={() => onChange("tiltLevel", "")}>단계 없음</button></label><label>설명<textarea value={draft.description} maxLength={MODE_DESCRIPTION_MAX_LENGTH} placeholder="이 모드를 사용하는 상황을 적어주세요." onChange={(event) => onChange("description", event.target.value)} /></label></div>;
 }
 
 function FaceEnrollment({ profileId, initial = null, onError }: { profileId: string; initial?: Enrollment | null; onError: (message: string) => void }) {

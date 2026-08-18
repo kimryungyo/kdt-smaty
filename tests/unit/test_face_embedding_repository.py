@@ -13,7 +13,10 @@ def sample(value: float) -> FaceEmbedding:
 async def test_embedding_replace_round_trips_and_profile_delete_cascades(tmp_path) -> None:
     database = SQLiteDatabase(tmp_path / "db.sqlite")
     await database.start()
-    await database.write(lambda c: c.execute("INSERT INTO profiles VALUES ('p', 'P', 80, 100, NULL)"))
+    await database.write(lambda c: c.execute(
+        "INSERT INTO profiles (id, name, sitting_height_cm, standing_height_cm, led_color) "
+        "VALUES ('p', 'P', 80, 100, NULL)"
+    ))
     repository = FaceEmbeddingRepository(database)
     await repository.replace("p", [sample(1.0), sample(.9), sample(.8)])
     loaded = await repository.load(model_name="fake", model_version="1", dimension=2, normalization="l2")

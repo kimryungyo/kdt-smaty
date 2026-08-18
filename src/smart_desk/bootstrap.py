@@ -86,7 +86,7 @@ def build_container(settings: Settings) -> AppContainer:
         database=database,
         profiles=profiles,
         activity_modes=activity_modes,
-        dashboard=DashboardService(desk, profiles),
+        dashboard=DashboardService(desk, profiles, activity_modes=activity_modes),
         mqtt=mqtt,
         height_monitor=height_monitor,
         relay=relay,
@@ -402,7 +402,7 @@ def build_container(settings: Settings) -> AppContainer:
         target_tolerance_cm=settings.desk.target_tolerance_cm,
     )
     container.automation = automation
-    container.dashboard = DashboardService(desk, profiles, automation)
+    container.dashboard = DashboardService(desk, profiles, automation, activity_modes=activity_modes)
     container.register(ResourceRegistration(name="desk-automation", resource=automation,
                                             startup_order=80, shutdown_order=80))
     if settings.voice.enabled:
