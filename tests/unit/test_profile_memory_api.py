@@ -59,7 +59,7 @@ def test_profile_memory_routes_are_profile_scoped_and_content_bearing(monkeypatc
     assert updated.status_code == 200 and updated.json()["memory"] == "짧게 설명해 줌"
     assert client.delete("/api/profiles/a/memories/memory-1").status_code == 204
     assert memory.calls == [
-        ("remember", ("a", "발표일은 8월 21일", {"explicit": True, "source": "explicit_dashboard"})),
+        ("remember", ("a", "발표일은 8월 21일", {"explicit": True, "source": "explicit_dashboard", "infer": False})),
         ("list", ("a",)),
         ("update", ("a", "memory-1", "짧게 설명해 줌")),
         ("delete", ("a", "memory-1")),

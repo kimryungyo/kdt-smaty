@@ -351,6 +351,7 @@ def test_profile_memory_is_disabled_by_default_and_requires_openai_key() -> None
     assert settings.profile_memory.embedding_model == "text-embedding-3-small"
     assert settings.profile_memory.embedding_dimensions == 1536
     assert settings.profile_memory.search_limit == 5
+    assert settings.profile_memory.write_timeout_seconds == 8
     assert settings.profile_memory.fact_limit == 500
     assert settings.profile_memory.circuit_failure_threshold == 3
     assert settings.profile_memory.circuit_open_seconds == 30

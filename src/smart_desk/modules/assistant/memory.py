@@ -50,6 +50,7 @@ class ProfileMemoryService:
         config: dict[str, Any] | None = None,
         search_limit: int = 5,
         timeout_seconds: float = 2.0,
+        write_timeout_seconds: float = 8.0,
         fact_limit: int = 500,
         circuit_failure_threshold: int = 3,
         circuit_open_seconds: float = 30.0,
@@ -58,6 +59,7 @@ class ProfileMemoryService:
         self._config = config or {}
         self._search_limit = search_limit
         self._timeout_seconds = timeout_seconds
+        self._write_timeout_seconds = write_timeout_seconds
         self._fact_limit = fact_limit
         self._circuit_failure_threshold = circuit_failure_threshold
         self._circuit_open_seconds = circuit_open_seconds
@@ -210,7 +212,9 @@ class ProfileMemoryService:
             self._consecutive_failures = 0
             self._circuit_open_until = 0.0
 
-    async def _call(self, operation: Callable[[], Any], *, code: str) -> Any:
+    async def _call(
+        self, operation: Callable[[], Any], *, code: str, timeout_seconds: float | None = None
+    ) -> Any:
         """Run sync or async SDK operations under one timeout and error boundary."""
 
         async def invoke() -> Any:
@@ -218,7 +222,7 @@ class ProfileMemoryService:
 
         started = monotonic()
         try:
-            result = await asyncio.wait_for(invoke(), self._timeout_seconds)
+            result = await asyncio.wait_for(invoke(), timeout_seconds or self._timeout_seconds)
         except Exception as error:
             self._record_failure(code)
             LOGGER.warning(
@@ -302,6 +306,7 @@ class ProfileMemoryService:
         explicit: bool,
         is_valid: Callable[[], Awaitable[bool]] | None = None,
         source: str = "explicit_voice",
+        infer: bool = True,
     ) -> bool:
         """Persist one caller-approved fact and return whether Mem0 accepted it."""
 
@@ -315,6 +320,11 @@ class ProfileMemoryService:
         backend = await self._backend()
         if backend is None:
             raise ProfileMemoryError("profile_memory_unavailable")
+        # Mem0's direct-import mode expects chat messages.  Preserve dashboard
+        # entries verbatim instead of asking the LLM to infer a different fact.
+        payload: str | list[dict[str, str]] = fact
+        if not infer:
+            payload = [{"role": "user", "content": fact}]
         lock = self._profile_lock(profile_id)
         async with lock:
             if profile_id in self._deleting_profiles:
@@ -323,7 +333,7 @@ class ProfileMemoryService:
                 raise ProfileMemoryError("profile_memory_session_mismatch")
             await self._call(
                 lambda: backend.add(
-                    fact,
+                    payload,
                     user_id=self._namespace(profile_id),
                     metadata={
                         "schema_version": 1,
@@ -331,9 +341,10 @@ class ProfileMemoryService:
                         "category": "preference",
                         "language": "ko",
                     },
-                    infer=True,
+                    infer=infer,
                 ),
                 code="profile_memory_add_failed",
+                timeout_seconds=self._write_timeout_seconds,
             )
         LOGGER.info(
             "Profile memory write completed.",

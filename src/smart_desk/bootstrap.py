@@ -364,6 +364,7 @@ def build_container(settings: Settings) -> AppContainer:
         config=memory_config,
         search_limit=settings.profile_memory.search_limit,
         timeout_seconds=settings.profile_memory.timeout_seconds,
+        write_timeout_seconds=settings.profile_memory.write_timeout_seconds,
         fact_limit=settings.profile_memory.fact_limit,
         circuit_failure_threshold=settings.profile_memory.circuit_failure_threshold,
         circuit_open_seconds=settings.profile_memory.circuit_open_seconds,

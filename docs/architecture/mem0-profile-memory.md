@@ -198,7 +198,8 @@ Agent는 `remember_fact` tool에 사실 하나만 전달한다. 한 호출은 �
 
 - 모든 검색은 `filters={"user_id": "profile:<profile_id>"}`를 강제한다.
 - 검색 query는 현재 최종 transcript지만 저장하지 않고 embedding provider 호출에만 사용한다.
-- 기본 `top_k`는 5, operation timeout은 2초다.
+- 기본 `top_k`는 5, 검색·조회 timeout은 2초다. 명시적 저장은 실제 결과를 확인해야 하므로
+  별도 write timeout 8초를 사용한다.
 - score 절대 임계치는 초기에는 두지 않는다. Mem0 algorithm/version에 따라 점수 의미가 바뀔 수
   있으므로 실제 한국어 질의 평가 뒤 설정한다.
 - 결과는 허용된 schema인지 검사하고 `memory` 문자열만 추출한다.
@@ -303,6 +304,7 @@ SMART_DESK_PROFILE_MEMORY__DATA_PATH=/app/data/mem0
 SMART_DESK_PROFILE_MEMORY__HISTORY_DB_PATH=/app/data/mem0/history.db
 SMART_DESK_PROFILE_MEMORY__SEARCH_LIMIT=5
 SMART_DESK_PROFILE_MEMORY__TIMEOUT_SECONDS=2
+SMART_DESK_PROFILE_MEMORY__WRITE_TIMEOUT_SECONDS=8
 SMART_DESK_PROFILE_MEMORY__COLLECTION_NAME=smart_desk_profile_memory_v1
 SMART_DESK_PROFILE_MEMORY__EMBEDDING_MODEL=text-embedding-3-small
 SMART_DESK_PROFILE_MEMORY__EMBEDDING_DIMENSIONS=1536
@@ -460,7 +462,8 @@ Mem0의 vector와 history는 개인정보로 취급한다. local vector store라
 | `profile_memory_policy_rejected` | 저장 금지/미확인 정보 | 저장하지 않고 안내 | `422` |
 
 초기 운영 목표는 search p95 500ms 이하, timeout 비율 1% 미만으로 두되 Raspberry Pi와 실제 OpenAI
-네트워크 측정 후 조정한다. 2초 timeout은 hard limit이며 Voice 응답 지연을 무제한 늘리지 않는다.
+네트워크 측정 후 조정한다. 검색·조회 2초 timeout은 hard limit이며 Voice 응답 지연을 무제한 늘리지
+않는다. 명시적 기억 저장만 결과 확인을 위해 별도 8초 상한을 둔다.
 
 ## 15. 구현 차이와 필수 보완
 

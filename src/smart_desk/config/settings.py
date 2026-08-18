@@ -609,6 +609,7 @@ class ProfileMemorySettings(BaseModel):
     embedding_dimensions: int = Field(default=1536, ge=1, le=4096)
     search_limit: int = Field(default=5, ge=1, le=20)
     timeout_seconds: float = Field(default=2.0, gt=0, le=10, allow_inf_nan=False)
+    write_timeout_seconds: float = Field(default=8.0, gt=0, le=15, allow_inf_nan=False)
     fact_limit: int = Field(default=500, ge=1, le=2000)
     circuit_failure_threshold: int = Field(default=3, ge=1, le=20)
     circuit_open_seconds: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)

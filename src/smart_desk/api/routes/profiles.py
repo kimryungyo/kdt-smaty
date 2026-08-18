@@ -218,7 +218,11 @@ async def create_profile_memory(
     await _require_pin(profile_id, x_profile_pin)
     try:
         await (await _memory_service()).remember(
-            profile_id, body.memory, explicit=True, source="explicit_dashboard"
+            profile_id,
+            body.memory,
+            explicit=True,
+            source="explicit_dashboard",
+            infer=False,
         )
     except ProfileMemoryError as error:
         raise _memory_failure(error) from error
