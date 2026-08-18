@@ -22,6 +22,10 @@ export type DeskStatus = {
   updatedAt: string;
 };
 
+/** 시간에 따라 조명을 바꾸는 규칙. TIME_OF_DAY는 벽시계, ELAPSED는 모드를 켠 뒤 경과 분. */
+export type LedScheduleStep = { at: number; color: string; brightness: number };
+export type LedSchedule = { kind: "TIME_OF_DAY" | "ELAPSED"; steps: LedScheduleStep[] };
+
 export type Profile = {
   id: string;
   name: string;
@@ -30,6 +34,7 @@ export type Profile = {
   ledColor: string | null;
   /** 조명 밝기(0~255). null이면 이 설정은 밝기를 건드리지 않는다. */
   ledBrightness: number | null;
+  ledSchedule: LedSchedule | null;
   /** PIN 잠금 여부. PIN 자체는 서버가 해시로만 보관해 노출하지 않는다. */
   hasPin: boolean;
   tiltLevel: number | null;
@@ -45,6 +50,7 @@ export type ActivityMode = {
   standingHeightCm: number;
   ledColor: string | null;
   ledBrightness: number | null;
+  ledSchedule: LedSchedule | null;
   tiltLevel: number | null;
   description: string | null;
   editable: boolean;
@@ -56,6 +62,7 @@ export type ActivityModeInput = {
   standingHeightCm: number;
   ledColor: string | null;
   ledBrightness: number | null;
+  ledSchedule: LedSchedule | null;
   tiltLevel: number | null;
   description: string | null;
 };

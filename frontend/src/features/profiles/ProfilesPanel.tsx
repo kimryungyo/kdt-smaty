@@ -48,7 +48,7 @@ export function HeightSetup({ profile, name, onSaved, onPrevious }: HeightsProps
   const complete = async () => {
     setSaving(true);
     try {
-      const saved = profile ? await updateProfile(profile.id, { name, sittingHeightCm: sitting, standingHeightCm: standing }) : await createProfile({ name, sittingHeightCm: sitting, standingHeightCm: standing, ledColor: null, ledBrightness: null, tiltLevel: null, description: null });
+      const saved = profile ? await updateProfile(profile.id, { name, sittingHeightCm: sitting, standingHeightCm: standing }) : await createProfile({ name, sittingHeightCm: sitting, standingHeightCm: standing, ledColor: null, ledBrightness: null, ledSchedule: null, tiltLevel: null, description: null });
       onSaved(saved);
     } catch (error) { setMessage(error instanceof Error ? error.message : "높이 설정을 저장하지 못했습니다."); }
     finally { setSaving(false); }
