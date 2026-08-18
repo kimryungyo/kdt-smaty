@@ -115,6 +115,13 @@ async def _none():
     return None
 
 
+class _NoPinProfiles:
+    """PIN이 걸리지 않은 프로필 저장소 stub이다."""
+
+    async def get_pin_hash(self, _profile_id: str) -> str | None:
+        return None
+
+
 async def test_profile_delete_storage_failure_aborts_identity_suspension(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -145,6 +152,8 @@ async def test_profile_delete_storage_failure_aborts_identity_suspension(
             runtime=SimpleNamespace(snapshot=lambda: SimpleNamespace(ready=True)),
             identity=identity,
             profile_memory=None,
+            profiles=_NoPinProfiles(),
+            current_user=None,
         ),
     )
     monkeypatch.setattr(profiles_route, "get_dashboard", lambda: Dashboard())
@@ -191,6 +200,8 @@ async def test_profile_delete_cancellation_aborts_identity_suspension(
             runtime=SimpleNamespace(snapshot=lambda: SimpleNamespace(ready=True)),
             identity=identity,
             profile_memory=None,
+            profiles=_NoPinProfiles(),
+            current_user=None,
         ),
     )
     monkeypatch.setattr(profiles_route, "get_dashboard", lambda: dashboard)
@@ -217,7 +228,7 @@ async def test_profile_memory_delete_precedes_identity_and_database(
         async def get_profile(self, profile_id: str) -> object: calls.append(f"exists:{profile_id}"); return object()
         async def delete_profile(self, profile_id: str) -> None: calls.append(f"db:{profile_id}")
     monkeypatch.setattr(profiles_route, "get_dashboard", lambda: Dashboard())
-    monkeypatch.setattr(profiles_route, "get_container", lambda: SimpleNamespace(identity=IdentityMutation(), profile_memory=Memory()))
+    monkeypatch.setattr(profiles_route, "get_container", lambda: SimpleNamespace(identity=IdentityMutation(), profile_memory=Memory(), profiles=_NoPinProfiles(), current_user=None))
     await profiles_route.delete_profile("profile-1")
     assert calls == ["exists:profile-1", "memory:profile-1", "prepare:profile-1", "db:profile-1", "finalize:profile-1"]
 
@@ -249,7 +260,7 @@ async def test_profile_memory_failure_preserves_identity_and_database(
     monkeypatch.setattr(
         profiles_route,
         "get_container",
-        lambda: SimpleNamespace(identity=IdentityMutation(), profile_memory=Memory()),
+        lambda: SimpleNamespace(identity=IdentityMutation(), profile_memory=Memory(), profiles=_NoPinProfiles(), current_user=None),
     )
 
     with pytest.raises(HTTPException) as raised:

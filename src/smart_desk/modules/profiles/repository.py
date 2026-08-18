@@ -15,7 +15,7 @@ from smart_desk.storage import SQLiteDatabase
 ProfileIdFactory: TypeAlias = Callable[[], str]
 
 PROFILE_SELECT_COLUMNS = (
-    "id, name, sitting_height_cm, standing_height_cm, led_color"
+    "id, name, sitting_height_cm, standing_height_cm, led_color, pin_hash"
 )
 PROFILE_UPDATE_COLUMNS = {
     "name": "name",
@@ -123,6 +123,33 @@ class ProfileRepository:
 
         return await self._database.write(update_row)
 
+    async def get_pin_hash(self, profile_id: str) -> str | None:
+        """저장된 PIN 해시를 반환한다. 이 값은 API 응답에 포함하지 않는다."""
+
+        def read_hash(connection: Connection) -> str | None:
+            row = connection.execute(
+                "SELECT pin_hash FROM profiles WHERE id = ?",
+                (profile_id,),
+            ).fetchone()
+            if row is None:
+                raise ProfileNotFoundError("요청한 프로필을 찾을 수 없습니다.")
+            return row["pin_hash"]
+
+        return await self._database.read(read_hash)
+
+    async def set_pin_hash(self, profile_id: str, pin_hash: str | None) -> None:
+        """PIN 해시를 저장하거나 None으로 잠금을 해제한다."""
+
+        def write_hash(connection: Connection) -> None:
+            cursor = connection.execute(
+                "UPDATE profiles SET pin_hash = ? WHERE id = ?",
+                (pin_hash, profile_id),
+            )
+            if cursor.rowcount == 0:
+                raise ProfileNotFoundError("요청한 프로필을 찾을 수 없습니다.")
+
+        await self._database.write(write_hash)
+
     async def delete_profile(self, profile_id: str) -> None:
         def delete_row(connection: Connection) -> None:
             cursor = connection.execute(
@@ -153,6 +180,8 @@ def _profile_from_row(row: Row) -> Profile:
             "sitting_height_cm": row["sitting_height_cm"],
             "standing_height_cm": row["standing_height_cm"],
             "led_color": row["led_color"],
+            # PIN 해시 자체는 공개하지 않고 잠금 여부만 노출한다.
+            "has_pin": row["pin_hash"] is not None,
         }
     )
 

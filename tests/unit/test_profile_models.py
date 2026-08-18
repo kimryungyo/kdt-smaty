@@ -32,6 +32,7 @@ def test_profile_accepts_snake_and_camel_case_and_serializes_aliases() -> None:
         "sittingHeightCm": 80.0,
         "standingHeightCm": 105.0,
         "ledColor": "FF30A0",
+        "hasPin": False,
     }
 
 

@@ -16,7 +16,7 @@ from smart_desk.storage import (
 from smart_desk.storage.sqlite import _migrate_to_version_1, _migrate_to_version_2
 
 
-async def test_new_database_migrates_to_version_four(tmp_path: Path) -> None:
+async def test_new_database_migrates_to_version_five(tmp_path: Path) -> None:
     database = SQLiteDatabase(tmp_path / "nested" / "smart-desk.db")
 
     await database.start()
@@ -36,7 +36,7 @@ async def test_new_database_migrates_to_version_four(tmp_path: Path) -> None:
     )
 
     assert database.path == (tmp_path / "nested" / "smart-desk.db").resolve()
-    assert version == 4
+    assert version == 5
     assert tables == ["profiles", "desk_height_cache", "profile_modes", "face_embeddings"]
     assert columns == [
         "id",
@@ -44,6 +44,7 @@ async def test_new_database_migrates_to_version_four(tmp_path: Path) -> None:
         "sitting_height_cm",
         "standing_height_cm",
         "led_color",
+        "pin_hash",
     ]
     assert foreign_keys == 1
     await database.stop()
@@ -73,7 +74,7 @@ async def test_interrupted_new_database_migration_resumes_from_version_one(
         )
     )
 
-    assert version == 4
+    assert version == 5
     assert cache_table_count == 1
     await database.stop()
 
@@ -143,7 +144,8 @@ async def test_write_commits_and_callback_error_rolls_back(tmp_path: Path) -> No
 
     await database.write(
         lambda connection: connection.execute(
-            "INSERT INTO profiles VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO profiles (id, name, sitting_height_cm, standing_height_cm, led_color) "
+                "VALUES (?, ?, ?, ?, ?)",
             ("profile-" + "1" * 32, "first", 80.0, 100.0, None),
         )
     )
@@ -242,7 +244,8 @@ async def test_version_two_data_migrates_once_to_profile_modes_without_loss(
     with sqlite3.connect(path, isolation_level=None) as connection:
         _migrate_to_version_1(connection)
         _migrate_to_version_2(connection)
-        connection.execute("INSERT INTO profiles VALUES (?, ?, ?, ?, ?)", profile)
+        connection.execute("INSERT INTO profiles (id, name, sitting_height_cm, standing_height_cm, led_color) "
+                "VALUES (?, ?, ?, ?, ?)", profile)
         connection.execute("INSERT INTO desk_height_cache VALUES (?, ?, ?)", cache)
 
     database = SQLiteDatabase(path)
@@ -256,8 +259,8 @@ async def test_version_two_data_migrates_once_to_profile_modes_without_loss(
         )
     )
 
-    assert version == 4
-    assert restored_profile == profile
+    assert version == 5
+    assert restored_profile == profile + (None,)
     assert restored_cache == cache
     assert mode_count == 0
     await database.stop()
@@ -271,7 +274,8 @@ async def test_version_three_migration_rolls_back_when_index_creation_fails(
     with sqlite3.connect(path, isolation_level=None) as connection:
         _migrate_to_version_1(connection)
         _migrate_to_version_2(connection)
-        connection.execute("INSERT INTO profiles VALUES (?, ?, ?, ?, ?)", profile)
+        connection.execute("INSERT INTO profiles (id, name, sitting_height_cm, standing_height_cm, led_color) "
+                "VALUES (?, ?, ?, ?, ?)", profile)
         connection.execute("CREATE INDEX profile_modes_profile_id_idx ON profiles(name)")
 
     database = SQLiteDatabase(path)
@@ -293,7 +297,8 @@ async def test_profile_mode_foreign_key_cascades_on_profile_delete(tmp_path: Pat
     await database.write(
         lambda connection: (
             connection.execute(
-                "INSERT INTO profiles VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO profiles (id, name, sitting_height_cm, standing_height_cm, led_color) "
+                "VALUES (?, ?, ?, ?, ?)",
                 (profile_id, "cascade", 80.0, 100.0, None),
             ),
             connection.execute(

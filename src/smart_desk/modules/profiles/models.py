@@ -46,6 +46,12 @@ class _ProfileModel(BaseModel):
         return value.upper()
 
 
+class ProfilePin(_ProfileModel):
+    """프로필 잠금 PIN 입력이다. 서버는 해시만 저장한다."""
+
+    pin: str = Field(strict=True, pattern=r"^[0-9]{4}$")
+
+
 class Profile(_ProfileModel):
     """저장되어 server ID가 부여된 프로필이다."""
 
@@ -64,6 +70,7 @@ class Profile(_ProfileModel):
         allow_inf_nan=False,
     )
     led_color: str | None = Field(strict=True)
+    has_pin: bool = Field(default=False, strict=True)
 
 
 class ProfileCreate(_ProfileModel):
