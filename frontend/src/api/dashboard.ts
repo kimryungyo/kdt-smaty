@@ -28,6 +28,8 @@ export type Profile = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  /** 조명 밝기(0~255). null이면 이 설정은 밝기를 건드리지 않는다. */
+  ledBrightness: number | null;
   /** PIN 잠금 여부. PIN 자체는 서버가 해시로만 보관해 노출하지 않는다. */
   hasPin: boolean;
   tiltLevel: number | null;
@@ -42,6 +44,7 @@ export type ActivityMode = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  ledBrightness: number | null;
   tiltLevel: number | null;
   description: string | null;
   editable: boolean;
@@ -52,6 +55,7 @@ export type ActivityModeInput = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  ledBrightness: number | null;
   tiltLevel: number | null;
   description: string | null;
 };

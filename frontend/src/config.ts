@@ -10,4 +10,7 @@ export const deskControlRangeLabel = `${DESK_CONTROL_MIN_CM}–${DESK_CONTROL_MA
  */
 export const MODE_TILT_LEVEL_MIN = 0;
 export const MODE_TILT_LEVEL_MAX = 10;
+/** WLED가 받는 밝기 범위. 비워 두면 그 설정은 밝기를 건드리지 않는다. */
+export const LED_BRIGHTNESS_MIN = 0;
+export const LED_BRIGHTNESS_MAX = 255;
 export const MODE_DESCRIPTION_MAX_LENGTH = 300;
