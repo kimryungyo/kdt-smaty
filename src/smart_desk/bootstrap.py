@@ -17,6 +17,7 @@ from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC, TILT_COMMAND_TOPI
 from smart_desk.modules.media import WebRtcCameraPublisher, WebRtcFrameSource
 from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
+from smart_desk.modules.profiles.usage import ActivityModeUsageRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.modules.tilt.controller import TiltController
 from smart_desk.modules.tilt.level_repository import TiltLevelRepository
@@ -114,6 +115,7 @@ def build_container(settings: Settings) -> AppContainer:
     database = SQLiteDatabase(settings.storage.database_path)
     profiles = ProfileRepository(database)
     activity_modes = ActivityModeRepository(database)
+    mode_usage = ActivityModeUsageRepository(database)
     mqtt = MqttClient(settings.mqtt, task_manager)
     serial_source = SerialLineSource(settings.serial)
     decoder = SegmentDecoder(settings.desk)
@@ -145,6 +147,7 @@ def build_container(settings: Settings) -> AppContainer:
         database=database,
         profiles=profiles,
         activity_modes=activity_modes,
+        mode_usage=mode_usage,
         dashboard=DashboardService(desk, profiles, activity_modes=activity_modes),
         mqtt=mqtt,
         height_monitor=height_monitor,
@@ -404,6 +407,7 @@ def build_container(settings: Settings) -> AppContainer:
         current_user=current_user, vision=vision, activity_modes=activity_modes,
         desk=desk, settings=settings.automation, wled=container.wled,
         target_tolerance_cm=settings.desk.target_tolerance_cm,
+        usage=mode_usage,
     )
     container.automation = automation
     container.dashboard = DashboardService(desk, profiles, automation, activity_modes=activity_modes)
