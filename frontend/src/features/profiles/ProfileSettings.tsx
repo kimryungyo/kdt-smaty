@@ -225,13 +225,14 @@ function ProfileEditor({ create = false, profileId }: { create?: boolean; profil
 
   if (loading) return <main className="settings-main"><p>프로필을 불러오는 중입니다.</p></main>;
   // 본인 자리에서는 서버도 PIN을 요구하지 않으므로 잠금 화면을 띄우지 않는다.
-  if (!create && editingProfile?.hasPin && !isCurrentUser && unlockedPin === null) {
+  // 그 밖에는 PIN이 없는 프로필도 통과시키지 않고 PIN부터 정하게 한다.
+  if (!create && editingProfile && !isCurrentUser && unlockedPin === null) {
     return <PinGate profile={editingProfile} onUnlock={setUnlockedPin} />;
   }
   if (!create && !editingProfile) return <main className="settings-main"><section className="settings-heading"><div><p>PROFILE SETTINGS</p><h1>프로필을 찾을 수 없습니다.</h1><span>{error || "프로필을 불러오지 못했습니다."}</span></div><button type="button" className="settings-secondary" onClick={() => navigate("/settings/profiles")}>목록으로</button></section></main>;
   if (create && editingProfile) return <main className="settings-main"><section className="settings-heading"><div><p>FACE ENROLLMENT</p><h1>{editingProfile.name} 얼굴 등록</h1><span>얼굴을 등록하고 PIN을 정하면 등록이 끝납니다. 얼굴 등록은 profile을 현재 사용자로 지정하지 않습니다.</span></div></section>{error && <p className="settings-error" role="alert">{error}</p>}{message && <p className="settings-message" role="status">{message}</p>}
     <FaceEnrollment profileId={editingProfile.id} initial={enrollment} onError={setError} onEnrolled={() => setEnrolled(true)} />
-    <form className="settings-card" onSubmit={(event) => void finishRegistration(event)}><div className="settings-section-title"><div><h2>PIN 설정</h2><p>다른 사람이 이 프로필의 이름을 바꾸거나 삭제하지 못하게 막는 4자리 숫자입니다. 서버에는 해시로만 저장됩니다.</p></div></div><PinInput label="4자리 PIN" value={pinDraft} onChange={setPinDraft} />{!enrolled && <p className="enroll-meta">얼굴 등록을 먼저 마치면 다음 인식부터 이 프로필로 연결됩니다. 지금 건너뛰고 나중에 등록해도 됩니다.</p>}<div className="settings-actions"><button type="button" className="settings-secondary" onClick={() => navigate(`/settings/profiles/${encodeURIComponent(editingProfile.id)}`)}>PIN 없이 설정으로</button><button type="submit" className="settings-primary" disabled={saving || pinDraft.length !== PIN_LENGTH}>완료</button></div></form>
+    <form className="settings-card" onSubmit={(event) => void finishRegistration(event)}><div className="settings-section-title"><div><h2>PIN 설정</h2><p>다른 사람이 이 프로필의 이름을 바꾸거나 삭제하지 못하게 막는 4자리 숫자입니다. 서버에는 해시로만 저장됩니다.</p></div></div><PinInput label="4자리 PIN" value={pinDraft} onChange={setPinDraft} />{!enrolled && <p className="enroll-meta">얼굴 등록을 먼저 마치면 다음 인식부터 이 프로필로 연결됩니다. 지금 건너뛰고 나중에 등록해도 됩니다.</p>}<div className="settings-actions"><button type="submit" className="settings-primary" disabled={saving || pinDraft.length !== PIN_LENGTH}>완료</button></div></form>
   </main>;
   return <main className="settings-main"><section className="settings-heading"><div><p>{create ? "NEW PROFILE" : "PROFILE SETTINGS"}</p><h1>{create ? "새 프로필" : editingProfile?.name ?? "프로필"}</h1><span>이 화면의 편집 내용은 설정 API에만 저장되며 현재 책상 실행 상태를 바꾸지 않습니다.</span></div><button type="button" className="settings-secondary" onClick={() => navigate("/settings/profiles")}>목록으로</button></section>{error && <p className="settings-error" role="alert">{error}</p>}{message && <p className="settings-message" role="status">{message}</p>}<form className="settings-card" onSubmit={(event) => void saveProfile(event)}><h2>기본 작업 모드 <small>이름: 기본</small></h2><p>기본 작업 모드의 이름은 바꿀 수 없습니다. 아래 값만 저장합니다.</p><ProfileFields draft={draft} onChange={updateDraft} onUseCurrent={useCurrentHeight} /><div className="settings-actions"><button type="submit" className="settings-primary" disabled={saving}>{create ? "프로필 만들기" : "기본값 저장"}</button></div></form>{!create && editingProfile && <><FaceEnrollment profileId={editingProfile.id} onError={setError} /><section className="settings-card settings-modes"><div className="settings-section-title"><div><h2>사용자 작업 모드</h2><p>작업 모드는 설정값입니다. 저장·삭제해도 현재 작업 모드나 LED, 책상은 즉시 바뀌지 않습니다.</p></div><button type="button" className="settings-primary" onClick={() => { setModeEditor("new"); setModeValue(emptyDraft()); }}>작업 모드 추가</button></div><div className="settings-mode-list">{modes.map((mode) => <div className="settings-mode" key={mode.key}><div><strong>{mode.name}</strong><span>{mode.kind === "DEFAULT" ? "기본 작업 모드" : "사용자 작업 모드"} · 앉기 {mode.sittingHeightCm.toFixed(1)}cm · 서기 {mode.standingHeightCm.toFixed(1)}cm · LED {mode.ledColor ? `#${mode.ledColor}` : "없음"} · 틸트 {mode.tiltLevel === null ? "미설정" : mode.tiltLevel}</span>{mode.description && <p className="settings-mode-description">{mode.description}</p>}</div>{mode.editable ? <div><button type="button" onClick={() => { setModeEditor(mode); setModeValue(modeDraft(mode)); }}>수정</button><button type="button" className="settings-danger-text" onClick={() => void removeMode(mode)}>삭제</button></div> : <em>이름 고정</em>}</div>)}</div></section></>}{modeEditor && <div className="settings-modal" role="dialog" aria-modal="true" aria-label="작업 모드 편집"><form className="settings-card settings-dialog" onSubmit={(event) => void saveMode(event)}><h2>{modeEditor === "new" ? "작업 모드 추가" : "작업 모드 수정"}</h2><ProfileFields draft={modeValue} onChange={(key, value) => setModeValue((current) => ({ ...current, [key]: value }))} /><div className="settings-actions"><button type="button" className="settings-secondary" onClick={() => setModeEditor(null)}>취소</button><button type="submit" className="settings-primary" disabled={saving}>저장</button></div></form></div>}{!create && <section className="settings-delete"><h2>프로필 삭제</h2><p>얼굴과 custom 작업 모드, 향후 memory 및 활성 session에 영향을 줄 수 있습니다. 서버가 항목 삭제에 실패하면 profile을 보존하고 삭제 요청이 실패할 수 있습니다.</p><button type="button" className="settings-danger" onClick={() => void removeProfile()}>프로필 삭제</button></section>}</main>;
 }
@@ -259,19 +260,25 @@ function PinGate({ profile, onUnlock }: { profile: Profile; onUnlock: (pin: stri
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  // 등록을 중간에 그만둬 PIN이 없는 프로필은, 편집 전에 PIN부터 정하게 한다.
+  const needsSetup = !profile.hasPin;
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true); setError("");
-    try { await verifyProfilePin(profile.id, pin); onUnlock(pin); }
-    catch (cause) {
-      setError(cause instanceof ApiError && cause.status === 403 ? "PIN이 일치하지 않습니다." : cause instanceof Error ? cause.message : "PIN을 확인하지 못했습니다.");
+    try {
+      if (needsSetup) await setProfilePin(profile.id, pin);
+      else await verifyProfilePin(profile.id, pin);
+      onUnlock(pin);
+    } catch (cause) {
+      setError(cause instanceof ApiError && cause.status === 403 ? "PIN이 일치하지 않습니다." : cause instanceof Error ? cause.message : needsSetup ? "PIN을 저장하지 못했습니다." : "PIN을 확인하지 못했습니다.");
       setPin("");
     } finally { setBusy(false); }
   };
 
-  return <main className="settings-main"><section className="settings-heading"><div><p>PROFILE LOCKED</p><h1>{profile.name}</h1><span>이 프로필은 PIN으로 잠겨 있습니다. 수정하려면 등록할 때 정한 4자리 PIN을 입력하세요.</span></div><button type="button" className="settings-secondary" onClick={() => navigate("/settings/profiles")}>목록으로</button></section>
+  return <main className="settings-main"><section className="settings-heading"><div><p>{needsSetup ? "PIN REQUIRED" : "PROFILE LOCKED"}</p><h1>{profile.name}</h1><span>{needsSetup ? "이 프로필에는 아직 PIN이 없습니다. 회원 정보를 수정하려면 먼저 4자리 PIN을 정하세요." : "이 프로필은 PIN으로 잠겨 있습니다. 수정하려면 등록할 때 정한 4자리 PIN을 입력하세요."}</span></div><button type="button" className="settings-secondary" onClick={() => navigate("/settings/profiles")}>목록으로</button></section>
     {error && <p className="settings-error" role="alert">{error}</p>}
-    <form className="settings-card" onSubmit={(event) => void submit(event)}><h2>PIN 확인</h2><PinInput label="4자리 PIN" value={pin} onChange={setPin} autoFocus /><div className="settings-actions"><button type="submit" className="settings-primary" disabled={busy || pin.length !== PIN_LENGTH}>잠금 해제</button></div></form>
+    <form className="settings-card" onSubmit={(event) => void submit(event)}><h2>{needsSetup ? "PIN 설정" : "PIN 확인"}</h2><PinInput label="4자리 PIN" value={pin} onChange={setPin} autoFocus /><div className="settings-actions"><button type="submit" className="settings-primary" disabled={busy || pin.length !== PIN_LENGTH}>{needsSetup ? "PIN 저장하고 계속" : "잠금 해제"}</button></div></form>
   </main>;
 }
 
