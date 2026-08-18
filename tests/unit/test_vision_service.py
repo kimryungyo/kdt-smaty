@@ -302,6 +302,38 @@ async def test_persistent_multiple_wins_window_and_blocks_vision() -> None:
     assert snapshot.reason_codes == (BlockCode.MULTIPLE_PEOPLE,)
 
 
+async def test_stable_values_ignore_one_detector_error() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=1), LowerDetection(1, PostureStatus.STANDING)
+    )
+    service = make_service(clock, detector, upper, lower)
+
+    for value in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    assert service.get_snapshot().usable is True
+
+    detector.upper = RuntimeError("transient inference failure")  # type: ignore[assignment]
+    clock.value = 3.5
+    upper.frame = lower.frame = (np.zeros((1, 1)), 3.5)
+    await service.process_once()
+    transient = service.get_snapshot()
+    assert transient.raw_presence is PresenceStatus.UNKNOWN
+    assert transient.stable_presence is PresenceStatus.PRESENT_SINGLE
+    assert transient.stable_posture is PostureStatus.STANDING
+    assert transient.usable is True
+    assert transient.reason_codes == ()
+
+    detector.upper = UpperDetection(body_count=1)
+    for value in (4.0, 4.5, 5.0, 5.5, 6.0, 6.5):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    assert service.get_snapshot().usable is True
+
+
 class SlowDetector(FakeDetector):
     def detect_upper(self, frame: np.ndarray) -> UpperDetection:
         time.sleep(0.05)

@@ -191,7 +191,8 @@ A 얼굴이 안 보이거나 품질이 낮다는 이유로 전환하지 않는�
 `MULTIPLE`, 카메라 count 불일치 또는 자세 불확실성이 3초 관측창에서 70% 이상이면 현재
 session과 두 mode를 유지하되 AUTO generation과 진행 AUTO 이동을 STOP하고 자세 후보를
 초기화한다. 한두 frame의 단발 오탐은 raw 상태에만 남기고 기존 stable 상태와 AUTO를 유지한다.
-카메라 단절, stale과 모델 장애는 관측 다수결 대상이 아니므로 즉시 STOP·차단한다.
+카메라 단절과 stale은 즉시 STOP·차단한다. 단일 detector 예외·결과 누락은 `UNKNOWN` 표로
+처리하고, 3초 관측창의 다수를 차지하는 지속 장애에서 STOP·차단한다.
 Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
 
 - 등록 session은 같은 얼굴을 다시 안정적으로 확인한 뒤 AUTO 차단을 해제한다.

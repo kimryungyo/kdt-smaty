@@ -297,8 +297,6 @@ class VisionService:
                 BlockCode.LOWER_CAMERA_UNAVAILABLE,
                 BlockCode.UPPER_FRAME_STALE,
                 BlockCode.LOWER_FRAME_STALE,
-                BlockCode.MODEL_UNAVAILABLE,
-                BlockCode.MODEL_ERROR,
             }
         )
         if force_stale or immediate_reasons:
@@ -430,7 +428,12 @@ class VisionService:
         """순간 추론 이상은 raw에 남기고 안정화된 제어 차단 사유만 반환한다."""
 
         if immediate:
-            return tuple(dict.fromkeys(immediate))
+            return tuple(
+                code
+                for code in observed
+                if code in immediate
+                or code in {BlockCode.MODEL_ERROR, BlockCode.MODEL_UNAVAILABLE}
+            )
         if self._stable_presence is PresenceStatus.MULTIPLE:
             return (BlockCode.MULTIPLE_PEOPLE,)
         if self._stable_presence is not PresenceStatus.PRESENT_SINGLE:
@@ -440,7 +443,12 @@ class VisionService:
                     for code in (BlockCode.MULTIPLE_PEOPLE, BlockCode.COUNT_MISMATCH)
                     if code in observed
                 )
-            for code in (BlockCode.COUNT_MISMATCH, BlockCode.CAMERA_TIMESTAMP_MISMATCH):
+            for code in (
+                BlockCode.MODEL_ERROR,
+                BlockCode.MODEL_UNAVAILABLE,
+                BlockCode.COUNT_MISMATCH,
+                BlockCode.CAMERA_TIMESTAMP_MISMATCH,
+            ):
                 if code in observed:
                     return (code,)
             return (BlockCode.PRESENCE_NOT_SINGLE,)

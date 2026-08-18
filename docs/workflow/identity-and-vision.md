@@ -52,9 +52,11 @@ stable 값과 다른 관측이 시작되면 3초 관측 묶음을 열고, 서로
 AUTO를 흔들지 않는다. 같은 이상이 관측 묶음의 다수를 차지하면 stable `UNKNOWN` 또는
 `MULTIPLE`로 전환해 AUTO를 차단한다.
 
-카메라 단절, frame/result stale, detector 예외와 모델 미구성은 추론값 오탐이 아니라 입력
-파이프라인 장애이므로 다수결을 기다리지 않고 즉시 stable 값을 `UNKNOWN`으로 만들고 AUTO를
-차단한다. 새 distinct 상·하단 frame이 다시 들어온 뒤에는 처음부터 3초를 재확인한다.
+카메라 단절과 frame/result stale은 실제 입력이 멈춘 파이프라인 장애이므로 다수결을 기다리지
+않고 즉시 stable 값을 `UNKNOWN`으로 만들고 AUTO를 차단한다. 단일 detector 예외나 모델
+결과 누락은 해당 결합 frame의 `UNKNOWN` 표로 처리해 순간 오류를 흡수하고, 3초 관측창의
+다수를 차지할 때만 stable 값을 `UNKNOWN`으로 바꾼다. 새 distinct 상·하단 frame이 다시
+들어온 뒤에는 처음부터 3초를 재확인한다.
 운영 장비의 상·하단 직렬 추론 한 묶음은 약 0.8초이므로 frame/result 만료값은 3초로 둔다.
 이는 정상 처리 지연을 stale로 오판하지 않으면서 실제 입력 정지는 3초 안에 차단한다.
 
