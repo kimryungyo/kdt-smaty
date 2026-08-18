@@ -2,11 +2,15 @@
 
 #include <Arduino.h>
 
+#include "line_sink.h"
 #include "motion_controller.h"
 
 class TiltProtocol {
  public:
   explicit TiltProtocol(MotionController& motion) : motion_(motion) {}
+
+  // 완성된 이벤트 줄을 어디로 보낼지 바깥에서 정한다(시리얼·MQTT 등).
+  void set_line_handler(LineSink::LineHandler handler) { out_.set_handler(handler); }
 
   void begin();
   void handle_line(char* line);
@@ -15,6 +19,8 @@ class TiltProtocol {
   void publish_status(const char* event = "status") const;
 
  private:
+  mutable LineSink out_;
+
   bool parse_float(const char* token, float* value) const;
   bool parse_int(const char* token, int* value) const;
   bool set_calibration(int duty, float speed_mm_s, const char* direction);

@@ -4,9 +4,30 @@
 
 #include "policy.h"
 
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#define WIFI_SSID ""
+#define WIFI_PASSWORD ""
+#endif
+
+#ifndef SMARTDESK_MQTT_HOST
+#define SMARTDESK_MQTT_HOST "192.168.0.10"
+#endif
+#ifndef SMARTDESK_MQTT_PORT
+#define SMARTDESK_MQTT_PORT 1883
+#endif
+
 namespace TiltConfig {
 
-constexpr char FIRMWARE_VERSION[] = "tilt-hw039-1.0.1";
+constexpr char FIRMWARE_VERSION[] = "tilt-hw039-2.0.0";
+
+// 서버와는 MQTT로 이야기한다. relay와 같은 결의 장치 토픽이다.
+constexpr char MQTT_COMMAND_TOPIC[] = "/tilt_ctl";
+constexpr char MQTT_STATUS_TOPIC[] = "/tilt_ctl_status";
+constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 3000;
+constexpr char MQTT_HOST[] = SMARTDESK_MQTT_HOST;
+constexpr uint16_t MQTT_PORT = SMARTDESK_MQTT_PORT;
 
 // tilt_project.zip에서 검증된 HW-039(BTS7960) 배선이다. UP은 RPWM, DOWN은
 // LPWM으로 구동하며 enable 두 개는 hardware timer의 최후 OFF 차단선이다.
@@ -21,6 +42,8 @@ constexpr uint8_t PWM_RESOLUTION_BITS = 10;
 constexpr uint16_t PWM_MAX_DUTY = (1U << PWM_RESOLUTION_BITS) - 1U;
 
 constexpr size_t SERIAL_LINE_MAX_BYTES = 128;
+// 이벤트 한 줄을 통째로 담아 두었다가 MQTT로 내보내기 위한 버퍼다.
+constexpr size_t EVENT_LINE_MAX_BYTES = 192;
 constexpr uint32_t STATUS_HEARTBEAT_MS = 5000;
 
 constexpr uint32_t DRIVER_ENABLE_MASK =

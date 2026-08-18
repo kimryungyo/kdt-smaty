@@ -118,11 +118,11 @@ void TiltProtocol::emergency_stop(const char* reason) {
 }
 
 void TiltProtocol::publish_status(const char* event) const {
-  Serial.printf(
+  out_.printf(
       "{\"event\":\"%s\",\"firmware\":\"%s\",\"position_valid\":%s",
       event, FIRMWARE_VERSION, position_valid_ ? "true" : "false");
-  if (position_valid_) Serial.printf(",\"position_mm\":%.2f", position_mm_);
-  Serial.println("}");
+  if (position_valid_) out_.printf(",\"position_mm\":%.2f", position_mm_);
+  out_.println("}");
 }
 
 bool TiltProtocol::parse_float(const char* token, float* value) const {
@@ -193,7 +193,7 @@ void TiltProtocol::handle_move_to(const char* target_token, const char* duty_tok
   }
   moving_target_mm_ = target;
   manual_run_ = false;
-  Serial.printf(
+  out_.printf(
       "{\"event\":\"moving\",\"target_mm\":%.2f,\"direction\":\"%s\",\"position_valid\":true,\"position_mm\":%.2f}\n",
       target, direction_name(plan.direction), position_mm_);
 }
@@ -229,7 +229,7 @@ void TiltProtocol::handle_manual_run(const char* direction_token,
   // 시간 기반 수동 이동은 위치 센서가 없으므로 절대 위치를 주장하지 않는다.
   position_valid_ = false;
   manual_run_ = true;
-  Serial.printf(
+  out_.printf(
       "{\"event\":\"moving\",\"direction\":\"%s\",\"duty\":%d,\"duration_ms\":%d,\"position_valid\":false}\n",
       direction_name(direction), duty, duration_ms);
 }
@@ -257,32 +257,32 @@ void TiltProtocol::stop_and_invalidate_if_moving() {
 }
 
 void TiltProtocol::emit_calibrated(int duty, const char* direction) const {
-  Serial.printf(
+  out_.printf(
       "{\"event\":\"calibrated\",\"duty\":%d,\"direction\":\"%s\",\"position_valid\":%s",
       duty, direction, position_valid_ ? "true" : "false");
-  if (position_valid_) Serial.printf(",\"position_mm\":%.2f", position_mm_);
-  Serial.println("}");
+  if (position_valid_) out_.printf(",\"position_mm\":%.2f", position_mm_);
+  out_.println("}");
 }
 
 void TiltProtocol::emit_rejected(const char* reason) {
-  Serial.printf("{\"event\":\"rejected\",\"reason\":\"%s\",\"position_valid\":%s",
+  out_.printf("{\"event\":\"rejected\",\"reason\":\"%s\",\"position_valid\":%s",
                 reason, position_valid_ ? "true" : "false");
-  if (position_valid_) Serial.printf(",\"position_mm\":%.2f", position_mm_);
-  Serial.println("}");
+  if (position_valid_) out_.printf(",\"position_mm\":%.2f", position_mm_);
+  out_.println("}");
 }
 
 void TiltProtocol::emit_stopped(const char* reason) {
-  Serial.printf("{\"event\":\"stopped\",\"reason\":\"%s\",\"position_valid\":%s",
+  out_.printf("{\"event\":\"stopped\",\"reason\":\"%s\",\"position_valid\":%s",
                 reason, position_valid_ ? "true" : "false");
-  if (position_valid_) Serial.printf(",\"position_mm\":%.2f", position_mm_);
-  Serial.println("}");
+  if (position_valid_) out_.printf(",\"position_mm\":%.2f", position_mm_);
+  out_.println("}");
 }
 
 void TiltProtocol::emit_at_target() const {
-  Serial.printf("{\"event\":\"at_target\",\"position_valid\":%s",
+  out_.printf("{\"event\":\"at_target\",\"position_valid\":%s",
                 position_valid_ ? "true" : "false");
-  if (position_valid_) Serial.printf(",\"position_mm\":%.2f", position_mm_);
-  Serial.println("}");
+  if (position_valid_) out_.printf(",\"position_mm\":%.2f", position_mm_);
+  out_.println("}");
 }
 
 const char* TiltProtocol::direction_name(TiltPolicy::Direction direction) const {
