@@ -1,0 +1,107 @@
+name: smart-desk
+
+services:
+  emqx:
+    image: emqx/emqx:6.2.2
+    hostname: emqx
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - /etc/smart-desk/emqx.env
+    environment:
+      EMQX_NODE__NAME: emqx@emqx
+      EMQX_LOG__CONSOLE__ENABLE: "true"
+    volumes:
+      - emqx_data:/opt/emqx/data
+      - ./emqx/base.hocon:/opt/emqx/etc/base.hocon:ro
+    ports:
+      - "1883:1883"
+      - "127.0.0.1:18083:18083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18083/api/v5/status >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+    networks: [fin-internal]
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.19.2
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      - ./mediamtx/mediamtx.runtime.yml:/mediamtx.yml:ro
+    ports:
+      - "8889:8889/tcp"
+      - "8189:8189/udp"
+    networks: [fin-internal]
+
+  # The camera itself produces JPEG.  Relay those bytes directly instead of
+  # decoding and software-encoding them as H.264/WebRTC on the Raspberry Pi.
+  mjpeg-user-cam:
+    image: mkuf/ustreamer:v6.52-2-g3bb1ed3
+    user: "0:0"
+    restart: unless-stopped
+    command:
+      - --device=/dev/user-cam
+      - --format=MJPEG
+      - --resolution=1920x1080
+      - --desired-fps=2
+      - --encoder=HW
+      - --workers=1
+      - --host=0.0.0.0
+      - --port=8080
+    devices:
+      - "${SMART_DESK_MEDIA__USER__DEVICE}:/dev/user-cam"
+    group_add: ["20", "29"]
+    ports:
+      - "10001:8080"
+    networks: [fin-internal]
+
+  main:
+    build:
+      context: ..
+      target: main-runtime
+    image: smart-desk-fin-main:local
+    restart: unless-stopped
+    stop_grace_period: 30s
+    user: "1000:1001"
+    env_file:
+      - ../.env
+    environment:
+      SMART_DESK_ENVIRONMENT: production
+      SMART_DESK_MQTT__HOST: emqx
+      SMART_DESK_MQTT__PORT: "1883"
+      SMART_DESK_SERIAL__PORT: /dev/desk-height
+      SMART_DESK_DASHBOARD__FRONTEND_DIRECTORY: /app/frontend/dist
+      SMART_DESK_VISION_CLIENT__ENABLED: "true"
+      SMART_DESK_VISION_CLIENT__BASE_URL: ${SMART_DESK_VISION_CLIENT__BASE_URL:-http://100.91.129.90:50001}
+      SMART_DESK_MEDIA__USER__PUBLISH_ENABLED: "false"
+      SMART_DESK_MEDIA__USER__RECEIVE_ENABLED: "false"
+      SMART_DESK_MEDIA__USER__DEVICE: /dev/user-cam
+      SMART_DESK_MEDIA__WORKSPACE__PUBLISH_ENABLED: "false"
+      SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED: "false"
+      SMART_DESK_MEDIA__WORKSPACE__DEVICE: /dev/workspace-cam
+      SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED: "false"
+      SMART_DESK_VOICE__OUTPUT_DEVICE_NAME: "HD-Audio Generic: ALC897 Analog (hw:2,0)"
+      SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS: "true"
+    volumes:
+      - ../data:/app/data
+    devices:
+      - "${SMART_DESK_SERIAL__PORT}:/dev/desk-height"
+      - "/dev/snd:/dev/snd"
+    group_add: ["20", "29", "1001"]
+    ports:
+      - "9090:9090"
+      - "10000:10000"
+    depends_on:
+      emqx:
+        condition: service_healthy
+    networks: [fin-internal]
+
+networks:
+  fin-internal:
+    driver: bridge
+
+volumes:
+  emqx_data:
