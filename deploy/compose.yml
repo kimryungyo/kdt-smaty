@@ -66,7 +66,7 @@ services:
       # Host PipeWire aliases are not visible in the container; use the
       # directly-mounted ALSA speaker name discovered on this appliance.
       SMART_DESK_VOICE__OUTPUT_DEVICE_NAME: "HD-Audio Generic: ALC897 Analog (hw:2,0)"
-      SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS: "false"
+      SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS: "true"
     volumes:
       - ../data:/app/data
     devices:
