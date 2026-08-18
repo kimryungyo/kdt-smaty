@@ -108,3 +108,35 @@ async def test_a_skipped_greeting_retries_later_not_immediately(tmp_path: Path) 
     retry.greet(PROFILE)
     await _settle(retry)
     assert ready.spoken == 1
+
+
+def test_weather_uses_the_local_date_not_utc(tmp_path: Path) -> None:
+    """컨테이너가 UTC로 돌아도 현지 날짜로 찾아야 한다.
+
+    UTC 기준 어제 날짜로 검색하면 지난 날씨라 결과가 잡히지 않고, 모델이
+    "확인할 수 없다"고 답해 인사말에서 날씨가 통째로 빠졌다.
+    """
+
+    # 한국은 이미 19일 오전, UTC로는 아직 18일 저녁이다.
+    utc_moment = datetime(2026, 8, 18, 22, 30, tzinfo=UTC)
+    service = GreetingService(
+        voice=FakeVoice(), profiles=FakeProfiles(), synthesizer=FakeSynthesizer(),
+        api_key="", model="test-model", state_file=tmp_path / "state.json",
+        location="시흥", timezone="Asia/Seoul", now=lambda: utc_moment,
+    )
+    assert service._local_now().strftime("%m월 %d일") == "08월 19일"
+
+
+async def test_weather_that_could_not_be_confirmed_is_left_out(tmp_path: Path) -> None:
+    """모델이 확인 실패를 문장으로 답하면 그대로 읽지 않고 뺀다."""
+
+    service = GreetingService(
+        voice=FakeVoice(), profiles=FakeProfiles(), synthesizer=FakeSynthesizer(),
+        api_key="key", model="test-model", state_file=tmp_path / "state.json",
+    )
+
+    async def refuses() -> str:
+        return "죄송하지만 현재 기온과 하늘 상태는 확인되지 않습니다."
+
+    service._search_weather = refuses  # type: ignore[method-assign]
+    assert await service._weather_line() is None

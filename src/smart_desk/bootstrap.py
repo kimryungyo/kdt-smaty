@@ -504,6 +504,7 @@ def build_container(settings: Settings) -> AppContainer:
                     model=settings.openai.response_model,
                     memory=container.profile_memory,
                     location=settings.voice.greeting_location,
+                    timezone=settings.automation.schedule_timezone,
                     cooldown_seconds=settings.voice.greeting_cooldown_seconds,
                     state_file=settings.voice.greeting_state_file,
                 )
