@@ -49,6 +49,7 @@ class TiltStatusMessage(BaseModel):
         frozen=True,
         extra="forbid",
         serialize_by_alias=True,
+        populate_by_name=True,
     )
 
     schema_name: Literal["smartdesk.tilt.status.v1"] = Field(
@@ -56,11 +57,13 @@ class TiltStatusMessage(BaseModel):
     )
     state: TiltState
     level: int | None = None
-    position_mm: float | None = None
+    target_level: int | None = Field(default=None, alias="targetLevel")
+    position_mm: float | None = Field(default=None, alias="positionMm")
+    position_valid: bool = Field(default=False, alias="positionValid")
     firmware: str | None = None
     detail: str
-    last_error: str | None = None
-    updated_at: datetime
+    last_error: str | None = Field(default=None, alias="lastError")
+    updated_at: datetime = Field(alias="updatedAt")
 
     @field_validator("updated_at")
     @classmethod

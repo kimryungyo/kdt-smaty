@@ -105,6 +105,7 @@ class TiltSettings(BaseModel):
     baudrate: int = Field(default=115200, ge=1)
     read_timeout_seconds: float = Field(default=0.2, gt=0, le=5, allow_inf_nan=False)
     write_timeout_seconds: float = Field(default=0.7, gt=0, le=5, allow_inf_nan=False)
+    event_timeout_seconds: float = Field(default=1.0, gt=0, le=5, allow_inf_nan=False)
     reconnect_interval_seconds: float = Field(
         default=1.0, gt=0, le=30, allow_inf_nan=False
     )

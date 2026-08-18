@@ -124,6 +124,29 @@ class TiltSerialLink:
                 return False
             return True
 
+    async def write_line_if_connected(self, command: str) -> bool:
+        """이미 연결된 포트에만 명령을 쓴다.
+
+        종료 STOP처럼 새 연결을 열거나 reconnect backoff를 기다리면 안 되는 경로에서
+        사용한다. 연결이 없으면 firmware의 독립 watchdog에 맡기고 False를 반환한다.
+        """
+
+        if not self._started:
+            return False
+        async with self._io_lock:
+            if not self._started or self._connection is None:
+                return False
+            connection = self._connection
+            try:
+                await self._run_blocking(
+                    lambda: connection.write((command + "\n").encode("ascii"))
+                )
+                await self._run_blocking(connection.flush)
+            except EXPECTED_SERIAL_ERRORS as error:
+                await self._mark_disconnected(connection, error)
+                return False
+            return True
+
     async def read_line(self, timeout_seconds: float | None = None) -> bytes:
         """필요하면 포트를 열고 한 줄을 읽으며 정상 timeout은 빈 bytes로 반환한다."""
 

@@ -1,4 +1,4 @@
-"""틸팅 MQTT 명령을 받아 ESP32 시리얼 프로토콜로 변환하고 상태를 발행한다."""
+"""틸팅 MQTT 명령을 안전한 ESP32 시리얼 제어로 변환한다."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 import json
 import logging
+import math
 
 from pydantic import ValidationError
 
@@ -28,10 +29,12 @@ from smart_desk.modules.tilt.serial_link import TiltSerialLink
 
 LOGGER = logging.getLogger(__name__)
 TILT_READER_TASK_NAME = "tilt-serial-reader"
-# MOVE_TO 완료를 알리는 종결 이벤트. 그 외(moving/move_to/extended)는 아직
-# 모터가 도는 중이라는 뜻이라 controller 공개 상태를 바꾸지 않는다.
-_TERMINAL_EVENTS = {"stopped", "at_target", "rejected"}
-_NON_TERMINAL_MOTION_EVENTS = {"moving", "move_to", "extended"}
+TILT_PREPARE_TASK_NAME = "tilt-prepare"
+TILT_MOTION_TASK_NAME = "tilt-motion"
+
+
+class TiltCommandRejectedError(RuntimeError):
+    """현재 장치 상태에서 틸트 명령을 실행할 수 없다."""
 
 
 def utc_now() -> datetime:
@@ -41,11 +44,10 @@ def utc_now() -> datetime:
 
 
 class TiltController:
-    """틸팅 ESP32(모터드라이버)의 단일 소유자로 MQTT 명령을 시리얼로 중계한다.
+    """틸팅 ESP32의 단일 서버측 소유자다.
 
-    `DeskController`와 달리 폐루프 높이 센서가 없다 — 펌웨어 자신이
-    open-loop 위치 추정과 MOVE_TO 시간 계산을 소유하므로, 이 controller는
-    명령 중계·중복 실행 방지·상태 발행만 책임진다.
+    장치의 GPIO·motion deadline은 firmware가 소유한다. 이 controller는 명령 검증,
+    연결 세대별 보정, 상태 전이와 STOP 우선순위만 맡는다.
     """
 
     def __init__(
@@ -62,39 +64,46 @@ class TiltController:
         self._settings = settings
         self._task_manager = task_manager
         self._snapshot = TiltSnapshot(
-            state=TiltState.IDLE,
+            state=TiltState.ERROR,
             level=None,
+            target_level=None,
             position_mm=None,
+            position_valid=False,
             firmware=None,
             detail="틸팅 제어기가 시작되지 않았습니다.",
-            last_error=None,
+            last_error="틸팅 제어기가 시작되지 않았습니다.",
             updated_at=utc_now(),
         )
         self._running = False
-        self._command_lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()
         self._reader_task: asyncio.Task[None] | None = None
+        self._prepare_task: asyncio.Task[None] | None = None
+        self._motion_task: asyncio.Task[None] | None = None
         self._synced_generation = -1
+        self._command_generation = 0
+        self._pending_calibration: tuple[int, str, int, asyncio.Future[None]] | None = None
 
     async def start(self) -> None:
-        """시리얼 link를 시작하고 백그라운드 리더 task를 생성한다."""
+        """시리얼 reader를 시작하고 firmware ready 이벤트를 기다린다."""
 
         if self._running:
             raise RuntimeError("틸팅 제어기가 이미 실행 중입니다.")
         await self._link.start()
         self._running = True
         self._synced_generation = -1
-        self._set_snapshot(
-            replace(
-                self._snapshot,
-                state=TiltState.IDLE,
-                detail="틸팅 제어기를 시작했습니다.",
-                last_error=None,
-            )
+        await self._replace_snapshot(
+            state=TiltState.ERROR,
+            level=None,
+            target_level=None,
+            position_mm=None,
+            position_valid=False,
+            detail="틸팅 ESP32의 준비 상태를 기다립니다.",
+            last_error="틸팅 ESP32가 아직 준비되지 않았습니다.",
         )
         try:
             self._reader_task = self._task_manager.create(
                 TILT_READER_TASK_NAME,
-                self._run(),
+                self._run_reader(),
                 critical=False,
             )
         except Exception:
@@ -103,111 +112,188 @@ class TiltController:
             raise
 
     async def stop(self) -> None:
-        """리더 task를 취소한 뒤 시리얼 link를 종료한다."""
+        """새 이동을 막고 연결된 장치에 STOP을 보낸 뒤 포트를 닫는다."""
 
         self._running = False
-        task = self._reader_task
+        async with self._state_lock:
+            self._command_generation += 1
+            pending = self._pending_calibration
+            self._pending_calibration = None
+            if pending is not None and not pending[3].done():
+                pending[3].cancel()
+
+        # 새 연결을 만들지 않는 종료 STOP이다. 연결이 없으면 firmware deadline이 최후
+        # 보호 계층이다.
+        sent = await self._link.write_line_if_connected("STOP")
+        await self._cancel_tasks(self._motion_task, self._prepare_task, self._reader_task)
+        self._motion_task = None
+        self._prepare_task = None
         self._reader_task = None
-        if task is not None:
-            if not task.done():
-                task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
         await self._link.stop()
+        if sent:
+            await self._replace_snapshot(
+                state=TiltState.STOPPED,
+                target_level=None,
+                detail="애플리케이션 종료 전에 STOP을 전송했습니다.",
+                last_error=None,
+            )
+        else:
+            await self._replace_snapshot(
+                state=TiltState.ERROR,
+                target_level=None,
+                detail="종료 STOP을 전송하지 못했습니다.",
+                last_error="틸팅 ESP32 연결이 없어 종료 STOP을 확인하지 못했습니다.",
+            )
 
     async def handle_command(self, message: MqttMessage) -> None:
-        """TILT_COMMAND_TOPIC에서 받은 GOTO/STOP 명령을 실행한다."""
+        """MQTT GOTO/STOP을 처리한다. GOTO의 긴 I/O는 background task로 분리한다."""
 
         try:
             command = TiltCommandAdapter.validate_json(message.payload)
         except ValidationError as error:
-            LOGGER.warning(
-                "유효하지 않은 틸팅 명령을 무시했습니다.",
-                extra={"component": "tilt", "event": "tilt_command_invalid"},
-            )
-            await self._publish_rejected(self._summarize_validation_error(error))
+            await self._publish_notice(f"유효하지 않은 틸팅 명령: {self._summarize_validation_error(error)}")
             return
 
         if isinstance(command, TiltStopCommand):
             await self._stop_motion("MQTT STOP 명령을 받았습니다.")
             return
+        if message.retained:
+            await self._publish_notice("retained GOTO 명령은 실행하지 않습니다.")
+            return
+        await self._start_goto(command)
 
-        await self._goto_level(command)
+    async def set_target(self, level: int) -> None:
+        """HTTP 같은 프로세스 내부 호출을 현재 틸트 명령 경로로 보낸다."""
+
+        detail = await self._start_goto(TiltGotoCommand(level=level, source="api"))
+        if detail:
+            raise TiltCommandRejectedError(detail)
+
+    async def stop_motion(self, reason: str = "") -> None:
+        """수명주기 종료와 구분되는 명시적 물리 STOP이다."""
+
+        await self._stop_motion(reason or "틸팅 정지 요청을 받았습니다.")
 
     def get_snapshot(self) -> TiltSnapshot:
-        """I/O 없이 현재 틸팅 상태를 반환한다."""
+        """I/O 없이 마지막 틸트 상태를 반환한다."""
 
         return self._snapshot
 
-    async def _goto_level(self, command: TiltGotoCommand) -> None:
-        async with self._command_lock:
+    async def _start_goto(self, command: TiltGotoCommand) -> str | None:
+        async with self._state_lock:
+            snapshot = self._snapshot
             if not self._running:
-                await self._publish_rejected_locked("틸팅 제어기가 실행 중이 아닙니다.")
-                return
-            if self._snapshot.state is TiltState.MOVING:
-                await self._publish_rejected_locked("다른 이동이 진행 중입니다.")
-                return
-            if not self._settings.min_level <= command.level <= self._settings.max_level:
-                await self._publish_rejected_locked(
-                    f"단계는 {self._settings.min_level}~{self._settings.max_level} "
-                    "사이여야 합니다."
-                )
-                return
-            target_mm = self._levels.target_mm_for_level(command.level)
-            if target_mm is None:
-                await self._publish_rejected_locked(
-                    f"{command.level}단계의 목표 위치가 설정되지 않았습니다."
-                )
-                return
+                detail = "틸팅 제어기가 실행 중이 아닙니다."
+            elif snapshot.state is TiltState.MOVING:
+                if snapshot.target_level == command.level:
+                    detail = None
+                else:
+                    detail = "다른 틸트 이동이 진행 중입니다."
+            elif snapshot.state not in {TiltState.IDLE, TiltState.AT_TARGET, TiltState.STOPPED}:
+                detail = "틸팅 ESP32가 준비되지 않았거나 오류 상태입니다."
+            elif not snapshot.position_valid:
+                detail = "틸팅 ESP32의 현재 위치가 확인되지 않았습니다."
+            elif not self._settings.min_level <= command.level <= self._settings.max_level:
+                detail = f"단계는 {self._settings.min_level}~{self._settings.max_level} 사이여야 합니다."
+            elif self._levels.target_mm_for_level(command.level) is None:
+                detail = f"{command.level}단계의 목표 위치가 설정되지 않았습니다."
+            elif self._link.connection_generation != self._synced_generation:
+                detail = "틸팅 ESP32 보정이 아직 완료되지 않았습니다."
+            else:
+                detail = ""
 
-            await self._ensure_calibration_synced()
-
-            sent = await self._link.write_line(
-                f"MOVE_TO {target_mm:.2f} {self._settings.move_duty_percent}"
-            )
-            if not sent:
-                await self._publish_rejected_locked(
-                    "틸팅 ESP32로 이동 명령을 전송하지 못했습니다."
+            if detail is None:
+                # QoS 1 duplicate: 진행 중인 동일 목표는 오류로 바꾸지 않는다.
+                pass
+            elif detail:
+                pass
+            else:
+                self._command_generation += 1
+                generation = self._command_generation
+                self._set_snapshot_locked(
+                    replace(
+                        snapshot,
+                        state=TiltState.MOVING,
+                        target_level=command.level,
+                        detail=f"{command.level}단계 이동 명령을 전송합니다.",
+                        last_error=None,
+                    )
                 )
-                return
-
-            self._set_snapshot(
-                replace(
-                    self._snapshot,
-                    state=TiltState.MOVING,
-                    level=command.level,
-                    detail=f"{command.level}단계로 이동합니다.",
-                    last_error=None,
+                self._motion_task = self._task_manager.create(
+                    TILT_MOTION_TASK_NAME,
+                    self._send_move(command.level, generation),
+                    critical=False,
                 )
-            )
+
+        if detail is None:
+            await self._publish_status()
+        elif detail:
+            await self._publish_notice(detail)
+        else:
+            await self._publish_status()
+        return detail
+
+    async def _send_move(self, level: int, command_generation: int) -> None:
+        target_mm = self._levels.target_mm_for_level(level)
+        if target_mm is None:
+            await self._mark_motion_error(command_generation, "목표 위치가 설정되지 않았습니다.")
+            return
+        if not await self._is_current_motion(command_generation):
+            return
+        if self._link.connection_generation != self._synced_generation:
+            await self._mark_motion_error(command_generation, "틸팅 ESP32 보정이 유실됐습니다.")
+            return
+
+        sent = await self._link.write_line(
+            f"MOVE_TO {target_mm:.2f} {self._settings.move_duty_percent}"
+        )
+        if not sent:
+            await self._mark_motion_error(command_generation, "틸팅 ESP32로 이동 명령을 전송하지 못했습니다.")
+            return
+        if not await self._is_current_motion(command_generation):
+            # STOP이 write와 경합하면 후속 이동을 상태로 확정하지 않는다.
+            return
+        await self._replace_snapshot_if_current(
+            command_generation,
+            detail=f"{level}단계로 이동 중입니다.",
+            last_error=None,
+        )
         await self._publish_status()
 
     async def _stop_motion(self, detail: str) -> None:
-        async with self._command_lock:
-            if not self._running:
-                return
-            sent = await self._link.write_line("STOP")
-            self._set_snapshot(
-                replace(
-                    self._snapshot,
-                    state=TiltState.IDLE if sent else TiltState.ERROR,
-                    detail=detail,
-                    last_error=None if sent else "STOP 명령 전송에 실패했습니다.",
-                )
-            )
+        async with self._state_lock:
+            self._command_generation += 1
+            motion_task = self._motion_task
+            self._motion_task = None
+            was_moving = self._snapshot.state is TiltState.MOVING
+            pending = self._pending_calibration
+            self._pending_calibration = None
+            if pending is not None and not pending[3].done():
+                pending[3].cancel()
+
+        if motion_task is not None and not motion_task.done():
+            motion_task.cancel()
+        # motion task의 thread I/O 완료를 기다리기 전에 STOP을 보낸다.
+        sent = await self._link.write_line("STOP") if self._running else False
+        if motion_task is not None:
+            await asyncio.gather(motion_task, return_exceptions=True)
+
+        await self._replace_snapshot(
+            state=TiltState.STOPPED if sent else TiltState.ERROR,
+            target_level=None,
+            position_valid=False if was_moving else self._snapshot.position_valid,
+            position_mm=None if was_moving else self._snapshot.position_mm,
+            detail=detail if sent else "STOP 명령 전송에 실패했습니다.",
+            last_error=None if sent else "틸팅 ESP32로 STOP을 전송하지 못했습니다.",
+        )
         await self._publish_status()
 
-    async def _ensure_calibration_synced(self) -> None:
-        """연결이 새로 열렸을 때만 보정 테이블을 ESP32에 재전송한다."""
-
-        if self._link.connection_generation == self._synced_generation:
-            return
-        for duty, direction, speed in self._levels.calibration_snapshot():
-            await self._link.write_line(f"CALIBRATE {duty} {speed:.4f} {direction}")
-        self._synced_generation = self._link.connection_generation
-
-    async def _run(self) -> None:
+    async def _run_reader(self) -> None:
         while self._running:
-            line = await self._link.read_line()
+            try:
+                line = await self._link.read_line()
+            except RuntimeError:
+                return
             if not line:
                 await asyncio.sleep(0)
                 continue
@@ -222,91 +308,303 @@ class TiltController:
             return
 
         event = payload.get("event")
-        is_known_event = event in _TERMINAL_EVENTS or event in _NON_TERMINAL_MOTION_EVENTS
-        if not is_known_event and "firmware" not in payload:
-            # 인식하지 못하는 라인(파싱 잡음 등)은 조용히 무시한다.
+        if not isinstance(event, str):
             return
+        firmware = payload.get("firmware")
+        firmware_value = firmware if isinstance(firmware, str) else self._snapshot.firmware
+        position_valid = payload.get("position_valid")
+        valid_position = position_valid if isinstance(position_valid, bool) else False
+        raw_position = payload.get("position_mm")
+        position_mm = self._parse_position(raw_position) if valid_position else None
+        if valid_position and position_mm is None:
+            valid_position = False
 
-        async with self._command_lock:
-            firmware = payload.get("firmware")
-            firmware = firmware if isinstance(firmware, str) else self._snapshot.firmware
-            position_mm = payload.get("position_mm")
-            position_mm = (
-                float(position_mm)
-                if isinstance(position_mm, (int, float))
-                else self._snapshot.position_mm
+        if event == "calibrated":
+            await self._resolve_calibration_ack(payload)
+            return
+        if event == "ready":
+            await self._handle_ready_or_status(firmware_value, valid_position, position_mm)
+            return
+        if event == "status":
+            # 서버 재시작이 ESP32 부팅보다 늦으면 ready 이벤트를 놓친다. heartbeat도
+            # 같은 동기화 입력으로 처리해 현재 위치가 유효할 때 보정을 재주입한다.
+            await self._handle_ready_or_status(firmware_value, valid_position, position_mm)
+            return
+        if event == "moving":
+            await self._replace_snapshot(
+                firmware=firmware_value,
+                position_valid=valid_position,
+                position_mm=position_mm,
             )
+            await self._publish_status()
+            return
+        if event == "at_target":
+            await self._handle_at_target(firmware_value, valid_position, position_mm)
+            return
+        if event == "stopped":
+            reason = payload.get("reason")
+            await self._handle_stopped(
+                firmware_value,
+                valid_position,
+                position_mm,
+                str(reason) if reason is not None else "unknown",
+            )
+            return
+        if event in {"fault", "rejected"}:
+            reason = str(payload.get("reason", "알 수 없는 오류"))
+            await self._replace_snapshot(
+                state=TiltState.ERROR,
+                target_level=None,
+                firmware=firmware_value,
+                position_valid=valid_position,
+                position_mm=position_mm,
+                detail="틸팅 ESP32가 명령을 거부하거나 오류를 보고했습니다.",
+                last_error=reason,
+            )
+            await self._publish_status()
 
-            if event == "stopped":
-                self._set_snapshot(
-                    replace(
-                        self._snapshot,
-                        state=TiltState.IDLE,
-                        firmware=firmware,
-                        position_mm=position_mm,
-                        detail=f"{self._snapshot.level}단계 이동이 끝났습니다.",
-                        last_error=None,
-                    )
-                )
-            elif event == "at_target":
-                self._set_snapshot(
-                    replace(
-                        self._snapshot,
-                        state=TiltState.IDLE,
-                        firmware=firmware,
-                        position_mm=position_mm,
-                        detail="이미 목표 위치입니다.",
-                        last_error=None,
-                    )
-                )
-            elif event == "rejected":
-                reason = payload.get("reason", "알 수 없는 오류")
-                self._set_snapshot(
-                    replace(
-                        self._snapshot,
-                        state=TiltState.ERROR,
-                        firmware=firmware,
-                        detail="틸팅 ESP32가 명령을 거부했습니다.",
-                        last_error=str(reason),
-                    )
-                )
-            elif event in _NON_TERMINAL_MOTION_EVENTS:
-                self._set_snapshot(replace(self._snapshot, firmware=firmware))
-                return
-            else:
-                # STATUS 스냅샷: 제어 상태는 바꾸지 않고 진단 정보만 갱신한다.
-                self._set_snapshot(
-                    replace(self._snapshot, firmware=firmware, position_mm=position_mm)
-                )
-                return
+    async def _handle_ready_or_status(
+        self,
+        firmware: str | None,
+        position_valid: bool,
+        position_mm: float | None,
+    ) -> None:
+        await self._replace_snapshot(
+            state=TiltState.ERROR,
+            target_level=None,
+            firmware=firmware,
+            position_valid=position_valid,
+            position_mm=position_mm,
+            detail=("틸팅 ESP32 보정을 준비합니다." if position_valid else "틸팅 ESP32 위치가 확인되지 않았습니다."),
+            last_error=None if position_valid else "position_valid=false",
+        )
+        if position_valid:
+            await self._start_prepare_task()
         await self._publish_status()
 
-    def _set_snapshot(self, snapshot: TiltSnapshot) -> None:
-        self._snapshot = replace(snapshot, updated_at=utc_now())
-
-    async def _publish_rejected_locked(self, detail: str) -> None:
-        """`_command_lock`을 이미 쥔 호출자 안에서 상태를 거부로 바꾸고 발행한다."""
-
-        self._set_snapshot(
-            replace(
-                self._snapshot,
-                state=TiltState.ERROR,
-                detail=detail,
-                last_error=detail,
+    async def _start_prepare_task(self) -> None:
+        async with self._state_lock:
+            if not self._running:
+                return
+            if self._prepare_task is not None and not self._prepare_task.done():
+                return
+            self._prepare_task = self._task_manager.create(
+                TILT_PREPARE_TASK_NAME,
+                self._prepare_device(),
+                critical=False,
             )
+
+    async def _prepare_device(self) -> None:
+        generation = self._link.connection_generation
+        if generation <= 0:
+            await self._mark_prepare_error("틸팅 ESP32 연결이 확인되지 않았습니다.")
+            return
+        synced = await self._ensure_calibration_synced(generation)
+        if not synced:
+            await self._mark_prepare_error("틸팅 ESP32 보정을 완료하지 못했습니다.")
+            return
+        async with self._state_lock:
+            if not self._running or generation != self._link.connection_generation:
+                return
+            snapshot = self._snapshot
+            if not snapshot.position_valid:
+                return
+            self._set_snapshot_locked(
+                replace(
+                    snapshot,
+                    state=TiltState.IDLE,
+                    target_level=None,
+                    detail="틸팅 ESP32가 이동 준비를 마쳤습니다.",
+                    last_error=None,
+                )
+            )
+        await self._publish_status()
+
+    async def _ensure_calibration_synced(self, generation: int) -> bool:
+        if generation == self._synced_generation:
+            return True
+        for duty, direction, speed in self._levels.calibration_snapshot():
+            if not self._running or generation != self._link.connection_generation:
+                return False
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[None] = loop.create_future()
+            async with self._state_lock:
+                self._pending_calibration = (duty, direction, generation, future)
+            sent = await self._link.write_line(f"CALIBRATE {duty} {speed:.4f} {direction}")
+            if not sent or generation != self._link.connection_generation:
+                await self._clear_pending_calibration(future)
+                return False
+            try:
+                async with asyncio.timeout(self._settings.event_timeout_seconds):
+                    await future
+            except asyncio.CancelledError:
+                await self._clear_pending_calibration(future)
+                raise
+            except TimeoutError:
+                await self._clear_pending_calibration(future)
+                return False
+            await self._clear_pending_calibration(future)
+        self._synced_generation = generation
+        return True
+
+    async def _resolve_calibration_ack(self, payload: dict[str, object]) -> None:
+        duty = payload.get("duty")
+        direction = payload.get("direction")
+        if isinstance(duty, bool) or not isinstance(duty, int) or not isinstance(direction, str):
+            return
+        async with self._state_lock:
+            pending = self._pending_calibration
+            if pending is None:
+                return
+            expected_duty, expected_direction, generation, future = pending
+            if (
+                duty == expected_duty
+                and direction == expected_direction
+                and generation == self._link.connection_generation
+                and not future.done()
+            ):
+                future.set_result(None)
+
+    async def _clear_pending_calibration(self, future: asyncio.Future[None]) -> None:
+        async with self._state_lock:
+            if self._pending_calibration is not None and self._pending_calibration[3] is future:
+                self._pending_calibration = None
+
+    async def _handle_at_target(
+        self,
+        firmware: str | None,
+        position_valid: bool,
+        position_mm: float | None,
+    ) -> None:
+        async with self._state_lock:
+            snapshot = self._snapshot
+            if snapshot.target_level is None or not position_valid:
+                self._set_snapshot_locked(
+                    replace(
+                        snapshot,
+                        state=TiltState.ERROR,
+                        target_level=None,
+                        firmware=firmware,
+                        position_valid=position_valid,
+                        position_mm=position_mm,
+                        detail="목표 도달 위치를 확인하지 못했습니다.",
+                        last_error="at_target 위치가 유효하지 않습니다.",
+                    )
+                )
+            else:
+                self._set_snapshot_locked(
+                    replace(
+                        snapshot,
+                        state=TiltState.AT_TARGET,
+                        level=snapshot.target_level,
+                        target_level=None,
+                        firmware=firmware,
+                        position_valid=True,
+                        position_mm=position_mm,
+                        detail=f"{snapshot.target_level}단계에 도달했습니다.",
+                        last_error=None,
+                    )
+                )
+        await self._publish_status()
+
+    async def _handle_stopped(
+        self,
+        firmware: str | None,
+        position_valid: bool,
+        position_mm: float | None,
+        reason: str,
+    ) -> None:
+        timeout = reason in {"timeout", "motion_timeout", "fault"}
+        async with self._state_lock:
+            previous = self._snapshot
+            disconnected_while_moving = previous.state is TiltState.MOVING and not position_valid
+            state = TiltState.ERROR if timeout or disconnected_while_moving else TiltState.STOPPED
+            self._set_snapshot_locked(
+                replace(
+                    previous,
+                    state=state,
+                    level=None if timeout or disconnected_while_moving else previous.level,
+                    target_level=None,
+                    firmware=firmware,
+                    position_valid=False if timeout or disconnected_while_moving else position_valid,
+                    position_mm=position_mm,
+                    detail=(
+                        "틸팅 이동이 시간 초과로 정지했습니다."
+                        if timeout
+                        else "연결 단절 중 틸팅 위치를 잃었습니다."
+                        if disconnected_while_moving
+                        else "틸팅 이동이 정지했습니다."
+                    ),
+                    last_error=(
+                        reason
+                        if timeout
+                        else "serial_disconnect"
+                        if disconnected_while_moving
+                        else None
+                    ),
+                )
+            )
+        if position_valid and state is TiltState.STOPPED:
+            await self._start_prepare_task()
+        await self._publish_status()
+
+    async def _mark_prepare_error(self, detail: str) -> None:
+        await self._replace_snapshot(
+            state=TiltState.ERROR,
+            target_level=None,
+            detail=detail,
+            last_error=detail,
         )
         await self._publish_status()
 
-    async def _publish_rejected(self, detail: str) -> None:
-        async with self._command_lock:
-            await self._publish_rejected_locked(detail)
+    async def _mark_motion_error(self, command_generation: int, detail: str) -> None:
+        async with self._state_lock:
+            if command_generation != self._command_generation:
+                return
+            self._set_snapshot_locked(
+                replace(
+                    self._snapshot,
+                    state=TiltState.ERROR,
+                    target_level=None,
+                    detail=detail,
+                    last_error=detail,
+                )
+            )
+        await self._publish_status()
+
+    async def _replace_snapshot_if_current(
+        self,
+        command_generation: int,
+        **changes: object,
+    ) -> None:
+        async with self._state_lock:
+            if command_generation != self._command_generation:
+                return
+            self._set_snapshot_locked(replace(self._snapshot, **changes))
+
+    async def _is_current_motion(self, command_generation: int) -> bool:
+        async with self._state_lock:
+            return self._running and command_generation == self._command_generation
+
+    async def _replace_snapshot(self, **changes: object) -> None:
+        async with self._state_lock:
+            self._set_snapshot_locked(replace(self._snapshot, **changes))
+
+    def _set_snapshot_locked(self, snapshot: TiltSnapshot) -> None:
+        self._snapshot = replace(snapshot, updated_at=utc_now())
+
+    async def _publish_notice(self, detail: str) -> None:
+        LOGGER.warning(detail, extra={"component": "tilt", "event": "tilt_command_rejected"})
+        await self._publish_status()
 
     async def _publish_status(self) -> None:
         snapshot = self._snapshot
         message = TiltStatusMessage(
             state=snapshot.state,
             level=snapshot.level,
+            target_level=snapshot.target_level,
             position_mm=snapshot.position_mm,
+            position_valid=snapshot.position_valid,
             firmware=snapshot.firmware,
             detail=snapshot.detail,
             last_error=snapshot.last_error,
@@ -316,7 +614,7 @@ class TiltController:
             await self._mqtt.publish(
                 TILT_STATUS_TOPIC,
                 message.model_dump_json(),
-                qos=0,
+                qos=1,
                 retain=True,
             )
         except MqttUnavailableError:
@@ -325,6 +623,21 @@ class TiltController:
                 extra={"component": "tilt", "event": "tilt_status_publish_failed"},
                 exc_info=True,
             )
+
+    @staticmethod
+    async def _cancel_tasks(*tasks: asyncio.Task[None] | None) -> None:
+        pending = [task for task in tasks if task is not None and not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    @staticmethod
+    def _parse_position(value: object) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        position = float(value)
+        return position if math.isfinite(position) else None
 
     @staticmethod
     def _summarize_validation_error(error: ValidationError) -> str:

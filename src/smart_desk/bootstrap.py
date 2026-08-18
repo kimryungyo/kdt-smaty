@@ -190,6 +190,11 @@ def build_container(settings: Settings) -> AppContainer:
         tilt_levels = TiltLevelRepository(
             settings.tilt.levels_file, settings.tilt.calibration_file
         )
+        tilt_levels.validate_for(
+            min_level=settings.tilt.min_level,
+            max_level=settings.tilt.max_level,
+            move_duty_percent=settings.tilt.move_duty_percent,
+        )
         tilt_link = TiltSerialLink(settings.tilt)
         tilt = TiltController(tilt_link, tilt_levels, mqtt, settings.tilt, task_manager)
         container.tilt = tilt

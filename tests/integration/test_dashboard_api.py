@@ -174,8 +174,9 @@ async def test_tilt_contract_is_explicitly_unavailable_until_hardware_exists(tmp
     assert current.status_code == 200
     assert current.json() | {"updatedAt": None} == {
         "status": "UNAVAILABLE", "level": None, "targetLevel": None,
-        "minLevel": 0, "maxLevel": 5,
-        "detail": "틸팅 하드웨어가 아직 연결되지 않았습니다.",
+        "positionMm": None, "positionValid": False,
+        "minLevel": 0, "maxLevel": 4,
+        "detail": "틸팅 하드웨어가 아직 활성화되지 않았습니다.",
         "lastError": None, "updatedAt": None,
     }
     assert command.status_code == 503

@@ -1,9 +1,4 @@
-"""아직 장치가 없는 데스크 틸팅 HTTP 계약이다.
-
-실제 actuator가 도입되면 이 route의 공개 모델은 유지하고 service를 연결한다.
-현재는 브라우저가 추측으로 성공 상태를 표시하거나 localStorage 값을 장치 상태로
-오인하지 않게 명시적으로 사용할 수 없음을 반환한다.
-"""
+"""실제 TiltController의 상태 조회와 단계 이동 HTTP route다."""
 
 from __future__ import annotations
 
@@ -12,43 +7,102 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, status
 from pydantic import Field
 
+from smart_desk.core.container import get_container
 from smart_desk.modules.dashboard.models import DashboardModel
+from smart_desk.modules.tilt.controller import TiltCommandRejectedError
 
 
 router = APIRouter(prefix="/api/tilt", tags=["tilt"])
 
 
 class TiltStatusResponse(DashboardModel):
-    status: str = "UNAVAILABLE"
+    status: str
     level: int | None = None
     target_level: int | None = None
-    min_level: int = 0
-    max_level: int = 5
-    detail: str = "틸팅 하드웨어가 아직 연결되지 않았습니다."
+    position_mm: float | None = None
+    position_valid: bool = False
+    min_level: int
+    max_level: int
+    detail: str
     last_error: str | None = None
     updated_at: datetime
 
 
 class TiltTargetRequest(DashboardModel):
-    level: int = Field(strict=True, ge=0, le=5)
+    level: int = Field(strict=True, ge=0)
 
 
 def _unavailable() -> TiltStatusResponse:
-    return TiltStatusResponse(updated_at=datetime.now(UTC))
+    settings = get_container().settings.tilt
+    return TiltStatusResponse(
+        status="UNAVAILABLE",
+        min_level=settings.min_level,
+        max_level=settings.max_level,
+        detail="틸팅 하드웨어가 아직 활성화되지 않았습니다.",
+        updated_at=datetime.now(UTC),
+    )
+
+
+def _response() -> TiltStatusResponse:
+    container = get_container()
+    tilt = container.tilt
+    if tilt is None:
+        return _unavailable()
+    snapshot = tilt.get_snapshot()
+    return TiltStatusResponse(
+        status=snapshot.state,
+        level=snapshot.level,
+        target_level=snapshot.target_level,
+        position_mm=snapshot.position_mm,
+        position_valid=snapshot.position_valid,
+        min_level=container.settings.tilt.min_level,
+        max_level=container.settings.tilt.max_level,
+        detail=snapshot.detail,
+        last_error=snapshot.last_error,
+        updated_at=snapshot.updated_at,
+    )
 
 
 @router.get("/status", response_model=TiltStatusResponse)
 async def get_tilt_status() -> TiltStatusResponse:
-    """현재 구현 가능한 틸팅 상태를 반환한다."""
+    """현재 실제 틸트 controller 상태와 서버 설정 범위를 반환한다."""
 
-    return _unavailable()
+    return _response()
 
 
 @router.put("/target", response_model=TiltStatusResponse)
-async def set_tilt_target(_request: TiltTargetRequest) -> TiltStatusResponse:
-    """미구현 actuator 요청을 성공처럼 처리하지 않는다."""
+async def set_tilt_target(request: TiltTargetRequest) -> TiltStatusResponse:
+    """설정 범위 안의 단계 이동을 요청한다."""
 
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="틸팅 하드웨어가 아직 연결되지 않았습니다.",
-    )
+    container = get_container()
+    tilt = container.tilt
+    if tilt is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="틸팅 하드웨어가 아직 활성화되지 않았습니다.",
+        )
+    settings = container.settings.tilt
+    if not settings.min_level <= request.level <= settings.max_level:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"틸트 단계는 {settings.min_level}~{settings.max_level} 사이여야 합니다.",
+        )
+    try:
+        await tilt.set_target(request.level)
+    except TiltCommandRejectedError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return _response()
+
+
+@router.post("/stop", response_model=TiltStatusResponse)
+async def stop_tilt() -> TiltStatusResponse:
+    """진행 중인 틸트 이동을 즉시 정지한다."""
+
+    tilt = get_container().tilt
+    if tilt is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="틸팅 하드웨어가 아직 활성화되지 않았습니다.",
+        )
+    await tilt.stop_motion("대시보드에서 틸팅을 정지했습니다.")
+    return _response()

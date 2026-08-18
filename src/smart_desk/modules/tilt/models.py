@@ -12,6 +12,8 @@ class TiltState(StrEnum):
 
     IDLE = "IDLE"
     MOVING = "MOVING"
+    AT_TARGET = "AT_TARGET"
+    STOPPED = "STOPPED"
     ERROR = "ERROR"
 
 
@@ -21,7 +23,9 @@ class TiltSnapshot:
 
     state: TiltState
     level: int | None
+    target_level: int | None
     position_mm: float | None
+    position_valid: bool
     firmware: str | None
     detail: str
     last_error: str | None
