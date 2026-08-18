@@ -114,10 +114,17 @@ void setup() {
     return;
   }
   WiFi.mode(WIFI_STA);
+  // 접속 정보를 flash에 남기지 않고, 재접속 시점은 아래 루프가 직접 정한다.
+  WiFi.persistent(false);
   WiFi.setSleep(false);
+  WiFi.setAutoReconnect(false);
+  // relay에서 실측으로 고른 최저 출력이다. 이 보드도 같은 전원을 쓰므로 맞춘다.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   mqtt.setServer(TiltConfig::MQTT_HOST, TiltConfig::MQTT_PORT);
   mqtt.setCallback(on_mqtt_message);
   mqtt.setBufferSize(TiltConfig::EVENT_LINE_MAX_BYTES + 64);
+  mqtt.setKeepAlive(TiltConfig::MQTT_KEEPALIVE_SECONDS);
+  mqtt.setSocketTimeout(TiltConfig::MQTT_SOCKET_TIMEOUT_SECONDS);
   protocol.begin();
   last_status_at = millis();
 }

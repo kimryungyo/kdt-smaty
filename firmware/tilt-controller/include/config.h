@@ -29,6 +29,10 @@ constexpr char MQTT_STATUS_TOPIC[] = "/tilt_ctl_status";
 // 시도를 끊어 WL_CONNECT_FAILED만 반복한다. relay와 같은 간격을 쓴다.
 constexpr uint32_t WIFI_RETRY_MS = 15000;
 constexpr uint32_t MQTT_RETRY_MS = 5000;
+// relay 보드에서 출력을 단계별로 낮춰가며 실측한 값이다. 높은 송신 출력은
+// 순간 전류를 키워 연결이 인증 단계에서 실패했고, 최저 단계에서 안정적이었다.
+constexpr uint16_t MQTT_KEEPALIVE_SECONDS = 15;
+constexpr uint16_t MQTT_SOCKET_TIMEOUT_SECONDS = 1;
 constexpr char MQTT_HOST[] = SMARTDESK_MQTT_HOST;
 constexpr uint16_t MQTT_PORT = SMARTDESK_MQTT_PORT;
 
