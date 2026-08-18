@@ -63,6 +63,9 @@ services:
       SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED: "false"
       SMART_DESK_MEDIA__WORKSPACE__DEVICE: /dev/workspace-cam
       SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED: "false"
+      # Host PipeWire aliases are not visible in the container; use the
+      # directly-mounted ALSA speaker name discovered on this appliance.
+      SMART_DESK_VOICE__OUTPUT_DEVICE_NAME: "HD-Audio Generic: ALC897 Analog (hw:2,0)"
       SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS: "false"
     volumes:
       - ../data:/app/data
@@ -106,11 +109,11 @@ services:
       SMART_DESK_MEDIA__POSTURE__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED: "true"
       SMART_DESK_MEDIA__POSTURE__RECEIVE_URL: http://mediamtx:8889/bottom-cam/whep
-      SMART_DESK_FACE__DETECTOR_MODEL_PATH: /models/face_detection_yunet_2023mar.onnx
-      SMART_DESK_FACE__EMBEDDING_MODEL_PATH: /models/face_recognition_sface_2021dec.onnx
-      SMART_DESK_VISION__LOWER_POSE_MODEL_PATH: /models/yolo26n-pose.onnx
-    volumes:
-      - ../assets/vision/models:/models:ro
+      SMART_DESK_FACE__DETECTOR_MODEL_PATH: /app/assets/vision/models/face_detection_yunet_2023mar.onnx
+      SMART_DESK_FACE__EMBEDDING_MODEL_PATH: /app/assets/vision/models/face_recognition_sface_2021dec.onnx
+      SMART_DESK_VISION__LOWER_POSE_MODEL_PATH: /app/assets/vision/models/yolo26n-pose.onnx
+      # Current camera calibration: the detected face has blur variance ~26.
+      SMART_DESK_FACE__MIN_BLUR_VARIANCE: "20"
     ports:
       - "127.0.0.1:9091:9091"
     depends_on:
