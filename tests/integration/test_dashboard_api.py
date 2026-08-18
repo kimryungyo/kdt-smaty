@@ -298,8 +298,8 @@ async def test_dashboard_api_contract_and_storage_crud_ignore_global_readiness(
         assert modes.json() == [{
             "key": "default", "kind": "DEFAULT", "name": "기본",
             "sittingHeightCm": 80.0, "standingHeightCm": 105.0,
-            "ledColor": "FF3000", "ledBrightness": 180, "tiltLevel": None,
-            "description": None,
+            "ledColor": "FF3000", "ledBrightness": 180,
+            "ledSchedule": None, "tiltLevel": None, "description": None,
             "editable": False,
         }]
         custom = await client.post(

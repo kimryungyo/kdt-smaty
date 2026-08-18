@@ -7,6 +7,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Protocol
 
 from smart_desk.config.settings import AutomationSettings
@@ -20,6 +21,7 @@ from smart_desk.modules.desk.models import (
 from smart_desk.modules.profiles.activity_modes import (
     ActivityModeNotFoundError, ActivityModeOwnershipError, effective_mode_from_activity,
 )
+from smart_desk.modules.profiles.led_schedule import LedSchedule, parse_schedule
 from smart_desk.modules.profiles.models import ActivityMode, EffectiveActivityMode
 from smart_desk.modules.vision.models import PresenceStatus, PostureStatus, VisionSnapshot
 
@@ -133,6 +135,11 @@ class AutomationService:
         self._announcer: AnnouncerPort | None = None
         # 같은 높이를 두 번 말하지 않도록 마지막으로 알린 목표를 기억한다.
         self._announced_target_cm: float | None = None
+        # 지금 걸린 모드의 조명 스케줄과, 그 모드를 켠 시각. 스케줄은 모드가
+        # 바뀔 때만 해석하고, 그 뒤로는 구간이 넘어갈 때만 조명을 다시 보낸다.
+        self._active_schedule: LedSchedule | None = None
+        self._mode_started_mono: float | None = None
+        self._schedule_applied: tuple[str, int] | None = None
         # 자리를 비워도 잠깐이면 쓰던 모드로 돌아오게 profile별로 기억한다.
         # 기억하는 동안 사용 시간은 늘지 않는다(구간을 닫아 두기 때문이다).
         self._mode_memory_seconds = mode_memory_seconds
@@ -315,7 +322,7 @@ class AutomationService:
                     self._last_pair = self._pair(self._vision.get_snapshot())
             # Mode selection and its LED are committed independently of the
             # Desk preemption outcome; a failed STOP must not roll either back.
-            self._queue_led(selected.led_color, selected.led_brightness)
+            self._queue_led(*self._install_mode_lighting(selected))
             self._remember_mode(current.profile_id, selected.key)
             await self._begin_usage(current.profile_id, selected)
             if live:
@@ -419,6 +426,7 @@ class AutomationService:
             self._wake.clear()
 
     async def _observe_once(self) -> None:
+        self._tick_led_schedule()
         current = await self._users.snapshot()
         vision = self._vision.get_snapshot()
         snapshot = self._snapshot
@@ -503,21 +511,19 @@ class AutomationService:
         if (greet_profile_id is not None and self._greeter is not None
                 and self._recall_mode(greet_profile_id) is None):
             self._greeter.greet(greet_profile_id)
+        # 새 모드가 걸렸으니 조명 계획을 다시 세운다.
+        install_lighting = self._install_mode_lighting(activity)
         # 새 session이 모드를 물고 들어온 시점부터 사용 시간을 다시 센다.
         self._remember_mode(installed_profile_id, installed_mode.key if installed_mode else None)
         await self._begin_usage(installed_profile_id, installed_mode)
         if live:
             if not await self._safe_stop("사용자 교대 안전 정지"):
                 await self._queue_install_led(
-                    current.session_id, expected_generation,
-                    activity.led_color if activity is not None else None,
-                    activity.led_brightness if activity is not None else None,
+                    current.session_id, expected_generation, *install_lighting,
                 )
                 return True
         if not await self._queue_install_led(
-            current.session_id, expected_generation,
-            activity.led_color if activity is not None else None,
-            activity.led_brightness if activity is not None else None,
+            current.session_id, expected_generation, *install_lighting,
         ):
             return True
         if anonymous_upgrade and control is ControlMode.AUTO and failure is None and self._auto_usable(vision):
@@ -1075,6 +1081,58 @@ class AutomationService:
             self._remembered_mode.pop(profile_id, None)
             return None
         return mode_key
+
+    def _install_mode_lighting(self, mode: EffectiveActivityMode | None) -> LedSetting:
+        """모드가 걸릴 때 조명 계획을 세우고 지금 적용할 값을 돌려준다."""
+
+        self._mode_started_mono = self._monotonic()
+        self._schedule_applied = None
+        self._active_schedule = None
+        if mode is None:
+            return (None, None)
+        if mode.led_schedule is not None:
+            try:
+                self._active_schedule = parse_schedule(mode.led_schedule)
+            except Exception:
+                LOGGER.warning(
+                    "조명 스케줄을 읽지 못해 저장된 색을 그대로 씁니다.",
+                    extra={"component": "automation", "event": "led_schedule_unreadable"},
+                )
+        resolved = self._resolve_schedule()
+        if resolved is not None:
+            self._schedule_applied = resolved
+            return resolved
+        return (mode.led_color, mode.led_brightness)
+
+    def _resolve_schedule(self) -> tuple[str, int] | None:
+        """지금 스케줄이 가리키는 (색, 밝기). 스케줄이 없으면 None."""
+
+        schedule = self._active_schedule
+        if schedule is None:
+            return None
+        started = self._mode_started_mono
+        elapsed = None if started is None else (self._monotonic() - started) / 60.0
+        return schedule.resolve(now=self._local_now().time(), elapsed_minutes=elapsed)
+
+    def _local_now(self) -> datetime:
+        """시각 스케줄이 쓸 현지 시각. 컨테이너가 UTC로 돌아도 어긋나지 않는다."""
+
+        try:
+            return self._utc_now().astimezone(ZoneInfo(self._settings.schedule_timezone))
+        except Exception:
+            return self._utc_now()
+
+    def _tick_led_schedule(self) -> None:
+        """구간이 넘어갔으면 조명을 다시 보낸다. 매 관찰마다 값싸게 확인한다."""
+
+        if self._active_schedule is None or self._wled is None:
+            return
+        resolved = self._resolve_schedule()
+        if resolved is None or resolved == self._schedule_applied:
+            return
+        self._schedule_applied = resolved
+        colour, brightness = resolved
+        self._queue_led(colour, brightness)
 
     def _announce_height(self, target: float, *, automatic: bool) -> None:
         """책상이 어디로 가는지 알린다. 실제로 움직일 때만 부른다."""

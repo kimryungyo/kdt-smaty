@@ -550,6 +550,9 @@ class AutomationSettings(BaseModel):
     posture_confirmation_seconds: float = Field(default=5.0, gt=0, le=30, allow_inf_nan=False)
     auto_rearm_distance_cm: float = Field(default=1.5, gt=1.0, le=5.0, allow_inf_nan=False)
     auto_rearm_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
+    # 조명 시각 스케줄이 쓰는 현지 시간대. 컨테이너는 UTC로 도는 경우가 많아
+    # 여기서 명시하지 않으면 하루가 통째로 어긋난다.
+    schedule_timezone: str = "Asia/Seoul"
 
 
 class StorageSettings(BaseModel):

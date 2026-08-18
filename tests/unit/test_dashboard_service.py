@@ -150,6 +150,15 @@ async def test_create_profile_seeds_default_modes_when_activity_modes_wired() ->
         "공부",
     ]
     assert all(profile_id == profile.id for profile_id, _ in activity_modes.created)
+
+    # 논문에서 가져온 조명 기본값이 처음부터 들어가 있어야 한다.
+    seeded = {create.name: create.led_schedule for _, create in activity_modes.created}
+    assert seeded["독서"]["kind"] == "TIME_OF_DAY"
+    assert seeded["공부"]["kind"] == "ELAPSED"
+    # 공부는 0분 4000K에서 시작해 10분에 6000K로 올라간다.
+    study = seeded["공부"]["steps"]
+    assert (study[0]["at"], study[0]["color"], study[0]["brightness"]) == (0, "FFD6A4", 153)
+    assert (study[-1]["at"], study[-1]["color"], study[-1]["brightness"]) == (10, "FFF6D8", 255)
     assert all(create.description for _, create in activity_modes.created)
 
 

@@ -692,6 +692,44 @@ async def test_height_change_is_announced_once_per_target() -> None:
     ]
 
 
+async def test_study_schedule_ramps_up_while_the_mode_stays_on() -> None:
+    """공부 모드는 앉아 있는 동안 구간이 넘어갈 때마다 조명을 다시 보낸다."""
+
+    from smart_desk.modules.profiles.led_schedule import DEFAULT_STUDY_SCHEDULE
+
+    clock, desk, users, led = Clock(), FakeDesk(), FakeUsers(user("a", registered=True)), FakeWled()
+    camera = FakeVision(vision((1, 1)))
+    study = EffectiveActivityMode(
+        key="default", kind="DEFAULT", name="공부", sitting_height_cm=80,
+        standing_height_cm=112, led_color=None, led_brightness=None,
+        led_schedule=DEFAULT_STUDY_SCHEDULE, tilt_level=None, description=None,
+        editable=False,
+    )
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock,
+                          modes=FakeModes(study), wled=led)
+    await observe(service, camera, (1, 1), clock)
+    await asyncio.sleep(0)
+    await service.set_activity_mode("default", "a")
+    await asyncio.sleep(.01)
+    assert led.calls[-2:] == [("brightness", 153), ("color", "FFD6A4")]   # 0분 4000K
+
+    clock.advance(4 * 60)                       # 4분 경과
+    await observe(service, camera, (2, 2), clock)
+    await asyncio.sleep(.01)
+    assert led.calls[-2:] == [("brightness", 179), ("color", "FFE0B5")]   # 4500K
+
+    clock.advance(6 * 60)                       # 10분 경과
+    await observe(service, camera, (3, 3), clock)
+    await asyncio.sleep(.01)
+    assert led.calls[-2:] == [("brightness", 255), ("color", "FFF6D8")]   # 6000K
+
+    before_idle = len(led.calls)
+    clock.advance(30 * 60)                      # 그 뒤로는 더 보내지 않는다
+    await observe(service, camera, (4, 4), clock)
+    await asyncio.sleep(.01)
+    assert len(led.calls) == before_idle
+
+
 async def test_mode_brightness_is_applied_before_its_colour() -> None:
     """색이 켜지는 순간 이미 그 모드의 밝기여야 직전 밝기가 스치지 않는다."""
 
