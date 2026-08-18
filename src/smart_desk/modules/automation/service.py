@@ -71,6 +71,12 @@ class ActivityModeUsagePort(Protocol):
     async def close_open_intervals(self, profile_id: str | None = None) -> None: ...
 
 
+class AnnouncerPort(Protocol):
+    """스피커로 짧은 알림을 말해 주는 쪽. 부르는 자리를 붙잡지 않는다."""
+
+    def say_soon(self, text: str) -> None: ...
+
+
 class GreetingPort(Protocol):
     """알아본 사용자에게 먼저 말을 거는 쪽. 부르는 자리를 붙잡지 않는다."""
 
@@ -124,6 +130,9 @@ class AutomationService:
         self._usage = usage
         # 음성은 automation보다 늦게 조립된다. 준비되면 set_greeter로 끼운다.
         self._greeter: GreetingPort | None = None
+        self._announcer: AnnouncerPort | None = None
+        # 같은 높이를 두 번 말하지 않도록 마지막으로 알린 목표를 기억한다.
+        self._announced_target_cm: float | None = None
         # 자리를 비워도 잠깐이면 쓰던 모드로 돌아오게 profile별로 기억한다.
         # 기억하는 동안 사용 시간은 늘지 않는다(구간을 닫아 두기 때문이다).
         self._mode_memory_seconds = mode_memory_seconds
@@ -180,6 +189,11 @@ class AutomationService:
             if live:
                 await self._safe_stop("자동화 종료 안전 정지")
 
+    def set_announcer(self, announcer: AnnouncerPort | None) -> None:
+        """높이 변경을 말해 줄 쪽을 끼운다. 음성이 꺼져 있으면 None으로 둔다."""
+
+        self._announcer = announcer
+
     def set_greeter(self, greeter: GreetingPort | None) -> None:
         """인사를 건넬 쪽을 끼운다. 음성이 꺼져 있으면 None으로 둔다."""
 
@@ -213,6 +227,7 @@ class AutomationService:
             # Keep the sessionless Dashboard command path unchanged, while a
             # user-bound caller is checked at the final physical boundary.
             await self._validate_expected_session(expected_session_id)
+            self._announce_height(target_cm, automatic=False)
             await self._desk.set_target(target_cm)
 
     async def stop_motion(self, reason: str = "사용자 STOP") -> None:
@@ -887,6 +902,7 @@ class AutomationService:
             if not await self._dispatch_valid(generation, session_id, source):
                 return
             try:
+                self._announce_height(target, automatic=source is IntentSource.AUTO)
                 await self._desk.set_target(target)
                 await self._finish_automatic_if_idle(session_id)
             except asyncio.CancelledError:
@@ -1055,6 +1071,25 @@ class AutomationService:
             self._remembered_mode.pop(profile_id, None)
             return None
         return mode_key
+
+    def _announce_height(self, target: float, *, automatic: bool) -> None:
+        """책상이 어디로 가는지 알린다. 실제로 움직일 때만 부른다."""
+
+        if self._announcer is None:
+            return
+        here = self._desk_height()
+        # 이미 그 높이면 움직이지 않으므로 말하지 않는다.
+        if here is not None and abs(here - target) <= self._target_tolerance_cm:
+            return
+        # 같은 목표를 연달아 반복하지 않는다.
+        if (self._announced_target_cm is not None
+                and abs(self._announced_target_cm - target) <= self._target_tolerance_cm):
+            return
+        self._announced_target_cm = target
+        # 지금 높이를 모르면 어느 쪽인지 단정하지 않는다.
+        direction = "옮길게요" if here is None else "올릴게요" if target > here else "내릴게요"
+        lead = "자세에 맞춰 " if automatic else ""
+        self._announcer.say_soon(f"{lead}책상을 {target:.0f}센티미터로 {direction}.")
 
     def _queue_led(self, color: str | None, brightness: int | None = None) -> None:
         self._queue_led_values(((color, brightness),))

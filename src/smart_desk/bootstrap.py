@@ -484,15 +484,22 @@ def build_container(settings: Settings) -> AppContainer:
                 settings=settings.voice,
                 task_manager=task_manager,
             )
+            # 인사와 높이 알림은 같은 합성기·스피커를 함께 쓴다.
+            from smart_desk.modules.voice.announcer import SpeechAnnouncer
+            from smart_desk.modules.voice.speech import OpenAiSpeechSynthesizer
+
+            synthesizer = OpenAiSpeechSynthesizer(api_key=api_key.get_secret_value())
+            if settings.voice.height_announcement_enabled:
+                container.announcer = SpeechAnnouncer(voice=voice, synthesizer=synthesizer)
+                automation.set_announcer(container.announcer)
             if settings.voice.greeting_enabled:
                 # 얼굴을 알아본 순간 automation이 이 쪽으로 인사를 넘긴다.
                 from smart_desk.modules.assistant.greeting import GreetingService
-                from smart_desk.modules.voice.speech import OpenAiSpeechSynthesizer
 
                 container.greeting = GreetingService(
                     voice=voice,
                     profiles=profiles,
-                    synthesizer=OpenAiSpeechSynthesizer(api_key=api_key.get_secret_value()),
+                    synthesizer=synthesizer,
                     api_key=api_key.get_secret_value(),
                     model=settings.openai.response_model,
                     memory=container.profile_memory,

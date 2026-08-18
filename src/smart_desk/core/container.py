@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
     from smart_desk.modules.profiles.usage import ActivityModeUsageRepository
     from smart_desk.modules.tilt.controller import TiltController
+    from smart_desk.modules.voice.announcer import SpeechAnnouncer
     from smart_desk.modules.voice.service import VoiceService
     from smart_desk.modules.voice.debug import VoiceDebugServer
     from smart_desk.modules.wled.client import WledClient
@@ -78,6 +79,7 @@ class AppContainer:
     voice: VoiceService | None = None
     voice_debug: VoiceDebugServer | None = None
     greeting: GreetingService | None = None
+    announcer: SpeechAnnouncer | None = None
     wled: WledClient | None = None
     user_camera_publisher: WebRtcCameraPublisher | None = None
     workspace_camera_publisher: WebRtcCameraPublisher | None = None
