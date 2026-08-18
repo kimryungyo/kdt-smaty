@@ -52,6 +52,41 @@ def _media_player(device: str, *, input_format: str, width: int, height: int, fp
     )
 
 
+def _rate_limited_video_track(source: Any, *, fps: int) -> Any:
+    """Cap the frames handed to the WebRTC encoder.
+
+    Some UVC cameras only expose fixed capture rates (the workspace camera
+    exposes 15/30fps).  Passing a lower V4L2 ``framerate`` is then silently
+    ignored.  Limiting at the outgoing track preserves the configured
+    resolution while preventing needless H.264 encoding and transmission.
+    """
+    try:
+        from aiortc import MediaStreamTrack
+    except ImportError as error:  # pragma: no cover - package dependency boundary
+        raise RuntimeError("aiortc is required for WebRTC media") from error
+
+    class RateLimitedVideoTrack(MediaStreamTrack):
+        kind = "video"
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._next_frame_at: float | None = None
+            self._interval = 1.0 / max(fps, 1)
+
+        async def recv(self) -> Any:
+            if self._next_frame_at is not None:
+                delay = self._next_frame_at - time.monotonic()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+            # MediaPlayer keeps only a small queue. Reading after the deadline
+            # therefore discards stale capture frames instead of encoding them.
+            frame = await source.recv()
+            self._next_frame_at = time.monotonic() + self._interval
+            return frame
+
+    return RateLimitedVideoTrack()
+
+
 async def _post_sdp(endpoint: str, offer_sdp: str) -> tuple[str, str | None]:
     import httpx
 
@@ -244,9 +279,10 @@ class WebRtcCameraPublisher(_WebRtcLifecycle):
     async def _open_session(self) -> None:
         self._player = self._player_factory(self._device, input_format=self._input_format,
                                             width=self._width, height=self._height, fps=self._fps)
-        video = getattr(self._player, "video", None)
-        if video is None:
+        source_video = getattr(self._player, "video", None)
+        if source_video is None:
             raise RuntimeError("V4L2 camera did not provide a video track")
+        video = _rate_limited_video_track(source_video, fps=self._fps)
         peer = self._peer_factory()
         self._peer = peer
         self._observe_peer(peer)
