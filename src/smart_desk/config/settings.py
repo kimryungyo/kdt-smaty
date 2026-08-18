@@ -548,6 +548,9 @@ class AutomationSettings(BaseModel):
     # 앉고 서기를 이만큼 유지해야 책상이 따라 움직인다. 짧으면 잠깐 몸을 일으킬
     # 때마다 책상이 오르내려 오히려 방해가 된다.
     posture_confirmation_seconds: float = Field(default=5.0, gt=0, le=30, allow_inf_nan=False)
+    # 후보와 다른 자세가 이 시간 안에 지나가면 흔들림으로 보고 세던 시간을
+    # 지킨다. 자세 인식은 앉고 서는 동안 몇 초씩 오락가락한다.
+    posture_flicker_grace_seconds: float = Field(default=2.0, ge=0, le=10, allow_inf_nan=False)
     auto_rearm_distance_cm: float = Field(default=1.5, gt=1.0, le=5.0, allow_inf_nan=False)
     auto_rearm_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
     # 조명 시각 스케줄이 쓰는 현지 시간대. 컨테이너는 UTC로 도는 경우가 많아

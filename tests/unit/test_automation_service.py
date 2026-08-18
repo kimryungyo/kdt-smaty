@@ -692,6 +692,60 @@ async def test_height_change_is_announced_once_per_target() -> None:
     ]
 
 
+async def test_brief_posture_flicker_does_not_restart_the_confirmation() -> None:
+    """자세를 바꾸는 동안 인식이 오락가락해도 5초를 다시 세지 않는다.
+
+    실제로 재보니 자세가 2~3초마다 흔들렸고, 흔들릴 때마다 카운트가 0으로
+    돌아가 앉은 지 20초가 지나서야 책상이 움직였다.
+    """
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = AutomationService(
+        current_user=users, vision=camera, activity_modes=FakeModes(), desk=desk,
+        settings=AutomationSettings(execute_automatic_movements=False,
+                                    posture_confirmation_seconds=5.0,
+                                    posture_flicker_grace_seconds=2.0),
+        utc_now=lambda: NOW, monotonic=clock,
+    )
+    await observe(service, camera, (1, 1), clock)
+    # 앉기 시작. 그 뒤 1초 간격으로 한 번씩 서기가 잘못 잡힌다.
+    await observe(service, camera, (2, 2), clock, posture=PostureStatus.SITTING)
+    await observe(service, camera, (3, 3), clock, 1, posture=PostureStatus.STANDING)
+    await observe(service, camera, (4, 4), clock, 1, posture=PostureStatus.SITTING)
+    await observe(service, camera, (5, 5), clock, 1, posture=PostureStatus.STANDING)
+    await observe(service, camera, (6, 6), clock, 1, posture=PostureStatus.SITTING)
+    assert service.get_snapshot().target_height_cm is None, "아직 5초가 안 됐다"
+
+    await observe(service, camera, (7, 7), clock, 1, posture=PostureStatus.SITTING)
+    assert service.get_snapshot().target_height_cm == 75, "흔들림에도 5초 만에 확인된다"
+
+
+async def test_a_real_posture_change_still_switches() -> None:
+    """오래 유지되는 반대 자세는 흔들림이 아니라 진짜 변화다."""
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = AutomationService(
+        current_user=users, vision=camera, activity_modes=FakeModes(), desk=desk,
+        settings=AutomationSettings(execute_automatic_movements=False,
+                                    posture_confirmation_seconds=5.0,
+                                    posture_flicker_grace_seconds=2.0),
+        utc_now=lambda: NOW, monotonic=clock,
+    )
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock, posture=PostureStatus.SITTING)
+    await observe(service, camera, (3, 3), clock, 5, posture=PostureStatus.SITTING)
+    assert service.get_snapshot().target_height_cm == 75
+
+    # 일어선다. 흔들림 유예를 지나 계속 서 있으면 서기 높이로 간다.
+    # vision 값이 매번 달라야 새 관찰로 취급된다.
+    for step in range(6):
+        await observe(service, camera, (9 + step, 9 + step), clock, 1,
+                      posture=PostureStatus.STANDING)
+    assert service.get_snapshot().target_height_cm == 110
+
+
 async def test_activity_mode_reselect_keeps_auto_but_set_target_does_not() -> None:
     """자동 제어에서 높이를 반영하는 두 경로의 차이를 못박는다.
 

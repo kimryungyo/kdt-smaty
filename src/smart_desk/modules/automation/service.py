@@ -127,6 +127,8 @@ class AutomationService:
         self._unsubscribe: Callable[[], Awaitable[None]] | None = None
         self._running = False
         self._candidate_started_mono: float | None = None
+        # 후보와 다른 자세가 처음 보인 시각. 잠깐 스친 것인지 가리는 데 쓴다.
+        self._contrary_since_mono: float | None = None
         self._candidate_pair: tuple[float, float] | None = None
         self._last_pair: tuple[float, float] | None = None
         self._usage = usage
@@ -647,16 +649,34 @@ class AutomationService:
         async with self._state_lock:
             if self._snapshot.session_id != current.session_id or self._snapshot.control_mode is not ControlMode.AUTO:
                 return
-            if self._candidate_pair is None or self._snapshot.posture_candidate is not posture:
+            fresh = self._candidate_pair is None or self._snapshot.posture_candidate is None
+            if not fresh and self._snapshot.posture_candidate is not posture:
+                # 반대 자세가 보였다. 자세 인식은 자세를 바꾸는 동안 몇 초씩
+                # 오락가락하는데, 그때마다 세던 시간을 버리면 확인이 영영 끝나지
+                # 않는다. 잠깐 스친 것은 넘기고, 그 자세가 유지될 때만 후보를 바꾼다.
+                if self._contrary_since_mono is None:
+                    self._contrary_since_mono = now_mono
+                # 유예가 확인 시간보다 길면 자세를 바꿔도 영영 확인되지 않는다.
+                grace = min(self._settings.posture_flicker_grace_seconds,
+                            self._settings.posture_confirmation_seconds)
+                if now_mono - self._contrary_since_mono < grace:
+                    return
+                fresh = True
+            if fresh:
                 self._candidate_pair = pair
-                self._candidate_started_mono = now_mono
+                # 자세가 실제로 바뀐 시각부터 센다. 유예만큼 늦게 알아챘다고
+                # 해서 확인 시간까지 밀리면 이동이 그만큼 더 늦어진다.
+                self._candidate_started_mono = self._contrary_since_mono or now_mono
+                self._contrary_since_mono = None
                 self._replace_locked(state=AutomationState.OBSERVING, posture_candidate=posture,
                                      candidate_since=self._utc_now(),
                                      initial_move_due_at=self._utc_now() + timedelta(
                                          seconds=self._settings.posture_confirmation_seconds
                                      ),
                                      blocked_reason_codes=self._with_stop_failure(()))
-                return
+                # 시작 시각을 앞당겼으면 이미 확인 시간을 채웠을 수 있다. 아래
+                # 확인으로 이어가, 알아챈 순간 바로 움직이게 한다.
+            self._contrary_since_mono = None
             assert self._candidate_started_mono is not None
             if now_mono - self._candidate_started_mono < self._settings.posture_confirmation_seconds:
                 return
