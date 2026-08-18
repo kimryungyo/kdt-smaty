@@ -72,6 +72,10 @@ class VoiceService:
         self._followup_deadline: float | None = None
         self._followup_expires_at: datetime | None = None
         self._input_stop: asyncio.Event | None = None
+        # 먼저 말을 거는 중인지. 그동안 main loop는 마이크를 건드리지 않는다.
+        self._announce_lock = asyncio.Lock()
+        self._announcement_done = asyncio.Event()
+        self._announcement_done.set()
 
     async def start(self) -> None:
         if self._main_task is not None and not self._main_task.done():
@@ -120,6 +124,50 @@ class VoiceService:
 
     def get_snapshot(self) -> VoiceSnapshot:
         return self._snapshot
+
+    async def announce(self, chunks: AsyncIterator[bytes]) -> bool:
+        """호출한 쪽이 만든 음성을 스피커로 먼저 들려준다.
+
+        평소 turn은 깨우는 말에서 시작하지만, 사용자를 알아본 순간의 인사처럼
+        기기가 먼저 말을 걸어야 할 때가 있다. 말할 자리가 아니면(대화 중이거나
+        아직 준비가 안 됐으면) 조용히 지나가고 False를 돌려준다.
+        """
+
+        if self._stopping or not self._playback_started:
+            return False
+        if self._state is not VoiceState.WAITING_WAKE or self._turn_task is not None:
+            return False
+        async with self._announce_lock:
+            # 잠금을 기다리는 사이에 사용자가 말을 걸었을 수 있다.
+            if self._state is not VoiceState.WAITING_WAKE or self._turn_task is not None:
+                return False
+            self._announcement_done.clear()
+            # 스피커가 내는 소리를 마이크가 다시 듣고 깨어나지 않도록 입력을 닫는다.
+            self._audio.set_accepting(False)
+            self._audio.discard_pending()
+            self._transition(VoiceState.SPEAKING)
+            try:
+                await self._playback.play_speech(chunks)
+                return True
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                LOGGER.warning(
+                    "먼저 건네는 말을 재생하지 못했습니다.",
+                    extra={
+                        "component": "voice",
+                        "event": "announcement_failed",
+                        "error": str(error),
+                    },
+                )
+                return False
+            finally:
+                self._audio.discard_pending()
+                self._wakeword.reset()
+                self._audio.set_accepting(True)
+                if not self._stopping and self._state is VoiceState.SPEAKING:
+                    self._enter_waiting_wake(clear_followup=True)
+                self._announcement_done.set()
 
     async def _start_components(self) -> None:
         await self._wakeword.start()
@@ -171,6 +219,9 @@ class VoiceService:
                     self._enter_waiting_wake(clear_followup=True)
                 else:
                     await self._run_turn(initial, speech_already_started=True)
+            elif self._state is VoiceState.SPEAKING:
+                # announce()가 먼저 말을 거는 중이다. 끝날 때까지 마이크를 놔둔다.
+                await self._announcement_done.wait()
             else:
                 raise VoiceFatalError("voice_state_invalid")
 
