@@ -29,6 +29,11 @@ class SmartDeskAgentContext:
     turn_sequence: int
     automation: AutomationService
     wled: WledClient | None = None
+    # 틸팅과 작업 모드도 말로 다룬다. 하드웨어나 저장소가 없으면 None이다.
+    tilt: Any | None = None
+    activity_modes: Any | None = None
+    # 이 책상이 실제로 받는 틸트 단계 범위. 도구가 값을 거를 때 쓴다.
+    tilt_level_range: tuple[int, int] = (0, 3)
     followup_requested: bool = False
     assistant_response: str = ""
 
@@ -163,6 +168,78 @@ def build_smart_desk_tools() -> list[Any]:
             return _ok(key=key)
         except Exception:
             return _error("desk_command_failed")
+
+    @function_tool
+    async def list_activity_modes(ctx: RunContextWrapper[SmartDeskAgentContext]) -> dict[str, object]:
+        """List the current user's activity modes with the key set_activity_mode needs.
+
+        Call this before set_activity_mode: the user says a name such as "공부 모드",
+        and only this mapping gives the matching key.
+        """
+        context = ctx.context
+        await context.tool_started()
+        if context.activity_modes is None:
+            return _error("activity_modes_unavailable")
+        profile_id = context.turn_context.profile_id
+        if profile_id is None:
+            return _error("session_mismatch")
+        try:
+            modes = await context.activity_modes.list_effective_modes(profile_id)
+        except Exception:
+            return _error("activity_modes_failed")
+        return _ok(modes=[
+            {"key": mode.key, "name": mode.name, "description": mode.description}
+            for mode in modes
+        ])
+
+    @function_tool
+    async def get_tilt_state(ctx: RunContextWrapper[SmartDeskAgentContext]) -> dict[str, object]:
+        """Read the desk-top tilt: its current level, target, and the allowed range."""
+        context = ctx.context
+        await context.tool_started()
+        if context.tilt is None:
+            return _error("tilt_unavailable")
+        try:
+            snapshot = context.tilt.get_snapshot()
+        except Exception:
+            return _error("tilt_command_failed")
+        minimum, maximum = context.tilt_level_range
+        return _ok(
+            state=str(snapshot.state), level=snapshot.level, target_level=snapshot.target_level,
+            position_known=snapshot.position_valid, min_level=minimum, max_level=maximum,
+        )
+
+    @function_tool
+    async def set_tilt_level(
+        ctx: RunContextWrapper[SmartDeskAgentContext],
+        level: Annotated[int, Field(ge=0, le=10)],
+    ) -> dict[str, object]:
+        """Tilt the desk top to a level. The lowest level also re-zeroes the angle."""
+        context = await guarded(ctx)
+        if context is None:
+            return _error("session_mismatch")
+        if context.tilt is None:
+            return _error("tilt_unavailable")
+        minimum, maximum = context.tilt_level_range
+        if not minimum <= level <= maximum:
+            return _error("tilt_level_out_of_range")
+        try:
+            await context.tilt.set_target(level)
+            return _ok(level=level)
+        except Exception:
+            return _error("tilt_command_failed")
+
+    @function_tool
+    async def stop_tilt(ctx: RunContextWrapper[SmartDeskAgentContext]) -> dict[str, object]:
+        """Immediately stop tilt motion. This safety command is always allowed."""
+        await ctx.context.tool_started()
+        if ctx.context.tilt is None:
+            return _error("tilt_unavailable")
+        try:
+            await ctx.context.tilt.stop_motion("음성으로 틸팅을 정지했습니다.")
+            return _ok(action="stopped")
+        except Exception:
+            return _error("tilt_command_failed")
 
     @function_tool
     async def get_wled_state(ctx: RunContextWrapper[SmartDeskAgentContext]) -> dict[str, object]:
@@ -302,7 +379,9 @@ def build_smart_desk_tools() -> list[Any]:
         context.followup_requested = True
         return _ok(followup_requested=True)
 
-    return [stop_desk, hold_desk, set_desk_target, set_control_mode, set_activity_mode,
+    return [stop_desk, hold_desk, set_desk_target, set_control_mode,
+            list_activity_modes, set_activity_mode,
+            get_tilt_state, set_tilt_level, stop_tilt,
             get_wled_state, get_wled_capabilities, turn_wled_off, turn_wled_on,
             set_wled_brightness, set_wled_color, set_wled_effect, remember_fact, forget_fact,
             request_followup]

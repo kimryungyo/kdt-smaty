@@ -472,6 +472,8 @@ def build_container(settings: Settings) -> AppContainer:
                 api_key=api_key.get_secret_value(), sessions=container.assistant_context,
                 memory=container.profile_memory, turns=container.assistant_turns,
                 automation=automation, wled=container.wled,
+                tilt=container.tilt, activity_modes=activity_modes,
+                tilt_level_range=(settings.tilt.min_level, settings.tilt.max_level),
                 config=AgentsVoiceConfig(model=settings.openai.response_model),
             )
             voice = VoiceService(
