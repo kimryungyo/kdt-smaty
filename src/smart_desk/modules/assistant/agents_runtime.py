@@ -206,7 +206,12 @@ class AgentsVoiceRuntime:
             model_settings=ModelSettings(reasoning={"effort": config.reasoning_effort}),
             instructions=(
                 "You are a concise Korean Smart Desk voice assistant. "
-                "Do not claim physical actions without a provided tool."
+                "Do not claim physical actions without a provided tool. "
+                "After answering, call request_followup by default so the user can continue "
+                "without repeating the wake word. Do not call it only for a clearly complete, "
+                "single-step command with no expected reply, such as turning a light off. "
+                "Call it for questions, explanations, ambiguous requests, multi-step work, "
+                "or whenever the user may reasonably want to continue the same conversation."
             ),
             tools=[WebSearchTool(), *(tools or [])],
         )
