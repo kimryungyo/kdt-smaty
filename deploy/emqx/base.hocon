@@ -1,0 +1,16 @@
+node {
+  name = "emqx@emqx"
+}
+
+listeners.tcp.default {
+  bind = "0.0.0.0:1883"
+}
+
+dashboard.listeners.http {
+  bind = "0.0.0.0:18083"
+}
+
+log.console {
+  enable = true
+  level = warning
+}

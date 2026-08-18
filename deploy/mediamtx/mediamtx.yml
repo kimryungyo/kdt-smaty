@@ -1,0 +1,13 @@
+# Template only.  Runtime config is copied from the audited existing host file
+# into mediamtx.runtime.yml and is intentionally excluded from Git because it
+# contains MediaMTX internal-auth secrets.
+rtsp: false
+webrtc: true
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcAdditionalHosts: []
+record: false
+paths:
+  user-cam: {}
+  workspace-cam: {}
+  bottom-cam: {}
