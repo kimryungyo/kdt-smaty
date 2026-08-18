@@ -74,9 +74,10 @@ services:
       SMART_DESK_MQTT__HOST: emqx
       SMART_DESK_MQTT__PORT: "1883"
       SMART_DESK_SERIAL__PORT: /dev/desk-height
+      SMART_DESK_TILT__SERIAL_PORT: /dev/tilt-controller
       SMART_DESK_DASHBOARD__FRONTEND_DIRECTORY: /app/frontend/dist
       SMART_DESK_VISION_CLIENT__ENABLED: "true"
-      SMART_DESK_VISION_CLIENT__BASE_URL: ${SMART_DESK_VISION_CLIENT__BASE_URL:-http://vision:9091}
+      SMART_DESK_VISION_CLIENT__BASE_URL: ${SMART_DESK_VISION_CLIENT__BASE_URL:-http://kimryungyo-main:50001}
       SMART_DESK_MEDIA__USER__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__USER__RECEIVE_ENABLED: "false"
       SMART_DESK_MEDIA__USER__DEVICE: /dev/user-cam
@@ -92,6 +93,9 @@ services:
       - ../data:/app/data
     devices:
       - "${SMART_DESK_SERIAL__PORT}:/dev/desk-height"
+      - source: "${SMART_DESK_TILT__SERIAL_PORT}"
+        target: /dev/tilt-controller
+        permissions: rwm
       - "/dev/snd:/dev/snd"
     group_add:
       - "20"
