@@ -70,7 +70,7 @@ void consume_serial() {
 void connect_wifi(uint32_t now) {
   if (motion.is_moving() || WiFi.status() == WL_CONNECTED ||
       (last_wifi_attempt != 0 &&
-       !TiltConfig::elapsed(now, last_wifi_attempt, TiltConfig::MQTT_RECONNECT_INTERVAL_MS))) {
+       !TiltConfig::elapsed(now, last_wifi_attempt, TiltConfig::WIFI_RETRY_MS))) {
     return;
   }
   last_wifi_attempt = now;
@@ -81,7 +81,7 @@ void connect_wifi(uint32_t now) {
 void connect_mqtt(uint32_t now) {
   if (motion.is_moving() || WiFi.status() != WL_CONNECTED || mqtt.connected() ||
       (last_mqtt_attempt != 0 &&
-       !TiltConfig::elapsed(now, last_mqtt_attempt, TiltConfig::MQTT_RECONNECT_INTERVAL_MS))) {
+       !TiltConfig::elapsed(now, last_mqtt_attempt, TiltConfig::MQTT_RETRY_MS))) {
     return;
   }
   last_mqtt_attempt = now;

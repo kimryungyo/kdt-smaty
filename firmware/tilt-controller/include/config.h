@@ -25,7 +25,10 @@ constexpr char FIRMWARE_VERSION[] = "tilt-hw039-2.0.0";
 // 서버와는 MQTT로 이야기한다. relay와 같은 결의 장치 토픽이다.
 constexpr char MQTT_COMMAND_TOPIC[] = "/tilt_ctl";
 constexpr char MQTT_STATUS_TOPIC[] = "/tilt_ctl_status";
-constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 3000;
+// Wi-Fi 접속은 몇 초가 걸린다. 그보다 자주 begin()을 다시 부르면 진행 중인
+// 시도를 끊어 WL_CONNECT_FAILED만 반복한다. relay와 같은 간격을 쓴다.
+constexpr uint32_t WIFI_RETRY_MS = 15000;
+constexpr uint32_t MQTT_RETRY_MS = 5000;
 constexpr char MQTT_HOST[] = SMARTDESK_MQTT_HOST;
 constexpr uint16_t MQTT_PORT = SMARTDESK_MQTT_PORT;
 
