@@ -6,6 +6,10 @@
 #include "control_handler.h"
 #include "relay_controller.h"
 
+#if !ARDUINO_USB_CDC_ON_BOOT
+#error "Production relay firmware requires USB CDC serial output."
+#endif
+
 using namespace SmartDeskConfig;
 
 namespace {
@@ -176,8 +180,10 @@ void setup() {
 #endif
 
   WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
   WiFi.setSleep(false);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.onEvent(onWifiEvent);
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMqttMessage);
