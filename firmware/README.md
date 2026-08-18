@@ -19,6 +19,7 @@ PlatformIO는 애플리케이션과 다른 버전의 웹 의존성을 사용하�
 | --- | --- | --- |
 | `segment-reader/` | Arduino Uno 호환 CH340 보드 | 7-segment 신호를 읽어 JSON-lines로 전송 |
 | `relay-controller/` | ESP32-C3 | MQTT 명령을 안전한 relay pulse로 실행 |
+| `tilt-controller/` | ESP32-C3 | USB serial 단계 이동과 모터 안전 timer를 실행 |
 
 각 펌웨어의 배선, 빌드, 업로드와 실물 검증 절차는 해당 디렉터리의 README를
 따른다. 업로드 전에는 장치 포트를 점유한 프로세스를 정상 종료해야 한다.
