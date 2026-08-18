@@ -1,0 +1,5 @@
+# ESP32-C3 native USB(JTAG/serial)로 펌웨어를 올릴 때 esp-builtin(OpenOCD)은
+# 직렬 노드가 아니라 raw USB 노드를 libusb로 연다. 기본 권한은 root 전용이라
+# 개발 사용자가 upload하면 LIBUSB_ERROR_ACCESS로 실패한다.
+# 이 장비의 개발 계정은 공통 iot group에 속한다.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", GROUP="iot", MODE="0660"
