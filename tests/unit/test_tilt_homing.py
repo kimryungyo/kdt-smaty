@@ -81,6 +81,24 @@ async def test_level_zero_is_allowed_even_when_the_position_is_unknown(tmp_path:
         await controller.stop()
 
 
+async def test_level_zero_recovers_a_device_that_booted_without_a_position(tmp_path: Path) -> None:
+    """부팅 직후 위치를 모르면 ERROR로 남는다. 이때가 영점을 잡아야 할 때다."""
+
+    controller, _mqtt, link = build(tmp_path)
+    await controller.start()
+    link.push({"event": "ready", "firmware": "tilt-test", "position_valid": False})
+    await wait_until(lambda: controller.get_snapshot().state is TiltState.ERROR)
+    try:
+        # 다른 단계는 여전히 막는다.
+        with pytest.raises(TiltCommandRejectedError):
+            await controller.set_target(1)
+
+        await controller.set_target(0)
+        await wait_until(lambda: any(line.startswith("RUN DOWN") for line in link.written))
+    finally:
+        await controller.stop()
+
+
 async def test_other_levels_still_use_position_based_moves(tmp_path: Path) -> None:
     controller, _mqtt, link = await started(tmp_path)
     try:

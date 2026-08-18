@@ -195,7 +195,7 @@ class TiltController:
                     detail = None
                 else:
                     detail = "다른 틸트 이동이 진행 중입니다."
-            elif snapshot.state not in {TiltState.IDLE, TiltState.AT_TARGET, TiltState.STOPPED}:
+            elif snapshot.state not in self._states_allowing(command.level):
                 detail = "틸팅 ESP32가 준비되지 않았거나 오류 상태입니다."
             elif not snapshot.position_valid and command.level != self._settings.min_level:
                 # 0단계는 바닥까지 내려 영점을 새로 잡으므로 현재 위치를 몰라도 된다.
@@ -205,7 +205,9 @@ class TiltController:
                 detail = f"단계는 {self._settings.min_level}~{self._settings.max_level} 사이여야 합니다."
             elif self._levels.target_mm_for_level(command.level) is None:
                 detail = f"{command.level}단계의 목표 위치가 설정되지 않았습니다."
-            elif self._link.connection_generation != self._synced_generation:
+            elif (self._link.connection_generation != self._synced_generation
+                    and command.level != self._settings.min_level):
+                # 0단계는 시간 기반 RUN으로 내려가므로 firmware 보정이 없어도 된다.
                 detail = "틸팅 ESP32 보정이 아직 완료되지 않았습니다."
             else:
                 detail = ""
@@ -240,6 +242,18 @@ class TiltController:
         else:
             await self._publish_status()
         return detail
+
+    def _states_allowing(self, level: int) -> set[TiltState]:
+        """그 단계를 시작할 수 있는 상태들.
+
+        0단계는 위치를 몰라 ERROR로 남은 상태에서도 받아 준다. 부팅 직후처럼
+        위치만 모르는 경우가 바로 영점을 다시 잡아야 하는 상황이고, 이때 막으면
+        장치를 되살릴 방법이 없다. 장치 고장(last_error가 붙은 정지·시간 초과)은
+        _send_home 직전 write 실패로 여전히 걸러진다.
+        """
+
+        ready = {TiltState.IDLE, TiltState.AT_TARGET, TiltState.STOPPED}
+        return ready | {TiltState.ERROR} if level == self._settings.min_level else ready
 
     def _homing_duration_ms(self) -> int:
         """바닥까지 확실히 내려가는 하강 시간. 현재 위치를 믿지 않는다.
