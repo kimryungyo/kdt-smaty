@@ -301,6 +301,7 @@ class ProfileMemoryService:
         *,
         explicit: bool,
         is_valid: Callable[[], Awaitable[bool]] | None = None,
+        source: str = "explicit_voice",
     ) -> bool:
         """Persist one caller-approved fact and return whether Mem0 accepted it."""
 
@@ -326,7 +327,7 @@ class ProfileMemoryService:
                     user_id=self._namespace(profile_id),
                     metadata={
                         "schema_version": 1,
-                        "source": "explicit_voice",
+                        "source": source,
                         "category": "preference",
                         "language": "ko",
                     },

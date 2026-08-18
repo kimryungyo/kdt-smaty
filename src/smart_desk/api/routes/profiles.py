@@ -51,6 +51,10 @@ class ProfileMemoryUpdate(BaseModel):
     memory: str = Field(min_length=1, max_length=500)
 
 
+class ProfileMemoryCreate(BaseModel):
+    memory: str = Field(min_length=1, max_length=500)
+
+
 def _memory_response(value: dict[str, Any]) -> ProfileMemoryResponse:
     return ProfileMemoryResponse(
         id=value["id"],
@@ -200,6 +204,25 @@ async def list_profile_memories(
     except ProfileMemoryError as error:
         raise _memory_failure(error) from error
     return [_memory_response(value) for value in values]
+
+
+@router.post("/{profile_id}/memories", status_code=status.HTTP_204_NO_CONTENT)
+async def create_profile_memory(
+    profile_id: str,
+    body: ProfileMemoryCreate,
+    x_profile_pin: str | None = Header(default=None),
+) -> Response:
+    """Store one operator-confirmed fact without exposing the Mem0 SDK to clients."""
+
+    await _run(lambda: get_dashboard().get_profile(profile_id))
+    await _require_pin(profile_id, x_profile_pin)
+    try:
+        await (await _memory_service()).remember(
+            profile_id, body.memory, explicit=True, source="explicit_dashboard"
+        )
+    except ProfileMemoryError as error:
+        raise _memory_failure(error) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/{profile_id}/memories/{memory_id}", response_model=ProfileMemoryResponse)
