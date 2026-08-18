@@ -54,6 +54,9 @@ class TiltMqttLink:
         self._connection_generation = 0
         self._last_seen: float | None = None
         self._last_error: str | None = None
+        # MqttClient는 시작 전에만 handler를 받는다. 구독은 여기서 걸어 두고
+        # start()는 링크를 여는 일만 한다.
+        mqtt.register_handler(TILT_DEVICE_STATUS_TOPIC, self._handle_device_message, qos=1)
 
     @property
     def connection_generation(self) -> int:
@@ -67,7 +70,6 @@ class TiltMqttLink:
         self._started = True
         self._last_seen = None
         self._last_error = None
-        self._mqtt.register_handler(TILT_DEVICE_STATUS_TOPIC, self._handle_device_message, qos=1)
         # 연결이 살아 있다면 안전을 위해 먼저 멈춘다. 실패해도 시작은 막지 않는다.
         await self.write_line_if_connected("STOP")
 
