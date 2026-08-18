@@ -579,7 +579,11 @@ class AutomationService:
                                      blocked_reason_codes=self._with_stop_failure(()))
                 self._first_auto = False
                 return
-            if self._snapshot.intent_source is IntentSource.AUTO and self._snapshot.target_height_cm == target:
+            if (
+                self._live_automatic
+                and self._snapshot.intent_source is IntentSource.AUTO
+                and self._snapshot.target_height_cm == target
+            ):
                 return
             self._schedule_locked(target, IntentSource.AUTO, current.session_id)
             self._first_auto = False

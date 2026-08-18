@@ -159,6 +159,16 @@ def test_default_desk_ranges_match_physical_and_control_limits() -> None:
     assert settings.desk.manual_hold_ms == 500
     assert settings.desk.fine_hold_ms == 100
     assert settings.desk.pulse_refresh_interval_seconds == 0.1
+    assert settings.desk.relay_ack_timeout_seconds == 6.0
+
+
+def test_relay_ack_timeout_must_exceed_mqtt_publish_timeout() -> None:
+    with pytest.raises(ValidationError, match="MQTT publish timeout"):
+        Settings(
+            mqtt={"operation_timeout_seconds": 5},
+            desk={"relay_ack_timeout_seconds": 5},
+            _env_file=None,
+        )
 
 
 @pytest.mark.parametrize(

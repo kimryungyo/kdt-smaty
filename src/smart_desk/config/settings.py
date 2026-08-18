@@ -165,7 +165,7 @@ class DeskSettings(BaseModel):
         allow_inf_nan=False,
     )
     relay_ack_timeout_seconds: float = Field(
-        default=1.0,
+        default=6.0,
         gt=0,
         le=10,
         allow_inf_nan=False,
@@ -632,9 +632,13 @@ class Settings(BaseSettings):
     voice_debug: VoiceDebugSettings = VoiceDebugSettings()
 
     @model_validator(mode="after")
-    def require_voice_api_key(self) -> Settings:
-        """Voice가 활성화되면 OpenAI API key를 필수로 요구한다."""
+    def validate_cross_component_settings(self) -> Settings:
+        """서로 다른 subsystem 설정 사이의 필수 관계를 검증한다."""
 
+        if self.desk.relay_ack_timeout_seconds <= self.mqtt.operation_timeout_seconds:
+            raise ValueError(
+                "relay ack timeout은 MQTT publish timeout보다 길어야 합니다."
+            )
         if (self.voice.enabled or self.profile_memory.enabled) and self.openai.api_key is None:
             raise ValueError("Voice 또는 profile memory가 활성화되면 OpenAI API key가 필요합니다.")
         if self.voice_debug.enabled and not self.voice.enabled:

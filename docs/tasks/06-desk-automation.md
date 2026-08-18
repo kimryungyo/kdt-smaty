@@ -118,8 +118,9 @@ AUTO 기본 control mode 자체를 끄는 기능을 추가하지 않는다.
 
 현재 `automation.execute_automatic_movements` 기본값은 `false`다. 이때 AUTO/PARK는 선택한
 target·intent·generation을 snapshot에 기록하고 `AUTOMATIC_EXECUTION_DISABLED`로 차단하는
-shadow 동작이며 `DeskController.set_target()`을 호출하지 않는다. fake 단위 검증만 수행했다.
-relay 분리 bench, Pi/카메라, 실제 책상 이동 검증과 운영 toggle 활성화는 Task 09 잔여다.
+shadow 동작이며 `DeskController.set_target()`을 호출하지 않는다. 2026-08-18 운영 호스트는
+사용자 지시에 따라 환경변수로 실제 실행을 활성화했고, live height·relay ready에서 목표 이동과
+Vision 불확실성 STOP을 확인했다. 기본값과 배포 예시는 안전하게 `false`를 유지한다.
 
 ## 제외 범위
 

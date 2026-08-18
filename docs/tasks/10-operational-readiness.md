@@ -143,5 +143,7 @@ Voice model은 `SMART_DESK_OPENAI__RESPONSE_MODEL`을 Agents SDK configuration�
 - height/MQTT/relay/Vision 불확실 때 이동 차단과 가능한 STOP 접수
 - 운영 restart 뒤 health와 기능별 snapshot, rollback 절차 확인
 
-자동 이동은 software/camera/Voice 증거만으로 활성화하지 않는다. relay와 실제 책상 증거가 모두
-끝날 때까지 `SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS=false`를 유지한다.
+자동 이동 기본값과 배포 예시는 `SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS=false`다.
+2026-08-18 현재 운영 호스트는 사용자 지시에 따라 이를 `true`로 명시했고, Arduino live height,
+ESP32 `ready`, 실제 목표 이동 및 Vision 불확실성 STOP을 확인했다. relay 분리 bench 잔여 항목은
+완료된 것으로 오인하지 않고 별도로 유지한다.

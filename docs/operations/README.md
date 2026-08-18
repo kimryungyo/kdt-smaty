@@ -61,6 +61,10 @@ curl http://127.0.0.1:9090/api/assistant/latest
 ```
 
 - Desk 이동 전에는 status의 height freshness, MQTT 연결과 ESP32 relay ready/fresh 상태를 함께 본다.
+- QoS 1 publish의 내부 timeout보다 바깥 relay ack timeout이 먼저 끝나면 정상 WAKE도 취소된다.
+  기본값은 MQTT 5초, relay ack 6초이며 운영 환경에서도 ack 값을 MQTT 값보다 크게 유지한다.
+- 실제 자동 이동은 위 조건을 확인한 환경에서만
+  `SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS=true`로 활성화한다.
 - Vision `UNKNOWN`, count 불일치 또는 stale은 AUTO/PARK를 차단한다. 상단 detector와 실제 ROI가
   없으므로 production 자동 이동의 근거로 사용하지 않는다.
 - Voice/WLED가 `DISABLED` 또는 degraded여도 profile·상태 조회와 Desk 핵심 경로는 별도 상태로

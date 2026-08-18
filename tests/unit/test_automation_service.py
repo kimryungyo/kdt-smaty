@@ -648,6 +648,29 @@ async def test_vision_recovery_uses_first_usable_pair_only_as_baseline() -> None
     assert service.get_snapshot().target_height_cm == 75
 
 
+async def test_vision_recovery_redispatches_same_interrupted_target() -> None:
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(
+        users=users, camera=camera, desk=desk, clock=clock, execute=True
+    )
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    await observe(service, camera, (3, 3), clock, 2)
+    await asyncio.sleep(0)
+    assert len([call for call in desk.calls if call[0] == "target"]) == 1
+
+    await observe(service, camera, (4, 4), clock, usable=False)
+    await observe(service, camera, (5, 5), clock)  # recovery freshness baseline
+    await observe(service, camera, (6, 6), clock)  # new posture hold
+    await observe(service, camera, (7, 7), clock, 5)
+    await asyncio.sleep(0)
+
+    targets = [call for call in desk.calls if call[0] == "target"]
+    assert len(targets) == 2
+    assert targets[-1] == ("target", 75.0)
+
+
 async def test_background_stop_failure_is_visible_without_undoing_manual_intent() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
