@@ -9,12 +9,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import logging
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
 
 import numpy as np
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class VoiceRuntimeEventType(StrEnum):
@@ -362,6 +366,18 @@ class AgentsVoiceRuntime:
                         result_wait = asyncio.create_task(anext(result_stream))
                         mapped = self._map_event(sdk_event, sequence + 1)
                         if mapped is not None:
+                            if mapped.lifecycle in {
+                                VoiceRuntimeLifecycle.TURN_ENDED,
+                                VoiceRuntimeLifecycle.SESSION_ENDED,
+                            }:
+                                LOGGER.info(
+                                    "Agents SDK 음성 lifecycle event를 수신했습니다.",
+                                    extra={
+                                        "component": "assistant.voice_runtime",
+                                        "event": "sdk_lifecycle_received",
+                                        "lifecycle": mapped.lifecycle.value,
+                                    },
+                                )
                             # workflow callback은 TTS audio보다 먼저 queue에 넣는다. audio를
                             # 내보내기 직전에 완료된 transcript를 먼저 drain해 그 순서를 고정한다.
                             if mapped.type is VoiceRuntimeEventType.AUDIO:

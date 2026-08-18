@@ -207,6 +207,7 @@ class VoiceService:
         queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=4)
         self._input_stop = asyncio.Event()
         playback_task: asyncio.Task[object] | None = None
+        audio_chunk_count = 0
 
         async def speaker() -> AsyncIterator[bytes]:
             while True:
@@ -229,6 +230,10 @@ class VoiceService:
             await put_task
 
         try:
+            LOGGER.info(
+                "Agents 음성 runtime event stream을 수신합니다.",
+                extra={"component": "voice", "event": "runtime_stream_started"},
+            )
             async for event in self._runtime.run_audio(
                 self._audio_chunks(initial, speech_already_started=speech_already_started)
             ):
@@ -253,6 +258,16 @@ class VoiceService:
                         playback_task = asyncio.create_task(self._playback.play_speech(speaker()))
                     audio = getattr(event, "audio", None)
                     if audio:
+                        audio_chunk_count += 1
+                        if audio_chunk_count == 1:
+                            LOGGER.info(
+                                "첫 TTS 오디오 청크를 받아 로컬 재생을 시작합니다.",
+                                extra={
+                                    "component": "voice",
+                                    "event": "tts_first_audio_received",
+                                    "audio_bytes": len(audio),
+                                },
+                            )
                         await enqueue(audio)
                 elif event_type is VoiceRuntimeEventType.ERROR:
                     raise VoiceFatalError("voice_pipeline_failed")
@@ -262,6 +277,15 @@ class VoiceService:
                 ):
                     saw_turn_ended = True
                     followup_requested = bool(getattr(event, "followup_requested", False))
+                    LOGGER.info(
+                        "Agents 음성 runtime이 turn 종료를 보고했습니다.",
+                        extra={
+                            "component": "voice",
+                            "event": "runtime_turn_ended",
+                            "tts_audio_chunks": audio_chunk_count,
+                            "followup_requested": followup_requested,
+                        },
+                    )
                 elif (
                     event_type is VoiceRuntimeEventType.LIFECYCLE
                     and getattr(event, "lifecycle", None) is VoiceRuntimeLifecycle.SESSION_ENDED
@@ -274,8 +298,24 @@ class VoiceService:
                 self._enter_waiting_wake(clear_followup=True, clear_error=True)
                 return
             if playback_task is not None:
+                LOGGER.info(
+                    "TTS stream 종료 후 스피커 drain을 기다립니다.",
+                    extra={
+                        "component": "voice",
+                        "event": "speaker_drain_wait_started",
+                        "tts_audio_chunks": audio_chunk_count,
+                    },
+                )
                 await enqueue(None)
                 await playback_task
+                LOGGER.info(
+                    "스피커 drain이 완료되었습니다.",
+                    extra={
+                        "component": "voice",
+                        "event": "speaker_drain_completed",
+                        "tts_audio_chunks": audio_chunk_count,
+                    },
+                )
             if not saw_turn_ended:
                 raise VoiceFatalError("voice_pipeline_failed")
             await self._finalize("SUCCEEDED")

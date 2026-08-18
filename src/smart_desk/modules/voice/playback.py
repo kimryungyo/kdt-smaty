@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+import logging
 from pathlib import Path
 import wave
 
 from smart_desk.modules.voice.audio import PcmOutput
 from smart_desk.modules.voice.models import EffectName, OUTPUT_SAMPLE_RATE, VoiceFatalError
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _read_effect(path: Path, *, max_duration_seconds: float) -> bytes:
@@ -102,6 +106,8 @@ class PlaybackCoordinator:
             raise RuntimeError("TTS playback task를 확인할 수 없습니다.")
         self._speech_task = current
         remainder = b""
+        chunk_count = 0
+        byte_count = 0
         try:
             async with self._output_lock:
                 async for chunk in chunks:
@@ -111,10 +117,30 @@ class PlaybackCoordinator:
                     aligned_length = len(combined) - (len(combined) % 2)
                     if aligned_length:
                         await self._output.write(combined[:aligned_length])
+                        chunk_count += 1
+                        byte_count += aligned_length
                     remainder = combined[aligned_length:]
                 if remainder:
                     raise ValueError("TTS PCM stream이 불완전한 sample로 끝났습니다.")
+                LOGGER.info(
+                    "로컬 스피커 drain을 시작합니다.",
+                    extra={
+                        "component": "voice.playback",
+                        "event": "speaker_drain_started",
+                        "tts_audio_chunks": chunk_count,
+                        "tts_audio_bytes": byte_count,
+                    },
+                )
                 await self._output.drain()
+                LOGGER.info(
+                    "로컬 스피커 drain이 완료되었습니다.",
+                    extra={
+                        "component": "voice.playback",
+                        "event": "speaker_drain_finished",
+                        "tts_audio_chunks": chunk_count,
+                        "tts_audio_bytes": byte_count,
+                    },
+                )
         except asyncio.CancelledError:
             await self._output.abort()
             raise
