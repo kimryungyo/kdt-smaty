@@ -182,7 +182,9 @@ def create_vision_application(settings: Settings | None = None) -> FastAPI:
     app.state.worker = worker
 
     def authorize(authorization: str | None) -> None:
-        token = resolved.vision_server.api_token
+        # The standalone vision service can run without a server-side token
+        # configuration.  Keep authentication optional in that deployment.
+        token = getattr(getattr(resolved, "vision_server", None), "api_token", None)
         if token is None:
             return
         expected = f"Bearer {token.get_secret_value()}"
