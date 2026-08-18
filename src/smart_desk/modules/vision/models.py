@@ -109,7 +109,7 @@ class UpperDetection:
     @property
     def count(self) -> int | None:
         # 재실 판단은 상단 몸체 detector만 책임진다. 얼굴은 프로필 식별의 보조
-        # 입력이므로, 얼굴이 검출됐다는 이유만으로 사람이 책상 ROI에 있다고
+        # 입력이므로, 얼굴이 검출됐다는 이유만으로 사람이 카메라 화각에 있다고
         # 가정하지 않는다.
         return self.body_count
 

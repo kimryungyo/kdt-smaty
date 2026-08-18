@@ -24,8 +24,9 @@
   상단 재실·얼굴과 하단 자세 모두 각 2Hz(0.5초 이상 간격)에서 최신 frame 하나만 사용한다.
   상단 model이 unavailable이어도 fresh singleton 하단의 frame-level raw posture는 보이지만,
   stable posture와 association/AUTO는 기존 양쪽 camera singleton 결합 조건을 계속 요구한다.
-- ROI calibration 전에는 전체 하단 frame을 사용한다. 주변 통행도 count되면 보수적으로
-  `MULTIPLE_PEOPLE`가 되어 자동화를 차단한다. WHEP/aiortc, FastAPI/web UI, MJPEG/JPEG polling이나
+- Vision은 두 카메라의 전체 화각을 그대로 추론한다. 주변 통행도 count되면 보수적으로
+  `MULTIPLE_PEOPLE`가 되어 자동화를 차단한다. ROI crop·mask·좌표 필터는 구현하거나 적용하지 않는다.
+  WHEP/aiortc, FastAPI/web UI, MJPEG/JPEG polling이나
   일반 preview endpoint는 구현하거나 복사하지 않았다.
 - `/api/vision/debug`는 마지막 성공 추론의 box·face·pose 관절 geometry만,
   `/api/vision/debug/frame/{upper|lower}`는 같은 시점의 메모리 JPEG 한 장만 반환한다.
@@ -34,12 +35,12 @@
 
 ## 첫 구현의 관측 범위
 
-첫 버전은 범용 다중 사람 추적이나 카메라 간 Re-ID를 목표로 하지 않는다. 상단 책상 ROI의
-몸체 또는 얼굴 한 명과 하단 책상 ROI의 하체 한 명이 fresh하게 결합된 경우를 정상 자동화
+첫 버전은 범용 다중 사람 추적이나 카메라 간 Re-ID를 목표로 하지 않는다. 상단 전체 화각의
+몸체 또는 얼굴 한 명과 하단 전체 화각의 하체 한 명이 fresh하게 결합된 경우를 정상 자동화
 후보로 보고 다음 상황은 fail-closed한다. 상단 얼굴과 몸체는 같은 사람의 존재 근거로
 결합하며 count를 더하지 않는다.
 
-- 어느 카메라든 책상 ROI에서 여러 사람이 검출됨
+- 어느 카메라든 전체 화각에서 여러 사람이 검출됨
 - 두 카메라의 인원수 또는 관측 시각이 허용 범위를 벗어남
 - 현재 자세를 어느 한 사람에게 귀속할 수 없음
 - frame, detector 결과 또는 model 상태가 만료됨
@@ -54,7 +55,7 @@ task 01에서 확정한 이름으로 Vision API는 최소한 다음을 분리해
 | 정보 | 예시 내용 |
 | --- | --- |
 | 카메라 | 연결 상태, 마지막 frame 시각, frame age와 오류 |
-| 인원수 | 카메라별 raw count, 안정화 count와 ROI |
+| 인원수 | 카메라별 raw count와 안정화 count |
 | 재실 | `PRESENT_SINGLE`, `VACANT`, `MULTIPLE`, `UNKNOWN`, 관측·만료 시각 |
 | 자세 | `SITTING`, `STANDING`, `UNKNOWN`, 후보와 유지 시간 |
 | 결합 상태 | 두 카메라 시각 일치, 인원수 일치와 자동화 사용 가능 여부 |
@@ -66,15 +67,15 @@ API로 노출하지 않는다.
 ## 구현 단계
 
 실물 하단 카메라가 없어도 snapshot 모델, detector adapter, fake frame 기반 안정화·freshness,
-lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최종 확인과 threshold 보정은
+lifecycle과 API를 먼저 구현한다. 모델 선택의 최종 확인과 threshold 보정은
 카메라 연결 뒤 완료하며, 이 실물 항목 때문에 task 전체 착수를 막지 않는다.
 
 ### 입력과 전처리
 
 - [x] 두 `WebRtcFrameSource`를 container에서 Vision service에 주입할 수 있게 보관한다.
-- [ ] 설정 기반 카메라 경로·방향·해상도·FPS와 책상 ROI 구조를 만들고 실물 연결 뒤 값을 확인한다.
+- [ ] 설정 기반 카메라 경로·방향·해상도·FPS를 실물 연결 뒤 확인한다. ROI는 요구사항이 생기기 전까지 추가하지 않는다.
 - [x] 상단 재실과 하단 자세의 2Hz 처리 상한(0.5초보다 빠른 설정 거부), frame/result freshness와 detector threshold를 정의한다.
-- [ ] 상단 몸체/얼굴과 하단 하체의 책상 ROI 및 singleton 결합을 구현한다.
+- [ ] 상단 몸체/얼굴과 하단 하체의 전체 화각 singleton 결합 정확도를 실측한다.
 - [ ] 상단 얼굴 detector를 한 번 load·실행하고 fresh box/count snapshot을 task 05가 재사용할
   수 있게 한다. task 05가 별도 얼굴 detector loop를 만들지 않게 한다.
 - [x] 같은 frame을 중복 추론하지 않도록 captured time을 추적한다.
@@ -122,9 +123,9 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 ## 실물 확인 항목
 
 - 하단 ONNX adapter의 fake output과 제공 sample 자동 회귀는 완료했지만, 실제 WebRTC camera, CPU 지연,
-  threshold와 ROI 보정은 계속 실측한다. 상단 detector/얼굴 embedding/전체 association의 현장 정확도도
+  threshold는 계속 실측한다. 상단 detector/얼굴 embedding/전체 association의 현장 정확도도
   별도 확인한다.
-- 앉음·섬·이탈과 책상 주변 통행을 ROI에서 촬영해 오검출 패턴을 기록한다.
+- 앉음·섬·이탈과 카메라 전체 화각의 주변 통행을 촬영해 오검출 패턴을 기록한다.
 - 조명, 안경·모자, 의자 위치와 책상 높이 변화가 사람 수·자세 판정에 미치는 영향을 본다.
 - camera 한 대 제거, MediaMTX 중단과 복귀 후 snapshot과 memory 사용량을 확인한다.
 

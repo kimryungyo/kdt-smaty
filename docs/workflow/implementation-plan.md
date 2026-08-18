@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Dashboard/profile | `/` 메인과 설정 route, 편집 profile/current user 분리 | Vision preview·일부 debug 근거 |
 | 현재 사용자·얼굴 | fake-driven identity/session, v4 embedding repository와 API | production detector/alignment/embedding model, 실제 등록 |
-| Vision | 하단 ONNX pose·freshness/stabilization/API, sample 회귀 | 상단 몸체/얼굴 detector, 실제 user/posture RTSP·ROI/threshold/CPU 보정 |
+| Vision | 하단 ONNX pose·freshness/stabilization/API, sample 회귀 | 실제 user/posture WebRTC·threshold/CPU 보정 |
 | mode·자동화 | activity mode CRUD, `AUTO`/`MANUAL`, generation/blocked policy와 shadow AUTO | 실제 Vision·WLED·Desk가 연결된 안전한 end-to-end 이동 |
 | AI·Voice | Agents SDK `VoicePipeline` 단일 경로, session context/tool/turn store와 Dashboard polling | 실제 microphone/speaker/OpenAI·Mem0 운영 검증, 일부 preview/debug UX |
 | service 상태 | 이동 필수 조건과 선택 WLED/Voice degraded 분리 | 실제 장치 단절·복구 측정 |
@@ -18,7 +18,7 @@
 1. production 상단 몸체/얼굴 detector와 embedding model을 선정하고 model별 binary
    provisioning, SHA-256와 라이선스를 검토한다. 현재 하단 Ultralytics ONNX는 별도로
    AGPL-3.0/Enterprise 조건을 확인한다.
-2. 실제 user/posture RTSP camera를 연결해 ROI, count, freshness, threshold와 Pi CPU를 보정한다.
+2. 실제 user/posture WebRTC camera를 연결해 count, freshness, threshold와 Pi CPU를 보정한다.
 3. 이 Vision 입력으로 face enrollment와 등록/익명 session 전이를 실측한다.
 4. 자동화는 shadow 상태 검증 후 제한된 범위에서 WLED, Arduino, Wi-Fi/MQTT ESP32와 Desk를
    연결해 STOP·복구를 먼저 확인하고 실제 이동을 검증한다.

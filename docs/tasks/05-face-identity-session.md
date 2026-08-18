@@ -112,7 +112,7 @@ best-second margin을 함께 적용한다.
   실제 user camera site validation은 아직 완료되지 않았다. 표본은 configured interval보다 빠르게
   연속 capture하지 않는다.
 - `FaceIdentityService`는 Vision의 fresh face observation만 소비하고 session change 구독 경계를 제공한다. Desk/WLED/Voice를 직접 호출하지 않으며, `AutomationService`와 Assistant runtime이 current-user session event를 구독하는 연결은 fake 기반 자동 테스트로 검증했다.
-- Task 09에서 실제 Pi CPU 지연, model load, 카메라 ROI/조명/가림 품질 및 threshold·margin을 현장 검증하고 production extractor를 연결해야 한다.
+- Task 09에서 실제 Pi CPU 지연, model load, 카메라 조명/가림 품질 및 threshold·margin을 현장 검증하고 production extractor를 연결해야 한다.
 
 ## 얼굴 일시 누락의 안전 원칙
 

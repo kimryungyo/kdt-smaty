@@ -29,7 +29,7 @@ class VisionDetector(Protocol):
 
 
 class NoopVisionDetector:
-    """실물 model/ROI가 확정되기 전 fail-closed 기본 adapter다."""
+    """실물 model이 확정되기 전 fail-closed 기본 adapter다."""
 
     def detect_upper(self, _frame: np.ndarray) -> UpperDetection:
         return UpperDetection(body_count=None)
@@ -200,11 +200,14 @@ class OpenCvYoloPoseLowerDetector:
         self, row: np.ndarray, frame: np.ndarray, scale: float, pad_x: int, pad_y: int
     ) -> DetectionBox:
         frame_height, frame_width = frame.shape[:2]
-        center_x, center_y, width, height = row[:4]
-        left = self._clip((center_x - width / 2 - pad_x) / scale, frame_width)
-        top = self._clip((center_y - height / 2 - pad_y) / scale, frame_height)
-        right = self._clip((center_x + width / 2 - pad_x) / scale, frame_width)
-        bottom = self._clip((center_y + height / 2 - pad_y) / scale, frame_height)
+        # 이 end-to-end YOLO26 ONNX는 [left, top, right, bottom]을 반환한다.
+        # center/width/height로 해석하면 debug box가 실제 사람보다 훨씬 커지고
+        # 위치도 어긋난다. ~/sitting의 YoloPoseEstimator와 같은 역변환이다.
+        left, top, right, bottom = row[:4]
+        left = self._clip((left - pad_x) / scale, frame_width)
+        top = self._clip((top - pad_y) / scale, frame_height)
+        right = self._clip((right - pad_x) / scale, frame_width)
+        bottom = self._clip((bottom - pad_y) / scale, frame_height)
         return DetectionBox(
             x=round(left), y=round(top), width=max(0, round(right - left)),
             height=max(0, round(bottom - top)), confidence=float(row[4]),

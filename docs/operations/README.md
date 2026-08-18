@@ -65,7 +65,7 @@ curl http://127.0.0.1:9090/api/assistant/latest
   기본값은 MQTT 5초, relay ack 6초이며 운영 환경에서도 ack 값을 MQTT 값보다 크게 유지한다.
 - 실제 자동 이동은 위 조건을 확인한 환경에서만
   `SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS=true`로 활성화한다.
-- Vision `UNKNOWN`, count 불일치 또는 stale은 AUTO/PARK를 차단한다. 상단 detector와 실제 ROI가
+- Vision `UNKNOWN`, count 불일치 또는 stale은 AUTO/PARK를 차단한다. 상단 detector와 실제 화각이
   없으므로 production 자동 이동의 근거로 사용하지 않는다.
 - Voice/WLED가 `DISABLED` 또는 degraded여도 profile·상태 조회와 Desk 핵심 경로는 별도 상태로
   유지된다. Voice `enabled=true`의 static configuration/model 오류는 조용히 무시하지 않는다.
@@ -103,7 +103,7 @@ memory 행 삭제는 피한다. migration 실패나 profile 삭제 중 memory �
 | 범위 | 자동 증거 | 아직 필요한 증거 |
 | --- | --- | --- |
 | backend 전체 | 2026-08-17: `445 passed, 2 skipped in 5.62s`; compileall, diff check 통과 | 환경별 재실행 로그 |
-| 하단 pose | fake adapter와 sample 26/26 (`sitting` 10, fullbody 6, standing 4, empty 6) | actual RTSP/ROI/CPU, model provisioning/license record |
+| 하단 pose | fake adapter와 sample 26/26 (`sitting` 10, fullbody 6, standing 4, empty 6) | actual WebRTC/CPU, model provisioning/license record |
 | lifecycle/API/automation | fake adapter, repository, API, session/turn tests | EMQX/Arduino/ESP32/WLED 실제 단절·복구와 제한 이동 |
 | Voice/AI | Agents SDK/session/tool/turn contract tests | microphone/speaker/OpenAI/Mem0 live operation |
 | frontend | 2026-08-17: `npm run build`로 TypeScript와 Vite production build 통과 | 실제 브라우저·장치 UX |
@@ -112,7 +112,7 @@ memory 행 삭제는 피한다. migration 실패나 profile 삭제 중 memory �
 ## 현재 제한과 실물 체크리스트
 
 - [ ] production 상단 몸체/얼굴 detector와 embedding model을 선택·배포한다.
-- [ ] user/posture RTSP camera, ROI, threshold와 CPU를 현장 보정한다.
+- [ ] user/posture WebRTC camera의 threshold와 CPU를 현장 보정한다.
 - [ ] 실제 face enrollment와 등록/익명 session 전이를 검증한다.
 - [ ] Arduino, Wi-Fi/MQTT ESP32, WLED와 제한된 Desk 이동·STOP·복구를 검증한다.
 - [ ] logic analyzer로 relay timing과 independent timeout STOP을 측정한다.

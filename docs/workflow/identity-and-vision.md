@@ -20,7 +20,7 @@ WebRtcCameraPublisher.start() → MediaMTX WHIP
 frame을 여러 관측으로 세지 않고, 이전 결합 관측 뒤 상단·하단이 모두 distinct frame을 낸
 pair에서만 안정화 timer를 전진한다. 오래된 frame은 새 관측으로 사용하지 않으며 무거운
 추론은 event loop 밖에서 수행한다. Task 04의 기본 Noop detector는 model 미구성 상태를
-`MODEL_UNAVAILABLE`로 fail-closed하며, 실제 ROI·model·threshold와 preview 실측은 별도
+`MODEL_UNAVAILABLE`로 fail-closed하며, 실제 model·threshold와 preview 실측은 별도
 camera 검증이 필요하다.
 
 ## 분리된 공개 상태
@@ -34,9 +34,9 @@ camera 검증이 필요하다.
 | 신원 | `AMBIGUOUS` | 후보 간 차이가 부족하거나 불확실 |
 | 신원 | `NO_FACE` | fresh frame에 얼굴이 보이지 않음 |
 | 신원 | `UNKNOWN` | frame/model 오류 또는 유효 관측 없음 |
-| 재실 | `PRESENT_SINGLE` | 결합 책상 ROI에 한 명 |
+| 재실 | `PRESENT_SINGLE` | 두 카메라 전체 화각에서 한 명 |
 | 재실 | `VACANT` | 이탈이 안정화됨 |
-| 재실 | `MULTIPLE` | 어느 카메라든 책상 ROI에 여러 명 |
+| 재실 | `MULTIPLE` | 어느 카메라든 전체 화각에 여러 명 |
 | 재실 | `UNKNOWN` | count 불일치, stale 또는 귀속 불가 |
 | 자세 | `SITTING`, `STANDING`, `UNKNOWN` | 재실과 독립적인 자세 관측 |
 
@@ -65,8 +65,8 @@ AUTO를 흔들지 않는다. 같은 이상이 관측 묶음의 다수를 차지�
 첫 구현은 Re-ID 없이 단일 책상 singleton만 결합한다.
 
 ```text
-상단 책상 ROI의 몸체 또는 얼굴 한 명
-  + 하단 책상 ROI의 하체 한 명
+상단 전체 화각의 몸체 또는 얼굴 한 명
+  + 하단 전체 화각의 하체 한 명
   + 양쪽 fresh frame과 허용 시각 차이
   → PRESENT_SINGLE 후보
 ```

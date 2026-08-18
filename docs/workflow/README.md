@@ -94,7 +94,7 @@ Dashboard polling이 중단돼도 사용자 이탈로 간주하지 않는다. �
 
 ## 확정된 session 요약
 
-- 상단 책상 ROI의 몸체 또는 얼굴 한 명과 하단 하체 한 명, 자세가 3초 안정화되면 session을
+- 상단 전체 화각의 몸체 또는 얼굴 한 명과 하단 하체 한 명, 자세가 3초 안정화되면 session을
   시작한다.
 - 등록 얼굴이면 profile session, 아니면 익명 session이며 익명 높이는 앉음 75cm·섬 110cm다.
 - 최초 AUTO 목표는 session 시작 뒤 2초 동안 조건이 유지돼야 한다.

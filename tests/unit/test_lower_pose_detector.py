@@ -64,6 +64,22 @@ def test_same_pose_model_counts_upper_presence_without_requiring_visible_face(mo
     assert detector.detect_upper(frame).body_count == 1
 
 
+def test_debug_box_uses_end_to_end_xyxy_coordinates_like_sitting_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = np.zeros((640, 640, 3), dtype=np.uint8)
+    output = pose_output()
+    # ~/sitting의 YoloPoseEstimator와 같이 row[:4]는 left/top/right/bottom이다.
+    output[0, 0, :4] = (100, 120, 300, 520)
+
+    result = make_detector(monkeypatch, output).detect_upper(frame)
+
+    assert result.person_boxes[0].x == 100
+    assert result.person_boxes[0].y == 120
+    assert result.person_boxes[0].width == 200
+    assert result.person_boxes[0].height == 400
+
+
 def test_leg_geometry_uses_most_bent_valid_side(monkeypatch: pytest.MonkeyPatch) -> None:
     frame = np.zeros((640, 640, 3), dtype=np.uint8)
     assert make_detector(monkeypatch, pose_output(legs=("straight", "straight"))).detect_lower(frame).posture is PostureStatus.STANDING

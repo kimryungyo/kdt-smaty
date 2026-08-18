@@ -39,7 +39,7 @@ runtime은 이미 task 02 lifecycle에 연결돼 있고, 남은 Voice 작업은 
 | 01 | [상태·워크플로우 계약 확정](01-workflow-contracts.md) | 구현 가능한 상태·전이·API 기준 | 완료 | - |
 | 02 | [서비스 수명주기와 준비 상태](02-required-services.md) | 시작·이동 필수 조건과 선택 기능 degraded 분리 | 실물 검증 대기 | MQTT cold-start 재연결과 자동 검증 완료; 실제 단절·복구는 Task 09에서 검증 |
 | 03 | [프로필과 작업 모드](03-profile-and-presets.md) | 활동별 앉기·서기 높이와 LED 저장 | 코드 완료 | 실제 장치 적용은 06·09 |
-| 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 진행 중 | 하단 구현 완료; 상단 detector·실제 ROI 보정 미완료 |
+| 04 | [Vision 관측](04-vision-observation.md) | 재실·자세·인원수 snapshot | 진행 중 | 상단·하단 detector 구현 완료; 현장 threshold 보정 진행 중 |
 | 05 | [얼굴 식별과 사용자 세션](05-face-identity-session.md) | 얼굴 등록·식별과 서버 현재 사용자 | 진행 중 | fake-driven session/repository/API 기반; production 얼굴 추론·등록 미완료 |
 | 06 | [책상 자동화](06-desk-automation.md) | 제어 방식·작업 모드와 자세 기반 이동 | 진행 중 | 정책·자동 검증 완료; 실제 Vision/하드웨어 end-to-end 미완료 |
 | 07 | [Dashboard 워크플로우](07-dashboard-workflow.md) | 설정 대상과 현재 사용자 분리 | 진행 중 | 주요 workflow·Assistant/Voice 상태 구현; preview/debug 일부 미완료 |
@@ -50,7 +50,7 @@ runtime은 이미 task 02 lifecycle에 연결돼 있고, 남은 Voice 작업은 
 구현 순서는 더 이상 착수 계획이 아니다. 02·03의 코드 경계, 04 하단 detector, 05의
 repository/session/API 기반, 06 자동화 정책, 07 Dashboard 주요 흐름, 08 Agents SDK 단일
 경로와 turn 연결은 구현되어 있다. 남은 순서는 production Vision과 등록 모델을 정하고 실제
-camera/ROI를 보정한 뒤, 안전한 하드웨어와 실제 OpenAI/audio/Mem0 환경에서 Task 09 증거를
+camera threshold를 보정한 뒤, 안전한 하드웨어와 실제 OpenAI/audio/Mem0 환경에서 Task 09 증거를
 누적하는 것이다.
 
 키 필드는 제거하고 자세 전환 확인 시간은 전체 고정 5초로 사용한다. profile 삭제 시 장기
@@ -70,7 +70,7 @@ camera/ROI를 보정한 뒤, 안전한 하드웨어와 실제 OpenAI/audio/Mem0 
 - SQLite v4 profile·activity mode·face-embedding 저장 기반과 React Dashboard 주요 workflow가
   구현돼 있다.
 - user·workspace·posture 카메라 publisher/latest-frame 입력과 Vision snapshot이 구현돼 있다.
-  하단 ONNX adapter의 sample 회귀는 완료했지만 상단 detector, 실제 posture camera/ROI와 CPU
+  하단 ONNX adapter의 sample 회귀는 완료했지만 실제 posture camera와 CPU
   보정은 남아 있다.
 - WLED와 Voice는 선택 기능이며 `enabled=false`는 정상 `DISABLED`다. 활성화한 기능의 잘못된
   정적 구성은 명시적으로 실패하고 runtime 단절은 기능별 degraded로 표시한다.

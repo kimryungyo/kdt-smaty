@@ -358,7 +358,7 @@ class MediaSettings(BaseModel):
 class VisionSettings(BaseModel):
     """최신 frame 기반 Vision 관측의 보수적인 초기 실행값이다.
 
-    ROI와 detector threshold는 실제 카메라 실측 전에는 확정하지 않는다. 이 설정은
+    detector threshold는 실제 카메라 실측 전에는 확정하지 않는다. 이 설정은
     frame/result freshness와 polling cadence만 한곳에서 정의한다.
     """
 

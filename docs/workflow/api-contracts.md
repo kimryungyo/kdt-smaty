@@ -2,7 +2,7 @@
 
 아래는 현재 구현된 API 계약과 남은 production 제한을 함께 기록한다. `/api/current-user`,
 `/api/vision/status`, 자동화·작업 모드와 `/api/assistant/latest`까지 구현·자동 검증되어 있다.
-production 얼굴 추론, 실제 camera/ROI 및 hardware/Voice live 검증은 이 API 구현 완료와 별개다.
+production 얼굴 추론, 실제 camera 및 hardware/Voice live 검증은 이 API 구현 완료와 별개다.
 
 ## 공통 규칙
 

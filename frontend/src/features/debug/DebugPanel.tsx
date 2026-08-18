@@ -10,7 +10,9 @@ import { useSnapshotPoll } from "../../hooks/useSnapshotPoll";
 import { navigate } from "../../routes";
 
 const value = (item: unknown) => item === null || item === undefined || item === "" ? "--" : Array.isArray(item) ? item.join(", ") || "없음" : String(item);
-const poseEdges: [number, number][] = [[0, 1], [0, 2], [1, 3], [2, 4], [5, 6], [5, 7], [7, 9], [6, 8], [8, 10], [5, 11], [6, 12], [11, 12], [11, 13], [13, 15], [12, 14], [14, 16]];
+// ~/sitting의 LOWER_CONNECTIONS와 같다. 자세 판정과 무관한 상체 관절은 그리지 않는다.
+const poseEdges: [number, number][] = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16]];
+const lowerJointIndexes = new Set([11, 12, 13, 14, 15, 16]);
 
 function drawOverlay(canvas: HTMLCanvasElement, camera: VisionDebugCamera) {
   const width = camera.frameWidth ?? 0;
@@ -38,8 +40,8 @@ function drawOverlay(canvas: HTMLCanvasElement, camera: VisionDebugCamera) {
       context.beginPath(); context.moveTo(a.x, a.y); context.lineTo(b.x, b.y); context.stroke();
     });
     context.fillStyle = "#fff16d";
-    pose.keypoints.forEach((point) => {
-      if (point.confidence < .12) return;
+    pose.keypoints.forEach((point, index) => {
+      if (!lowerJointIndexes.has(index) || point.confidence < (index === 11 || index === 12 ? .08 : .45)) return;
       context.beginPath(); context.arc(point.x, point.y, Math.max(3, width / 190), 0, Math.PI * 2); context.fill();
     });
   });

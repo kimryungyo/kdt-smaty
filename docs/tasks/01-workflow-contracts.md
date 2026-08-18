@@ -94,9 +94,9 @@ session 시작은 `PRESENT_SINGLE`과 자세를 3초 확인하고 session 생성
 첫 구현은 사람 Re-ID 없이 단일 책상·단일 사용자 조건만 지원한다.
 
 ```text
-상단 책상 ROI: 몸체 또는 얼굴 한 명
+상단 카메라 전체 화각: 몸체 또는 얼굴 한 명
 AND
-하단 책상 ROI: 하체 한 명
+하단 카메라 전체 화각: 하체 한 명
 AND
 두 frame과 detector 결과가 fresh하고 허용 시각 차이 안
 → PRESENT_SINGLE 후보
@@ -107,7 +107,7 @@ AND
 카메라 count가 다르거나 어느 자세가 한 사람에게 귀속되는지 불명확하면 결합 상태를
 사용 불가로 만들고 새 AUTO 목표를 금지한다.
 
-ROI, 허용 frame 시각 차이와 detector threshold의 실제 수치는 카메라 설치 후 task 04에서
+허용 frame 시각 차이와 detector threshold의 실제 수치는 카메라 설치 후 task 04에서
 측정하지만, 두 카메라 singleton과 freshness를 생략하는 운영 fallback은 두지 않는다.
 
 ## session 시작
@@ -381,7 +381,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 ## 제외 범위와 알려진 제한
 
 - 얼굴·자세 모델과 라이브러리 선정
-- ROI 좌표, confidence, frame 수와 카메라 허용 시각 차이의 실측 보정
+- confidence, frame 수와 카메라 허용 시각 차이의 실측 보정
 - 카메라 간 Re-ID, 장기 trajectory와 여러 책상 지원
 - Pydantic 모델, SQLite migration, FastAPI route와 Dashboard 실제 구현
 - Voice model·VAD·dependency, SDK history compaction과 Mem0 배포 세부
