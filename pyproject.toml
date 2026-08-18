@@ -22,6 +22,7 @@ dependencies = [
 
 [project.scripts]
 smart-desk-media-publish = "smart_desk.media_publish:main"
+smart-desk-vision = "smart_desk.vision_main:main"
 
 [project.optional-dependencies]
 voice = [

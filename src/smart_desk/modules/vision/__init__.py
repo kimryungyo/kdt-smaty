@@ -24,9 +24,10 @@ from smart_desk.modules.vision.models import (
     VisionSnapshot,
 )
 from smart_desk.modules.vision.service import VisionService
+from smart_desk.modules.vision.remote import RemoteVisionService
 
 
-def get_vision() -> VisionService:
+def get_vision() -> VisionService | RemoteVisionService:
     vision = get_container().vision
     if vision is None:
         raise RuntimeError("Vision service가 조립되지 않았습니다.")

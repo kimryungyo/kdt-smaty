@@ -406,6 +406,35 @@ class VisionSettings(BaseModel):
         return self
 
 
+class VisionClientSettings(BaseModel):
+    """Main이 별도 Vision HTTP service를 사용할 때의 연결 설정이다."""
+
+    enabled: bool = False
+    base_url: str = "http://127.0.0.1:9091"
+    api_token: SecretStr | None = None
+    poll_interval_seconds: float = Field(default=0.5, gt=0, le=10, allow_inf_nan=False)
+    request_timeout_seconds: float = Field(default=2.5, gt=0, le=30, allow_inf_nan=False)
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: str) -> str:
+        normalized = value.strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Vision service URL은 http:// 또는 https:// 주소여야 합니다.")
+        if parsed.path or parsed.query or parsed.fragment:
+            raise ValueError("Vision service URL에는 path, query, fragment를 사용할 수 없습니다.")
+        return normalized
+
+
+class VisionServerSettings(BaseModel):
+    """Stateless Vision HTTP process가 읽는 API 설정이다."""
+
+    host: str = "0.0.0.0"
+    port: int = Field(default=9091, ge=1, le=65535)
+    api_token: SecretStr | None = None
+
+
 class FaceSettings(BaseModel):
     """Local OpenCV face models and conservative calibration candidates."""
 
@@ -621,6 +650,8 @@ class Settings(BaseSettings):
     desk: DeskSettings = DeskSettings()
     media: MediaSettings = MediaSettings()
     vision: VisionSettings = VisionSettings()
+    vision_client: VisionClientSettings = VisionClientSettings()
+    vision_server: VisionServerSettings = VisionServerSettings()
     face: FaceSettings = FaceSettings()
     automation: AutomationSettings = AutomationSettings()
     storage: StorageSettings = StorageSettings()
