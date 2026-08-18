@@ -279,20 +279,21 @@ class CameraMediaSettings(BaseModel):
 
     @field_validator("publish_url", "receive_url")
     @classmethod
-    def require_webrtc_url(cls, value: str, info: ValidationInfo) -> str:
-        """URL 용도에 맞는 MediaMTX WHIP/WHEP endpoint만 허용한다."""
+    def require_media_url(cls, value: str, info: ValidationInfo) -> str:
+        """발행은 WHIP, 수신은 WHEP 또는 직접 MJPEG endpoint를 허용한다."""
 
         parsed = urlsplit(value)
-        expected_suffix = "/whip" if info.field_name == "publish_url" else "/whep"
+        expected_suffixes = ("/whip",) if info.field_name == "publish_url" else ("/whep", "/stream")
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.netloc
             or parsed.query
             or parsed.fragment
-            or not parsed.path.rstrip("/").endswith(expected_suffix)
+            or not parsed.path.rstrip("/").endswith(expected_suffixes)
         ):
+            expected = ".../whip" if info.field_name == "publish_url" else ".../whep 또는 .../stream"
             raise ValueError(
-                f"카메라 {info.field_name}은 유효한 http(s)://...{expected_suffix} 주소여야 합니다."
+                f"카메라 {info.field_name}은 유효한 http(s)://{expected} 주소여야 합니다."
             )
         return value
 

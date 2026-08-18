@@ -15,7 +15,7 @@ import uvicorn
 
 from smart_desk.config.settings import Settings, get_settings
 from smart_desk.core.logging import configure_logging
-from smart_desk.modules.media import WebRtcFrameSource
+from smart_desk.modules.media import MjpegFrameSource, WebRtcFrameSource
 from smart_desk.modules.vision.detector import (
     CompositeVisionDetector,
     NoopVisionDetector,
@@ -48,19 +48,23 @@ class AnalyzeRequest(BaseModel):
 
 
 class VisionWorker:
-    """Owns WHEP readers and models without database or disk state."""
+    """Owns camera readers and models without database or disk state."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._upper = WebRtcFrameSource(
+        self._upper = MjpegFrameSource(
             name="user",
-            whep_url=settings.media.user.receive_url,
+            stream_url=settings.media.user.receive_url,
             reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
-        self._lower = WebRtcFrameSource(
-            name="posture",
-            whep_url=settings.media.posture.receive_url,
-            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
+        self._lower = (
+            WebRtcFrameSource(
+                name="posture",
+                whep_url=settings.media.posture.receive_url,
+                reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
+            )
+            if settings.media.posture.receive_enabled
+            else None
         )
         self._vision = VisionService(
             upper_source=self._upper,
@@ -84,11 +88,13 @@ class VisionWorker:
 
     async def start(self) -> None:
         await self._upper.start()
-        await self._lower.start()
+        if self._lower is not None:
+            await self._lower.start()
 
     async def stop(self) -> None:
         await self._vision.stop()
-        await self._lower.stop()
+        if self._lower is not None:
+            await self._lower.stop()
         await self._upper.stop()
 
     async def analyze(self) -> VisionStatusResponse:

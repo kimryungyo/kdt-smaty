@@ -38,6 +38,27 @@ services:
       - "8189:8189/udp"
     networks: [fin-internal]
 
+  # Relay JPEG frames produced by the UVC camera without decoding or H.264
+  # re-encoding them on the Raspberry Pi.
+  mjpeg-user-cam:
+    image: mkuf/ustreamer:v6.52-2-g3bb1ed3
+    user: "0:0"
+    restart: unless-stopped
+    command:
+      - --device=/dev/user-cam
+      - --format=MJPEG
+      - --resolution=1920x1080
+      - --desired-fps=2
+      - --encoder=HW
+      - --workers=1
+      - --host=0.0.0.0
+      - --port=8080
+    devices:
+      - "${SMART_DESK_MEDIA__USER__DEVICE}:/dev/user-cam"
+    ports:
+      - "10001:8080"
+    networks: [fin-internal]
+
   main:
     build:
       context: ..
@@ -55,11 +76,11 @@ services:
       SMART_DESK_SERIAL__PORT: /dev/desk-height
       SMART_DESK_DASHBOARD__FRONTEND_DIRECTORY: /app/frontend/dist
       SMART_DESK_VISION_CLIENT__ENABLED: "true"
-      SMART_DESK_VISION_CLIENT__BASE_URL: http://vision:9091
-      SMART_DESK_MEDIA__USER__PUBLISH_URL: http://mediamtx:8889/user-cam/whip
+      SMART_DESK_VISION_CLIENT__BASE_URL: ${SMART_DESK_VISION_CLIENT__BASE_URL:-http://vision:9091}
+      SMART_DESK_MEDIA__USER__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__USER__RECEIVE_ENABLED: "false"
       SMART_DESK_MEDIA__USER__DEVICE: /dev/user-cam
-      SMART_DESK_MEDIA__WORKSPACE__PUBLISH_URL: http://mediamtx:8889/workspace-cam/whip
+      SMART_DESK_MEDIA__WORKSPACE__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED: "false"
       SMART_DESK_MEDIA__WORKSPACE__DEVICE: /dev/workspace-cam
       SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED: "false"
@@ -71,8 +92,6 @@ services:
       - ../data:/app/data
     devices:
       - "${SMART_DESK_SERIAL__PORT}:/dev/desk-height"
-      - "${SMART_DESK_MEDIA__USER__DEVICE}:/dev/user-cam"
-      - "${SMART_DESK_MEDIA__WORKSPACE__DEVICE}:/dev/workspace-cam"
       - "/dev/snd:/dev/snd"
     group_add:
       - "20"
@@ -103,12 +122,11 @@ services:
       SMART_DESK_VISION_SERVER__PORT: "9091"
       SMART_DESK_MEDIA__USER__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__USER__RECEIVE_ENABLED: "true"
-      SMART_DESK_MEDIA__USER__RECEIVE_URL: http://mediamtx:8889/user-cam/whep
+      SMART_DESK_MEDIA__USER__RECEIVE_URL: http://mjpeg-user-cam:8080/stream
       SMART_DESK_MEDIA__WORKSPACE__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED: "false"
       SMART_DESK_MEDIA__POSTURE__PUBLISH_ENABLED: "false"
-      SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED: "true"
-      SMART_DESK_MEDIA__POSTURE__RECEIVE_URL: http://mediamtx:8889/bottom-cam/whep
+      SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED: "false"
       SMART_DESK_FACE__DETECTOR_MODEL_PATH: /app/assets/vision/models/face_detection_yunet_2023mar.onnx
       SMART_DESK_FACE__EMBEDDING_MODEL_PATH: /app/assets/vision/models/face_recognition_sface_2021dec.onnx
       SMART_DESK_VISION__LOWER_POSE_MODEL_PATH: /app/assets/vision/models/yolo26n-pose.onnx
@@ -117,7 +135,7 @@ services:
     ports:
       - "127.0.0.1:9091:9091"
     depends_on:
-      mediamtx:
+      mjpeg-user-cam:
         condition: service_started
     networks: [fin-internal]
 
