@@ -31,6 +31,11 @@ LOGGER = logging.getLogger(__name__)
 TILT_READER_TASK_NAME = "tilt-serial-reader"
 TILT_PREPARE_TASK_NAME = "tilt-prepare"
 TILT_MOTION_TASK_NAME = "tilt-motion"
+# 0단계는 위치를 믿지 않고 바닥까지 내려 영점을 다시 잡는다. 여유 2초는
+# 전체 행정을 다 내려간 뒤 실제 바닥에 닿게 하는 몫이다.
+HOMING_MARGIN_MS = 2000
+# 펌웨어 TiltPolicy::ABSOLUTE_MAX_MOTION_MS와 같은 상한이다.
+HOMING_MAX_DURATION_MS = 16000
 
 
 class TiltCommandRejectedError(RuntimeError):
@@ -81,6 +86,7 @@ class TiltController:
         self._motion_task: asyncio.Task[None] | None = None
         self._synced_generation = -1
         self._command_generation = 0
+        self._homing_generation: int | None = None
         self._pending_calibration: tuple[int, str, int, asyncio.Future[None]] | None = None
 
     async def start(self) -> None:
@@ -191,7 +197,9 @@ class TiltController:
                     detail = "다른 틸트 이동이 진행 중입니다."
             elif snapshot.state not in {TiltState.IDLE, TiltState.AT_TARGET, TiltState.STOPPED}:
                 detail = "틸팅 ESP32가 준비되지 않았거나 오류 상태입니다."
-            elif not snapshot.position_valid:
+            elif not snapshot.position_valid and command.level != self._settings.min_level:
+                # 0단계는 바닥까지 내려 영점을 새로 잡으므로 현재 위치를 몰라도 된다.
+                # 오히려 위치를 잃었을 때 복구하는 유일한 경로다.
                 detail = "틸팅 ESP32의 현재 위치가 확인되지 않았습니다."
             elif not self._settings.min_level <= command.level <= self._settings.max_level:
                 detail = f"단계는 {self._settings.min_level}~{self._settings.max_level} 사이여야 합니다."
@@ -233,7 +241,48 @@ class TiltController:
             await self._publish_status()
         return detail
 
+    def _homing_duration_ms(self) -> int:
+        """바닥까지 확실히 내려가는 하강 시간. 현재 위치를 믿지 않는다.
+
+        위치는 센서 없이 추측항법으로만 관리해 오차가 쌓인다. 그래서 0단계는
+        어디에 있든 전체 행정을 내려간 뒤 잠깐 더 밀어 실제 바닥에 닿게 하고,
+        그 지점을 새 영점으로 삼는다.
+        """
+
+        duty = self._settings.move_duty_percent
+        speed = self._levels.down_speed_mm_s(duty)
+        travel_mm = self._levels.max_target_mm()
+        if not speed or speed <= 0 or travel_mm <= 0:
+            # 보정이 없으면 펌웨어가 허용하는 최대치까지 내려간다.
+            return HOMING_MAX_DURATION_MS
+        full_travel_ms = int((travel_mm / speed) * 1000)
+        return min(full_travel_ms + HOMING_MARGIN_MS, HOMING_MAX_DURATION_MS)
+
+    async def _send_home(self, command_generation: int) -> None:
+        """0단계: 바닥까지 내린 뒤 그 자리를 0으로 다시 선언한다."""
+
+        duration_ms = self._homing_duration_ms()
+        duty = self._settings.move_duty_percent
+        self._homing_generation = command_generation
+        if not await self._is_current_motion(command_generation):
+            return
+        if not await self._link.write_line(f"RUN DOWN {duty} {duration_ms}"):
+            await self._mark_motion_error(command_generation, "틸팅 ESP32로 영점 복귀 명령을 전송하지 못했습니다.")
+            return
+        if not await self._is_current_motion(command_generation):
+            return
+        await self._replace_snapshot_if_current(
+            command_generation,
+            detail="0단계 영점을 맞추려고 끝까지 내리는 중입니다.",
+            last_error=None,
+        )
+        await self._publish_status()
+
     async def _send_move(self, level: int, command_generation: int) -> None:
+        self._homing_generation = None
+        if level == self._settings.min_level:
+            await self._send_home(command_generation)
+            return
         target_mm = self._levels.target_mm_for_level(level)
         if target_mm is None:
             await self._mark_motion_error(command_generation, "목표 위치가 설정되지 않았습니다.")
@@ -514,6 +563,12 @@ class TiltController:
         position_mm: float | None,
         reason: str,
     ) -> None:
+        # 0단계 영점 복귀는 RUN으로 내려가므로 firmware가 위치를 버린 채 끝난다.
+        # 이때는 오류가 아니라, 지금 닿은 바닥을 새 영점으로 선언할 차례다.
+        if reason == "manual_complete" and self._homing_generation is not None:
+            await self._finish_homing(firmware)
+            return
+
         timeout = reason in {"timeout", "motion_timeout", "fault"}
         async with self._state_lock:
             previous = self._snapshot
@@ -546,6 +601,35 @@ class TiltController:
             )
         if position_valid and state is TiltState.STOPPED:
             await self._start_prepare_task()
+        await self._publish_status()
+
+    async def _finish_homing(self, firmware: str | None) -> None:
+        """바닥에 닿은 지점을 0으로 선언해 누적 오차를 없앤다."""
+
+        self._homing_generation = None
+        target_mm = self._levels.target_mm_for_level(self._settings.min_level) or 0.0
+        if not await self._link.write_line(f"SET_POSITION {target_mm:.2f}"):
+            await self._replace_snapshot(
+                state=TiltState.ERROR,
+                target_level=None,
+                position_valid=False,
+                firmware=firmware,
+                detail="영점을 다시 잡지 못했습니다.",
+                last_error="틸팅 ESP32로 SET_POSITION을 전송하지 못했습니다.",
+            )
+            await self._publish_status()
+            return
+        # firmware가 곧 ready 상태를 보내지만, 화면이 먼저 결과를 알 수 있게 한다.
+        await self._replace_snapshot(
+            state=TiltState.AT_TARGET,
+            level=self._settings.min_level,
+            target_level=None,
+            position_mm=target_mm,
+            position_valid=True,
+            firmware=firmware,
+            detail=f"{self._settings.min_level}단계에서 영점을 다시 맞췄습니다.",
+            last_error=None,
+        )
         await self._publish_status()
 
     async def _mark_prepare_error(self, detail: str) -> None:

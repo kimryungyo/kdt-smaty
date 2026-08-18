@@ -133,6 +133,16 @@ class TiltLevelRepository:
 
         return self._levels.get(level)
 
+    def max_target_mm(self) -> float:
+        """설정된 단계 중 가장 높은 목표 위치. 전체 행정 길이로 쓴다."""
+
+        return max(self._levels.values(), default=0.0)
+
+    def down_speed_mm_s(self, duty: int) -> float | None:
+        """해당 duty의 하강 속도(mm/s). 보정이 없으면 None이다."""
+
+        return self._calibration.get(duty, {}).get("DOWN")
+
     def calibration_snapshot(self) -> list[tuple[int, str, float]]:
         """ESP32에 전송할 (duty, 방향, 평균 mm/s) 목록을 반환한다."""
 
