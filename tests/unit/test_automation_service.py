@@ -463,6 +463,49 @@ async def test_tolerance_is_ready_and_live_target_is_not_duplicated() -> None:
     assert not [call for call in desk.calls if call[0] == "target"]
 
 
+async def test_stopped_before_target_is_blocked_not_reported_ready() -> None:
+    """A safe desk STOP is not successful automatic target completion."""
+
+    clock, desk, users = Clock(), FakeDesk(height=90), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    await observe(service, camera, (3, 3), clock, 2)
+    await flush_background_tasks()
+    assert desk.snapshot.state is DeskState.MOVING
+
+    desk.snapshot = DeskSnapshot(
+        DeskState.STOPPED, desk.snapshot.height, desk.snapshot.relay,
+        75, None, "중간 안전 정지", None, NOW,
+    )
+    await observe(service, camera, (4, 4), clock)
+
+    snapshot = service.get_snapshot()
+    assert snapshot.state is AutomationState.BLOCKED
+    assert snapshot.target_height_cm == 75
+    assert snapshot.blocked_reason_codes == ("DESK_STOPPED_BEFORE_TARGET",)
+
+
+async def test_stopped_at_target_with_fresh_height_is_ready() -> None:
+    """A STOP after a fresh in-tolerance measurement remains a completion."""
+
+    clock, desk, users = Clock(), FakeDesk(height=90), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    await observe(service, camera, (3, 3), clock, 2)
+    await flush_background_tasks()
+    desk.snapshot = DeskSnapshot(
+        DeskState.STOPPED, HeightSnapshot(75, NOW, HeightStatus.ONLINE, HeightProvenance.LIVE),
+        desk.snapshot.relay, 75, None, "목표 도달", None, NOW,
+    )
+    await observe(service, camera, (4, 4), clock)
+
+    assert service.get_snapshot().state is AutomationState.READY
+
+
 async def test_hold_and_target_preempt_shadow_without_safety_stop() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))

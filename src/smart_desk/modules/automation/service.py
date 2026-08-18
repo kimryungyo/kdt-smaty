@@ -15,7 +15,7 @@ from smart_desk.modules.automation.models import (
 )
 from smart_desk.modules.identity.models import CurrentUserSnapshot, SessionKind
 from smart_desk.modules.desk.models import (
-    DeskSnapshot, DeskState, Direction, RelayEvent, RelayState,
+    DeskSnapshot, DeskState, Direction, HeightStatus, RelayEvent, RelayState,
 )
 from smart_desk.modules.profiles.activity_modes import (
     ActivityModeNotFoundError, ActivityModeOwnershipError, effective_mode_from_activity,
@@ -561,7 +561,11 @@ class AutomationService:
         # _finish_automatic_if_idle can fail-close a live intent when the Desk
         # reports ERROR. Do not let this same fresh vision frame overwrite that
         # terminal state with OBSERVING or schedule another target.
-        if "DESK_ERROR" in self._snapshot.blocked_reason_codes:
+        if {
+            "DESK_ERROR",
+            "DESK_STOPPED_BEFORE_TARGET",
+            "DESK_HEIGHT_UNAVAILABLE_AFTER_STOP",
+        }.intersection(self._snapshot.blocked_reason_codes):
             return
         if not self._auto_usable(vision):
             await self._block_auto(vision)
@@ -652,12 +656,12 @@ class AutomationService:
                 await self._safe_stop("Vision 불확실성 안전 정지")
 
     async def _finish_automatic_if_idle(self, session_id: str | None) -> None:
-        """Keep an accepted AUTO/PARK command as intent after the desk settles."""
+        """Finish AUTO/PARK only after a fresh measurement confirms its target."""
         try:
-            desk_state = self._desk.get_snapshot().state
+            desk = self._desk.get_snapshot()
         except Exception:
             return
-        if desk_state is DeskState.ERROR:
+        if desk.state is DeskState.ERROR:
             async with self._state_lock:
                 if not self._live_automatic:
                     return
@@ -667,12 +671,36 @@ class AutomationService:
                     blocked_reason_codes=self._with_stop_failure(("DESK_ERROR",)),
                 )
             return
-        if desk_state not in {DeskState.IDLE, DeskState.STOPPED}:
+        if desk.state not in {DeskState.IDLE, DeskState.STOPPED}:
             return
         async with self._state_lock:
             snapshot = self._snapshot
             if (snapshot.session_id != session_id or not self._live_automatic
                     or snapshot.intent_source not in {IntentSource.AUTO, IntentSource.PARK}):
+                return
+            target = snapshot.target_height_cm
+            height = desk.height
+            target_reached = (
+                target is not None
+                and height.status is HeightStatus.ONLINE
+                and height.height_cm is not None
+                and abs(height.height_cm - target) <= self._target_tolerance_cm
+            )
+            if not target_reached:
+                # STOPPED is also used for fail-safe stops and bounded fine
+                # correction exhaustion. It is not evidence of completion.
+                self._live_automatic = False
+                self._auto_completed_target_cm = None
+                self._auto_rearm_started_mono = None
+                code = (
+                    "DESK_STOPPED_BEFORE_TARGET"
+                    if height.status is HeightStatus.ONLINE and height.height_cm is not None
+                    else "DESK_HEIGHT_UNAVAILABLE_AFTER_STOP"
+                )
+                self._replace_locked(
+                    state=AutomationState.BLOCKED,
+                    blocked_reason_codes=self._with_stop_failure((code,)),
+                )
                 return
             self._live_automatic = False
             if snapshot.intent_source is IntentSource.AUTO and snapshot.target_height_cm is not None:
