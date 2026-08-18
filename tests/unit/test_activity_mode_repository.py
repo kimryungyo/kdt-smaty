@@ -32,8 +32,8 @@ async def test_default_is_synthesized_and_custom_modes_are_profile_scoped(tmp_pa
     effective = await modes.list_effective_modes(first.id)
 
     assert [item.model_dump() for item in effective] == [
-        {"key": "default", "kind": "DEFAULT", "name": "기본", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "FF0000", "editable": False},
-        {"key": created.id, "kind": "CUSTOM", "name": "독서", "sittingHeightCm": 82.0, "standingHeightCm": 108.0, "ledColor": "FFD080", "editable": True},
+        {"key": "default", "kind": "DEFAULT", "name": "기본", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "FF0000", "tiltLevel": None, "description": None, "editable": False},
+        {"key": created.id, "kind": "CUSTOM", "name": "독서", "sittingHeightCm": 82.0, "standingHeightCm": 108.0, "ledColor": "FFD080", "tiltLevel": None, "description": None, "editable": True},
     ]
     with pytest.raises(ActivityModeOwnershipError):
         await modes.get_mode_for_profile(second.id, created.id)

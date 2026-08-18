@@ -32,6 +32,15 @@ const Icon = ({ name }: { name: Exclude<Panel, null> }) => (
   <span className="ico" aria-hidden="true">{{ profile: "◯", height: "↕", led: "✦", mode: "◷", tilt: "⌁" }[name]}</span>
 );
 
+const modeSubtitle = (mode: ActivityMode) => {
+  const base = mode.description
+    ? mode.description
+    : mode.kind === "DEFAULT"
+      ? "기본 작업 환경"
+      : `앉기 ${mode.sittingHeightCm.toFixed(1)}cm · 서기 ${mode.standingHeightCm.toFixed(1)}cm`;
+  return mode.tiltLevel === null ? base : `${base} · 틸트 ${mode.tiltLevel}단계`;
+};
+
 const errorText = (error: unknown) => {
   if (error instanceof ApiError) {
     if (error.status === 409) return "현재 사용자 session이 변경되었습니다. 최신 상태를 다시 확인해 주세요.";
@@ -111,7 +120,7 @@ function SmatyDashboard() {
         const saved = await updateProfile(profile.id, { name, sittingHeightCm: sittingHeight, standingHeightCm: standingHeight, ledColor: color });
         setProfile(saved);
       } else {
-        const saved = await createProfile({ name: name.trim() || "새 사용자", sittingHeightCm: sittingHeight, standingHeightCm: standingHeight, ledColor: color });
+        const saved = await createProfile({ name: name.trim() || "새 사용자", sittingHeightCm: sittingHeight, standingHeightCm: standingHeight, ledColor: color, tiltLevel: null, description: null });
         setProfile(saved);
       }
       close(); toast("프로필 설정을 저장했어요.");
@@ -171,7 +180,7 @@ function SmatyDashboard() {
       {panel === "profile" && <><Title icon="profile" eyebrow="PROFILE" title="프로필 수정" /><Field title="사용자 이름"><input value={name} onChange={(event) => setName(event.target.value)} autoFocus maxLength={100} /></Field><Primary onClick={() => void saveProfile}>변경사항 저장</Primary></>}
       {panel === "height" && <><Title icon="height" eyebrow="DESK HEIGHT" title="높이 및 제어 설정" /><div className="tabs"><button type="button" className={automationMode === "AUTO" ? "on" : ""} onClick={() => void changeControlMode("AUTO")}>자동 제어</button><button type="button" className={automationMode === "MANUAL" ? "on" : ""} onClick={() => void changeControlMode("MANUAL")}>수동 제어</button></div><div className="read"><span>목표 높이</span><b>{targetHeight.toFixed(1)} cm</b></div><input className="range" aria-label="목표 높이" type="range" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.5" value={targetHeight} onChange={(event) => setTargetHeight(Number(event.target.value))} /><div className="twocol"><Field title="앉은 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={sittingHeight} onChange={(event) => setSittingHeight(Number(event.target.value))} /></Field><Field title="서있는 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={standingHeight} onChange={(event) => setStandingHeight(Number(event.target.value))} /></Field></div><Primary disabled={!deskOnline} onClick={() => void applyHeight}>설정 적용하기</Primary></>}
       {panel === "led" && <><Title icon="led" eyebrow="LED LIGHT" title="조명 설정" /><div className="power"><span><b>LED 전원</b><small>{ledOn ? "조명이 켜져 있어요" : "조명이 꺼져 있어요"}</small></span><button type="button" className={ledOn ? "on" : ""} onClick={() => setLedOn((value) => !value)} aria-label="LED 전원"><i /></button></div><Field title="모든 색상에서 선택"><div className="color"><input type="color" value={`#${color}`} onChange={(event) => setColor(event.target.value.slice(1).toUpperCase())} /><b>#{color}</b></div></Field><div className="swatches">{["765CF6", "50C59D", "F5B544", "F06C7E", "4D9CF0", "FFFFFF"].map((item) => <button type="button" key={item} aria-label={`#${item}`} style={{ background: `#${item}` }} onClick={() => setColor(item)} />)}</div><Primary onClick={() => void applyLed}>조명에 적용하기</Primary></>}
-      {panel === "mode" && <><Title icon="mode" eyebrow="WORK MODE" title="모드 선택" /><div className="options">{modes.length ? modes.map((mode) => <button type="button" key={mode.key} className={selectedMode?.key === mode.key ? "on" : ""} onClick={() => void chooseMode(mode)}><Icon name="mode" /><span><b>{mode.name}</b><small>{mode.kind === "DEFAULT" ? "기본 작업 환경" : `앉기 ${mode.sittingHeightCm.toFixed(1)}cm · 서기 ${mode.standingHeightCm.toFixed(1)}cm`}</small></span>{selectedMode?.key === mode.key && "✓"}</button>) : <p className="modal-note">등록 사용자가 인식되면 저장한 작업 모드를 선택할 수 있어요.</p>}</div></>}
+      {panel === "mode" && <><Title icon="mode" eyebrow="WORK MODE" title="모드 선택" /><div className="options">{modes.length ? modes.map((mode) => <button type="button" key={mode.key} className={selectedMode?.key === mode.key ? "on" : ""} onClick={() => void chooseMode(mode)}><Icon name="mode" /><span><b>{mode.name}{mode.ledColor && <i className="swatch" style={{ background: `#${mode.ledColor}` }} />}</b><small>{modeSubtitle(mode)}</small></span>{selectedMode?.key === mode.key && "✓"}</button>) : <p className="modal-note">등록 사용자가 인식되면 저장한 작업 모드를 선택할 수 있어요.</p>}</div></>}
       {panel === "tilt" && <><Title icon="tilt" eyebrow="DESK TILTING" title="틸팅 단계 선택" /><p className="desc">{tilt.value?.detail ?? "틸팅 제어 장치를 확인하고 있습니다."} 단계 제어는 준비 후 이 화면에서 바로 사용할 수 있어요.</p><div className="tilts six">{["틸팅 없음 · 수평", "낮게", "약간 낮게", "편안하게", "높게", "아주 높게"].map((text, index) => <button type="button" key={text} disabled><span style={{ transform: `rotate(${-index * 4}deg)` }}>━</span><b>{index}단계</b><small>{text}</small></button>)}</div></>}
     </section></div>}
   </div>;

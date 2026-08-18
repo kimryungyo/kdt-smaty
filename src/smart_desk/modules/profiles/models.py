@@ -11,6 +11,13 @@ PROFILE_ID_PATTERN = r"^profile-[0-9a-f]{32}$"
 ACTIVITY_MODE_ID_PATTERN = r"^mode-[0-9a-f]{32}$"
 LED_COLOR_PATTERN = re.compile(r"^[0-9A-Fa-f]{6}$")
 
+# tilt_level의 0~10 범위는 저장소 수준의 안전 범위이며, 실제 장치 한계
+# (TiltSettings.min_level/max_level)를 대체하지 않는다. 실제 장치 범위 검증은
+# tilt 자동화가 연결된 뒤 API/자동화 계층에서 수행한다.
+TILT_LEVEL_MIN = 0
+TILT_LEVEL_MAX = 10
+DESCRIPTION_MAX_LENGTH = 300
+
 
 def _to_camel(field_name: str) -> str:
     first, *rest = field_name.split("_")
@@ -45,6 +52,14 @@ class _ProfileModel(BaseModel):
             raise ValueError("LED 색상은 6자리 hexadecimal 문자열이어야 합니다.")
         return value.upper()
 
+    @field_validator("description", check_fields=False)
+    @classmethod
+    def normalize_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
 
 class Profile(_ProfileModel):
     """저장되어 server ID가 부여된 프로필이다."""
@@ -64,6 +79,8 @@ class Profile(_ProfileModel):
         allow_inf_nan=False,
     )
     led_color: str | None = Field(strict=True)
+    tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
+    description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
 
 class ProfileCreate(_ProfileModel):
@@ -83,6 +100,8 @@ class ProfileCreate(_ProfileModel):
         allow_inf_nan=False,
     )
     led_color: str | None = Field(default=None, strict=True)
+    tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
+    description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
 
 class ProfileUpdate(_ProfileModel):
@@ -104,6 +123,8 @@ class ProfileUpdate(_ProfileModel):
         allow_inf_nan=False,
     )
     led_color: str | None = Field(default=None, strict=True)
+    tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
+    description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
     @model_validator(mode="after")
     def require_valid_changes(self) -> ProfileUpdate:
@@ -131,6 +152,8 @@ class ActivityModeCreate(_ActivityModeModel):
     sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     led_color: str | None = Field(default=None, strict=True)
+    tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
+    description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
 
 class ActivityModeUpdate(_ActivityModeModel):
@@ -144,6 +167,8 @@ class ActivityModeUpdate(_ActivityModeModel):
         default=None, strict=True, ge=75, le=115, allow_inf_nan=False
     )
     led_color: str | None = Field(default=None, strict=True)
+    tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
+    description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
     @model_validator(mode="after")
     def require_valid_changes(self) -> ActivityModeUpdate:
@@ -166,6 +191,8 @@ class ActivityMode(_ActivityModeModel):
     sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     led_color: str | None = Field(strict=True)
+    tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
+    description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
 
 class EffectiveActivityMode(_ActivityModeModel):
@@ -177,4 +204,6 @@ class EffectiveActivityMode(_ActivityModeModel):
     sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
     led_color: str | None = Field(strict=True)
+    tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
+    description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
     editable: bool = Field(strict=True)

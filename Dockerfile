@@ -27,7 +27,6 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /app smartdesk
 COPY --from=python-build /install /usr/local
 COPY src/ ./src/
-
 FROM runtime-base AS main-runtime
 COPY --from=frontend-build /frontend/dist ./frontend/dist
 COPY assets/voice/ ./assets/voice/

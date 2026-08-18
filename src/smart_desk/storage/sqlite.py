@@ -13,7 +13,7 @@ from typing import TypeVar
 
 
 LOGGER = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 SQLITE_TIMEOUT_SECONDS = 5.0
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -147,7 +147,11 @@ class SQLiteDatabase:
             if version == 3:
                 _verify_version_3_schema(connection)
                 _migrate_to_version_4(connection)
-            _verify_version_4_schema(connection)
+                version = 4
+            if version == 4:
+                _verify_version_4_schema(connection)
+                _migrate_to_version_5(connection)
+            _verify_version_5_schema(connection)
         finally:
             connection.close()
 
@@ -418,6 +422,54 @@ def _migrate_to_version_4(connection: Connection) -> None:
         raise
 
 
+def _migrate_to_version_5(connection: Connection) -> None:
+    """작업 모드에 틸트 단계와 설명 필드를 추가한다.
+
+    tilt_level의 0~10 범위는 실제 장치 한계(TiltSettings.min_level/max_level)를
+    대체하지 않는 저장소 수준의 안전 범위다. 실제 장치 범위 검증은 tilt 모듈이
+    연결된 뒤 API/자동화 계층에서 수행한다.
+    """
+
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        for table in ("profiles", "profile_modes"):
+            connection.execute(
+                f"""
+                ALTER TABLE {table} ADD COLUMN tilt_level INTEGER
+                    CHECK (
+                        tilt_level IS NULL
+                        OR (
+                            typeof(tilt_level) = 'integer'
+                            AND tilt_level BETWEEN 0 AND 10
+                        )
+                    )
+                """
+            )
+            connection.execute(
+                f"""
+                ALTER TABLE {table} ADD COLUMN description TEXT
+                    CHECK (
+                        description IS NULL
+                        OR (
+                            typeof(description) = 'text'
+                            AND length(description) <= 300
+                        )
+                    )
+                """
+            )
+        connection.execute("PRAGMA user_version = 5")
+        connection.execute("COMMIT")
+    except BaseException:
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            LOGGER.exception(
+                "SQLite migration rollback에 실패했습니다.",
+                extra={"component": "sqlite", "event": "migration_rollback_failed"},
+            )
+        raise
+
+
 def _verify_version_2_schema(connection: Connection) -> None:
     version = _read_user_version(connection)
     if version != 2:
@@ -487,6 +539,32 @@ def _verify_version_4_schema(connection: Connection) -> None:
     _verify_profile_schema(connection)
     _verify_height_cache_schema(connection)
     _verify_profile_modes_schema(connection)
+    _verify_face_embeddings_table_schema(connection)
+    _verify_face_embedding_constraints(connection)
+
+
+def _verify_version_5_schema(connection: Connection) -> None:
+    """작업 모드의 tilt_level·description 확장을 검증한다."""
+
+    if _read_user_version(connection) != 5:
+        raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if tables != {"profiles", "desk_height_cache", "profile_modes", "face_embeddings"}:
+        raise StorageVersionError("SQLite version 5 table 구성이 올바르지 않습니다.")
+    _verify_profile_schema_v5(connection)
+    _verify_height_cache_schema(connection)
+    _verify_profile_modes_schema_v5(connection)
+    _verify_face_embeddings_table_schema(connection)
+    _verify_face_embedding_constraints(connection)
+
+
+def _verify_face_embeddings_table_schema(connection: Connection) -> None:
     columns = connection.execute("PRAGMA table_info(face_embeddings)").fetchall()
     expected = [
         ("profile_id", "TEXT", 1, 1),
@@ -527,14 +605,14 @@ def _verify_version_4_schema(connection: Connection) -> None:
     }
     if index_definitions != expected_indexes:
         raise StorageVersionError("SQLite face embeddings index 구성이 올바르지 않습니다.")
-    _verify_face_embedding_constraints(connection)
 
 
 def _verify_face_embedding_constraints(connection: Connection) -> None:
     connection.execute("SAVEPOINT validate_face_embeddings_schema")
     try:
         connection.execute(
-            "INSERT INTO profiles VALUES ('__face_schema__', 'face schema', 80, 100, NULL)"
+            "INSERT INTO profiles (id, name, sitting_height_cm, standing_height_cm, led_color) "
+            "VALUES ('__face_schema__', 'face schema', 80, 100, NULL)"
         )
         valid = (
             "__face_schema__", 0, "model", "v1", 2, "l2",
@@ -755,6 +833,160 @@ def _verify_profile_mode_constraints(connection: Connection) -> None:
     finally:
         connection.execute("ROLLBACK TO validate_profile_modes_schema")
         connection.execute("RELEASE validate_profile_modes_schema")
+
+
+def _verify_profile_schema_v5(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(profiles)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "TEXT", 0, 1),
+        ("name", "TEXT", 1, 0),
+        ("sitting_height_cm", "REAL", 1, 0),
+        ("standing_height_cm", "REAL", 1, 0),
+        ("led_color", "TEXT", 0, 0),
+        ("tilt_level", "INTEGER", 0, 0),
+        ("description", "TEXT", 0, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 5 profiles schema가 올바르지 않습니다.")
+
+    _verify_profile_constraints(connection)
+    _verify_profile_v5_constraints(connection)
+
+
+def _verify_profile_modes_schema_v5(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(profile_modes)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "TEXT", 0, 1),
+        ("profile_id", "TEXT", 1, 0),
+        ("name", "TEXT", 1, 0),
+        ("normalized_name", "TEXT", 1, 0),
+        ("sitting_height_cm", "REAL", 1, 0),
+        ("standing_height_cm", "REAL", 1, 0),
+        ("led_color", "TEXT", 0, 0),
+        ("tilt_level", "INTEGER", 0, 0),
+        ("description", "TEXT", 0, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 5 profile modes schema가 올바르지 않습니다.")
+
+    foreign_keys = connection.execute("PRAGMA foreign_key_list(profile_modes)").fetchall()
+    if [
+        (row["table"], row["from"], row["to"], row["on_delete"])
+        for row in foreign_keys
+    ] != [("profiles", "profile_id", "id", "CASCADE")]:
+        raise StorageVersionError("SQLite version 5 profile modes foreign key가 올바르지 않습니다.")
+
+    indexes = connection.execute("PRAGMA index_list(profile_modes)").fetchall()
+    index_definitions = {
+        (
+            row["origin"],
+            bool(row["unique"]),
+            tuple(
+                column["name"]
+                for column in connection.execute(
+                    f'PRAGMA index_info("{row["name"].replace(chr(34), chr(34) * 2)}")'
+                ).fetchall()
+            ),
+        )
+        for row in indexes
+    }
+    expected_indexes = {
+        ("c", False, ("profile_id",)),
+        ("u", True, ("profile_id", "normalized_name")),
+        ("pk", True, ("id",)),
+    }
+    if index_definitions != expected_indexes:
+        raise StorageVersionError("SQLite version 5 profile modes unique 제약이 올바르지 않습니다.")
+
+    _verify_profile_mode_constraints(connection)
+    _verify_profile_mode_v5_constraints(connection)
+
+
+def _verify_profile_v5_constraints(connection: Connection) -> None:
+    """version 5의 tilt_level·description CHECK 제약을 확인한다."""
+
+    valid_first = ("__schema_v5_check_1__", "schema check", 80.0, 100.0, None, 0, "책상 모드 설명")
+    valid_second = ("__schema_v5_check_2__", "schema check", 80.0, 100.0, None, 10, None)
+    invalid_rows = [
+        ("__schema_v5_check_3__", "schema check", 80.0, 100.0, None, -1, None),
+        ("__schema_v5_check_4__", "schema check", 80.0, 100.0, None, 11, None),
+        ("__schema_v5_check_5__", "schema check", 80.0, 100.0, None, 1.5, None),
+        ("__schema_v5_check_6__", "schema check", 80.0, 100.0, None, None, "x" * 301),
+    ]
+    insert_sql = (
+        "INSERT INTO profiles "
+        "(id, name, sitting_height_cm, standing_height_cm, led_color, "
+        "tilt_level, description) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+
+    connection.execute("SAVEPOINT validate_profiles_v5_schema")
+    try:
+        try:
+            connection.execute(insert_sql, valid_first)
+            connection.execute(insert_sql, valid_second)
+        except sqlite3.Error as error:
+            raise StorageVersionError(
+                "SQLite version 5 profiles schema 제약이 호환되지 않습니다."
+            ) from error
+
+        for row in invalid_rows:
+            try:
+                connection.execute(insert_sql, row)
+            except sqlite3.IntegrityError:
+                continue
+            raise StorageVersionError(
+                "SQLite version 5 profiles schema 제약이 누락되었습니다."
+            )
+    finally:
+        connection.execute("ROLLBACK TO validate_profiles_v5_schema")
+        connection.execute("RELEASE validate_profiles_v5_schema")
+
+
+def _verify_profile_mode_v5_constraints(connection: Connection) -> None:
+    profile_id = "__schema_v5_profile__"
+    valid_first = ("mode-v5-schema-1", profile_id, "Reading", "reading", 80.0, 100.0, None, 0, "설명")
+    valid_second = ("mode-v5-schema-2", profile_id, "Study", "study", 80.0, 100.0, None, 10, None)
+    invalid_rows = [
+        ("mode-v5-schema-3", profile_id, "low", "low", 80.0, 100.0, None, -1, None),
+        ("mode-v5-schema-4", profile_id, "high", "high", 80.0, 100.0, None, 11, None),
+        ("mode-v5-schema-5", profile_id, "long", "long", 80.0, 100.0, None, None, "x" * 301),
+    ]
+    profile_sql = (
+        "INSERT INTO profiles "
+        "(id, name, sitting_height_cm, standing_height_cm, led_color) "
+        "VALUES (?, ?, ?, ?, ?)"
+    )
+    mode_sql = (
+        "INSERT INTO profile_modes "
+        "(id, profile_id, name, normalized_name, sitting_height_cm, "
+        "standing_height_cm, led_color, tilt_level, description) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+
+    connection.execute("SAVEPOINT validate_profile_modes_v5_schema")
+    try:
+        connection.execute(profile_sql, (profile_id, "schema profile", 80.0, 100.0, None))
+        try:
+            connection.execute(mode_sql, valid_first)
+            connection.execute(mode_sql, valid_second)
+        except sqlite3.Error as error:
+            raise StorageVersionError(
+                "SQLite version 5 profile modes schema 제약이 호환되지 않습니다."
+            ) from error
+
+        for row in invalid_rows:
+            try:
+                connection.execute(mode_sql, row)
+            except sqlite3.IntegrityError:
+                continue
+            raise StorageVersionError(
+                "SQLite version 5 profile modes 제약이 누락되었습니다."
+            )
+    finally:
+        connection.execute("ROLLBACK TO validate_profile_modes_v5_schema")
+        connection.execute("RELEASE validate_profile_modes_v5_schema")
 
 
 def _is_corruption_error(error: sqlite3.Error) -> bool:

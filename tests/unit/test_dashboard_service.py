@@ -13,6 +13,8 @@ from smart_desk.modules.desk.models import (
     RelaySnapshot,
     RelayState,
 )
+from smart_desk.modules.profiles.activity_modes import ActivityModeRepositoryError
+from smart_desk.modules.profiles.models import ActivityModeCreate, Profile, ProfileCreate
 
 
 class FakeDesk:
@@ -49,6 +51,28 @@ class FakeDesk:
 class FakeProfiles:
     async def list_profiles(self):
         return []
+
+    async def create_profile(self, create: ProfileCreate) -> Profile:
+        return Profile(
+            id="profile-" + "1" * 32,
+            name=create.name,
+            sitting_height_cm=create.sitting_height_cm,
+            standing_height_cm=create.standing_height_cm,
+            led_color=create.led_color,
+            tilt_level=create.tilt_level,
+            description=create.description,
+        )
+
+
+class FakeActivityModes:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.created: list[tuple[str, ActivityModeCreate]] = []
+        self.fail = fail
+
+    async def create_mode(self, profile_id: str, create: ActivityModeCreate):
+        if self.fail:
+            raise ActivityModeRepositoryError("storage down")
+        self.created.append((profile_id, create))
 
 
 class FakeAutomation:
@@ -108,3 +132,45 @@ async def test_dashboard_commands_use_automation_public_boundary_when_assembled(
         ("stop", "user stop"),
     ]
     assert desk.calls == []
+
+
+async def test_create_profile_seeds_default_modes_when_activity_modes_wired() -> None:
+    activity_modes = FakeActivityModes()
+    service = DashboardService(
+        FakeDesk(), FakeProfiles(), activity_modes=activity_modes
+    )
+
+    profile = await service.create_profile(
+        ProfileCreate(name="새 사용자", sittingHeightCm=80, standingHeightCm=105)
+    )
+
+    assert [name for _, create in activity_modes.created for name in [create.name]] == [
+        "독서",
+        "공부",
+    ]
+    assert all(profile_id == profile.id for profile_id, _ in activity_modes.created)
+    assert all(create.description for _, create in activity_modes.created)
+
+
+async def test_create_profile_skips_seeding_when_activity_modes_not_wired() -> None:
+    service = DashboardService(FakeDesk(), FakeProfiles())
+
+    profile = await service.create_profile(
+        ProfileCreate(name="새 사용자", sittingHeightCm=80, standingHeightCm=105)
+    )
+
+    assert profile.name == "새 사용자"
+
+
+async def test_create_profile_survives_default_mode_seed_failure() -> None:
+    activity_modes = FakeActivityModes(fail=True)
+    service = DashboardService(
+        FakeDesk(), FakeProfiles(), activity_modes=activity_modes
+    )
+
+    profile = await service.create_profile(
+        ProfileCreate(name="새 사용자", sittingHeightCm=80, standingHeightCm=105)
+    )
+
+    assert profile.name == "새 사용자"
+    assert activity_modes.created == []
