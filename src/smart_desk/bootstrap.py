@@ -62,7 +62,7 @@ def _build_local_vision(settings: Settings, container: AppContainer) -> VisionSe
             upper_presence_detector = OpenCvYoloPoseLowerDetector(
                 settings.vision.lower_pose_model_path,
                 input_size=settings.vision.lower_pose_input_size,
-                min_person_confidence=settings.vision.lower_pose_min_person_confidence,
+                min_person_confidence=settings.vision.upper_presence_min_person_confidence,
                 min_hip_confidence=settings.vision.lower_pose_min_hip_confidence,
                 min_knee_ankle_confidence=settings.vision.lower_pose_min_knee_ankle_confidence,
                 decision_threshold=settings.vision.lower_pose_decision_threshold,

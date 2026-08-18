@@ -27,8 +27,8 @@
   상단 재실·얼굴과 하단 자세 모두 각 2Hz(0.5초 이상 간격)에서 최신 frame 하나만 사용한다.
   하단은 threshold를 통과한 사람 중 confidence가 가장 높은 한 명만 골라 자세를 계산하며, 하단의
   사람 수와 다중 검출은 재실·자동화 차단 근거로 사용하지 않는다.
-- Vision은 두 카메라의 전체 화각을 그대로 추론한다. 상단에서 두 명 이상이 검출되면 즉시
-  `MULTIPLE`/`MULTIPLE_PEOPLE`로 AUTO를 차단한다. 하단의 주변 통행은 최고 점수 사람 선택에만
+- Vision은 두 카메라의 전체 화각을 그대로 추론한다. 상단에서 두 명 이상이 3초 안정화 창의
+  다수결을 통과하면 `MULTIPLE`/`MULTIPLE_PEOPLE`로 AUTO를 차단한다. 하단의 주변 통행은 최고 점수 사람 선택에만
   영향을 줄 수 있으며 ROI crop·mask·좌표 필터는 구현하거나 적용하지 않는다.
   WHEP/aiortc, FastAPI/web UI, MJPEG/JPEG polling이나
   일반 preview endpoint는 구현하거나 복사하지 않았다.

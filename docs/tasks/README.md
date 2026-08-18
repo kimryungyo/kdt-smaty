@@ -53,7 +53,7 @@ repository/session/API 기반, 06 자동화 정책, 07 Dashboard 주요 흐름, 
 camera threshold를 보정한 뒤, 안전한 하드웨어와 실제 OpenAI/audio/Mem0 환경에서 Task 09 증거를
 누적하는 것이다.
 
-키 필드는 제거하고 자세 전환 확인 시간은 전체 고정 5초로 사용한다. profile 삭제 시 장기
+키 필드는 제거하고 자세 전환 확인 시간은 전체 고정 2초로 사용한다. profile 삭제 시 장기
 기억까지 삭제하며, session 교대·종료 시 이전 AI 상세 응답은 즉시 숨긴다. 작업 모드 이름
 정규화와 SQLite cascade 구현 방식, embedding 직렬화 형식, detector threshold는 해당 task에서
 기술 검증으로 결정한다. 얼굴 등록은 profile당 서로 다른 시점의 embedding 3~5개를 개별

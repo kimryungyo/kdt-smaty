@@ -131,7 +131,7 @@
 - [ ] MANUAL에서 작업 모드를 바꾸면 LED만 적용하고 책상은 움직이지 않는다.
 - [ ] 직접 목표 후 MANUAL로 유지되고 자세 변화가 목표를 덮어쓰지 않으며 active mode는 남는다.
 - [ ] 수동 LED 변경은 현재 session에만 남고 다음 작업 모드 전환에서 저장 색상으로 복원된다.
-- [ ] 같은 session에서 사용자가 AUTO를 다시 선택하면 STOP과 fresh 자세 5초 확인 뒤 동작한다.
+- [ ] 같은 session에서 사용자가 AUTO를 다시 선택하면 STOP과 fresh 자세 2초 확인 뒤 동작한다.
 - [ ] HOLD release·page hide·network 단절에서 제한 시간 안에 정지한다.
 
 ### 사용자·Vision 경계

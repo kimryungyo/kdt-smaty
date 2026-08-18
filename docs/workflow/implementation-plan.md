@@ -29,16 +29,16 @@
 ## 필수 자동 검증
 
 - 얼굴 없이도 단일 재실·자세 3초 뒤 익명 session이 생긴다.
-- 최초 2초 지연 뒤 익명 앉음 75cm·섬 110cm 목표를 한 번만 만든다.
+- stable 자세 뒤 2초 지연 뒤 익명 앉음 75cm·섬 110cm 목표를 한 번만 만든다.
 - 한 frame 얼굴 후보나 unknown으로 등록 사용자가 전환되지 않는다.
 - 고품질 unknown 3초, A→B와 VACANT 전이가 새 session ID와 결정표를 따른다.
-- AUTO에서 앉음→섬, 섬→앉음 fresh 자세 5초 뒤 목표를 한 번만 설정한다.
+- AUTO에서 앉음→섬, 섬→앉음 fresh 자세 2초 뒤 목표를 한 번만 설정한다.
 - 직접 목표·HOLD·사용자 STOP이 먼저 MANUAL로 전환하고 active 작업 모드는 유지한다.
 - MANUAL은 명시적 AUTO 요청 전까지 유지된다.
 - 작업 모드 선택은 control mode를 유지하고 다른 profile의 mode를 거부한다.
 - AUTO mode 선택은 fresh 자세로 목표를 재평가하고 MANUAL에서는 책상을 움직이지 않는다.
 - 설정값 수정은 active session에 즉시 반영되지 않고 다음 선택부터 적용된다.
-- 같은 session에서 AUTO를 다시 선택하면 이전 자세 후보를 버리고 fresh 자세를 5초 확인한다.
+- 같은 session에서 AUTO를 다시 선택하면 이전 자세 후보를 버리고 fresh 자세를 2초 확인한다.
 - 상단 다중·Vision 만료는 AUTO만, 센서·릴레이 오류는 모든 이동을 STOP한다.
 - fresh VACANT 30초 뒤에만 75cm park하고 사람 후보·수동 명령에서 즉시 취소한다.
 - stale session control/activity mode 요청은 `409`, HOLD·직접 높이·STOP은 session 없이 처리한다.

@@ -143,7 +143,8 @@ async def test_multiple_skew_stale_and_detector_error_are_fail_closed() -> None:
     service = make_service(clock, detector, upper, lower)
     upper.frame, lower.frame = (np.zeros((1, 1)), 0.0), (np.zeros((1, 1)), 0.0)
     await service.process_once()
-    assert BlockCode.MULTIPLE_PEOPLE in service.get_snapshot().reason_codes
+    # 첫 raw MULTIPLE은 안정화 전이므로 AUTO를 즉시 STOP시키지 않는다.
+    assert service.get_snapshot().reason_codes == (BlockCode.PRESENCE_NOT_SINGLE,)
 
     detector.upper, detector.lower = UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING)
     clock.value = 0.5
@@ -225,8 +226,8 @@ async def test_stable_values_ignore_brief_multiple_and_unknown_observations() ->
     assert transient.raw_presence is PresenceStatus.MULTIPLE
     assert transient.stable_presence is PresenceStatus.PRESENT_SINGLE
     assert transient.stable_posture is PostureStatus.STANDING
-    assert transient.usable is False
-    assert transient.reason_codes == (BlockCode.MULTIPLE_PEOPLE,)
+    assert transient.usable is True
+    assert transient.reason_codes == ()
 
     clock.value = 4.0
     detector.upper = UpperDetection(body_count=1)
@@ -236,8 +237,10 @@ async def test_stable_values_ignore_brief_multiple_and_unknown_observations() ->
     lower_unknown = service.get_snapshot()
     assert lower_unknown.raw_presence is PresenceStatus.PRESENT_SINGLE
     assert lower_unknown.raw_posture is PostureStatus.UNKNOWN
-    assert lower_unknown.usable is False
-    assert lower_unknown.reason_codes == (BlockCode.POSTURE_UNKNOWN,)
+    # 책상 이동 중 한 frame pose 누락은 이미 안정화된 자세/재실을 무효화하지 않는다.
+    # 다중 인원과 camera freshness는 별도로 즉시 fail-closed 처리한다.
+    assert lower_unknown.usable is True
+    assert lower_unknown.reason_codes == ()
 
     detector.lower = LowerDetection(1, PostureStatus.STANDING)
     for value in (4.5, 5.0, 5.5, 6.0, 6.5):
@@ -249,6 +252,36 @@ async def test_stable_values_ignore_brief_multiple_and_unknown_observations() ->
     assert snapshot.stable_presence is PresenceStatus.PRESENT_SINGLE
     assert snapshot.stable_posture is PostureStatus.STANDING
     assert snapshot.usable is True
+
+
+async def test_persistent_unknown_posture_blocks_only_after_stability_window() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=1), LowerDetection(1, PostureStatus.STANDING)
+    )
+    service = make_service(clock, detector, upper, lower)
+
+    for value in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    assert service.get_snapshot().usable is True
+
+    detector.lower = LowerDetection(0, PostureStatus.UNKNOWN)
+    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+        assert service.get_snapshot().usable is True
+
+    # 안정화 창 전체가 UNKNOWN이 된 시점부터만 차단한다.
+    clock.value = 6.5
+    upper.frame = lower.frame = (np.zeros((1, 1)), 6.5)
+    await service.process_once()
+    snapshot = service.get_snapshot()
+    assert snapshot.stable_posture is PostureStatus.UNKNOWN
+    assert snapshot.usable is False
+    assert snapshot.reason_codes == (BlockCode.POSTURE_UNKNOWN,)
 
 
 async def test_posture_changes_after_three_second_majority_window() -> None:

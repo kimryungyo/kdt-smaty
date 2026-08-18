@@ -352,13 +352,11 @@ class VisionService:
             self._stable_posture = self._stabilize_posture(raw_posture)
         usable = (
             not immediate_reasons
-            and raw_presence is not PresenceStatus.MULTIPLE
-            and raw_posture is not PostureStatus.UNKNOWN
             and self._stable_presence is PresenceStatus.PRESENT_SINGLE
             and self._stable_posture is not PostureStatus.UNKNOWN
         )
         reason_codes = self._effective_reason_codes(
-            observed_reasons, immediate_reasons, raw_presence, raw_posture
+            observed_reasons, immediate_reasons
         )
         return VisionSnapshot(
             upper,
@@ -496,8 +494,6 @@ class VisionService:
         self,
         observed: tuple[BlockCode, ...],
         immediate: tuple[BlockCode, ...],
-        raw_presence: PresenceStatus,
-        raw_posture: PostureStatus,
     ) -> tuple[BlockCode, ...]:
         """순간 추론 이상은 raw에 남기고 안정화된 제어 차단 사유만 반환한다."""
 
@@ -508,10 +504,6 @@ class VisionService:
                 if code in immediate
                 or code in {BlockCode.MODEL_ERROR, BlockCode.MODEL_UNAVAILABLE}
             )
-        if raw_presence is PresenceStatus.MULTIPLE:
-            return (BlockCode.MULTIPLE_PEOPLE,)
-        if raw_posture is PostureStatus.UNKNOWN:
-            return (BlockCode.POSTURE_UNKNOWN,)
         if self._stable_presence is PresenceStatus.MULTIPLE:
             return (BlockCode.MULTIPLE_PEOPLE,)
         if self._stable_presence is not PresenceStatus.PRESENT_SINGLE:

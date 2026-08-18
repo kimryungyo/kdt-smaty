@@ -66,6 +66,25 @@ def test_same_pose_model_counts_upper_presence_without_requiring_visible_face(mo
     assert detector.detect_upper(frame).body_count == 1
 
 
+def test_upper_presence_threshold_excludes_low_confidence_person_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = np.zeros((640, 640, 3), dtype=np.uint8)
+    output = pose_output(confidences=(0.59, 0.60))
+    net = FakeNet(output)
+    monkeypatch.setattr("cv2.dnn.readNetFromONNX", lambda _path: net)
+    detector = OpenCvYoloPoseLowerDetector(
+        Path(__file__), input_size=640, min_person_confidence=0.60,
+        min_hip_confidence=0.08, min_knee_ankle_confidence=0.45,
+        decision_threshold=0.52,
+    )
+
+    result = detector.detect_upper(frame)
+
+    assert result.body_count == 1
+    assert result.person_boxes[0].confidence == pytest.approx(0.60)
+
+
 def test_debug_box_uses_end_to_end_xyxy_coordinates_like_sitting_reference(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

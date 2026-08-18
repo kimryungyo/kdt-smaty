@@ -72,7 +72,7 @@ Voice에서 사용하는 session이라는 말은 다음 세 수명을 구분한�
 | --- | ---: | --- |
 | `presenceConfirmationSeconds` | 3초 | session 시작 전 단일 재실 다수결 관측창 |
 | `visionStabilityMajorityRatio` | 70% | 최소 3회 관측 중 stable 전이에 필요한 비율 |
-| `postureTransitionHoldSeconds` | 5초 | 최초 이동 이후 모든 사용자의 자세 전환·AUTO 재활성화 안정화 |
+| `postureTransitionHoldSeconds` | 2초 | 모든 AUTO 목표의 stable 자세 후보 유지 |
 | `initialAutoMoveDelaySeconds` | 2초 | 첫 session 생성 후 최초 자동 목표 지연 |
 | `unknownFaceTransitionSeconds` | 3초 | 등록 사용자에서 익명 사용자로 바꿀 고품질 미등록 얼굴 안정화 |
 | `vacantParkDelaySeconds` | 30초 | session 종료 후 75cm park 대기 |
@@ -86,7 +86,7 @@ Voice에서 사용하는 session이라는 말은 다음 세 수명을 구분한�
 
 session 시작은 `PRESENT_SINGLE`과 자세를 3초 확인하고 session 생성 뒤 2초를 더 기다리므로,
 최초 자동 목표까지 정상 조건에서 총 5초가 걸린다. 이 최초 흐름에
-`postureTransitionHoldSeconds`를 다시 더하지 않는다. 5초 자세 전환 확인은 최초 목표 이후
+`postureTransitionHoldSeconds`를 다시 더하지 않는다. 2초 자세 전환 확인은 모든 AUTO 목표에
 앉음↔섬 전환과 같은 session에서 사용자가 `MANUAL`에서 `AUTO`를 다시 선택한 경우에 적용한다.
 
 ## 상단 재실과 하단 자세 결합
@@ -187,8 +187,8 @@ A 얼굴이 안 보이거나 품질이 낮다는 이유로 전환하지 않는�
 
 ### 상단 다중 사용자와 자세 불확실성
 
-상단 `MULTIPLE`은 raw 검출 즉시 진행 AUTO 이동을 STOP하고 새 AUTO를 차단한다. 상단 다중 또는
-자세 불확실성이 3초 관측창에서 70% 이상이면 현재 session과 두 mode를 유지하되 자세 후보를
+상단 `MULTIPLE`과 자세 불확실성이 3초 관측창에서 70% 이상이면 진행 AUTO 이동을 STOP하고
+새 AUTO를 차단한다. 이때 현재 session과 두 mode를 유지하되 자세 후보를
 초기화한다. 하단 다중 검출은 최고 score pose 선택으로 흡수하며 AUTO 차단 사유가 아니다.
 카메라 단절과 stale은 즉시 STOP·차단한다. 단일 detector 예외·결과 누락은 `UNKNOWN` 표로
 처리하고, 3초 관측창의 다수를 차지하는 지속 장애에서 STOP·차단한다.
@@ -213,7 +213,7 @@ Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
   mode를 보존한다. session 종료 STOP은 두 mode를 제거한다.
 - 시간 경과로 `MANUAL → AUTO` 전환하지 않는다.
 - 명시적 AUTO 재활성화는 같은 session에서 사용자가 `MANUAL`에서 `AUTO`를 다시 선택하는
-  명령이다. 진행 이동 STOP, 자세 후보 초기화 후 fresh 자세를 5초 다시 안정화한다.
+  명령이다. 진행 이동 STOP, 자세 후보 초기화 후 fresh 자세를 2초 다시 확인한다.
 - session이 없어도 Dashboard HOLD, 직접 높이와 STOP을 허용한다. 이 명령은 session이나
   mode를 새로 만들지 않는다.
 - 작업 모드 전환은 control mode를 바꾸지 않는다. AUTO에서는 fresh 자세로 새 mode 높이를
@@ -333,7 +333,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 | A 중 고품질 미등록 얼굴 3초 | 새 익명 | 새 AUTO / 없음 | 기본 자세 재안정화 | A AUTO STOP | 게스트로 전환 |
 | AUTO에서 작업 모드 변경 | 유지 | AUTO / 새 mode | fresh 자세로 새 목표 평가 | 필요 시 안전 교체 | 새 mode·LED |
 | MANUAL에서 작업 모드 변경 | 유지 | MANUAL / 새 mode | 없음 | 이동 없음 | 새 mode·LED |
-| 상단 `MULTIPLE` | 기존 session 유지 | 유지 | BLOCKED | AUTO 즉시 STOP | 자동 일시 중지 |
+| 상단 stable `MULTIPLE` | 기존 session 유지 | 유지 | BLOCKED | 3초 안정화 뒤 AUTO STOP | 자동 일시 중지 |
 | 자세 또는 관련 frame stale | 기존 session 유지 | 유지 | BLOCKED | AUTO만 STOP | 원인 표시 |
 | 안정 `VACANT` | 없음 | 없음 | PARK_WAITING | AUTO STOP | 사용자 없음 |
 | fresh `VACANT` 30초 | 없음 | 없음 | 75cm PARK | 조건 유지 시 시작 | 주차 이동 표시 |
@@ -356,7 +356,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 - 익명 AUTO 이동 중 A가 확인되면 기존 generation을 무효화하고 등록 목표로 안전하게
   교체한다. 익명 MANUAL은 등록 후에도 MANUAL이다.
 - A→B는 새 session ID, AUTO와 새 자세 안정화를 사용한다.
-- 최초 목표 이후 등록·익명 자세 전환과 명시적 AUTO 재활성화는 모두 fresh 자세 5초를
+- 모든 등록·익명 AUTO 목표와 명시적 AUTO 재활성화는 fresh 자세 2초를
   요구한다.
 - 상단 `MULTIPLE`과 stale frame은 AUTO만 STOP하고 수동 명령은 허용한다.
 - height·relay 오류는 AUTO와 수동을 차단하며 STOP은 항상 접수한다.

@@ -71,9 +71,9 @@ AUTO를 흔들지 않는다. 같은 이상이 관측 묶음의 다수를 차지�
   → PRESENT_SINGLE 후보
 ```
 
-상단 얼굴은 신원 식별 전용이며 person count에 더하지 않는다. 상단에서 두 명 이상이면 raw
-검출 한 번만으로도 진행 AUTO를 STOP하고 새 AUTO를 차단한다. 하단은 여러 pose가 있어도
-최고 confidence 한 명의 자세만 사용하며, 하단 count나 상단과의 count 불일치는 AUTO 차단
+상단 얼굴은 신원 식별 전용이며 person count에 더하지 않는다. 상단에서 두 명 이상이 3초
+안정화 창의 다수결을 통과해 stable `MULTIPLE`이 되면 진행 AUTO를 STOP하고 새 AUTO를
+차단한다. 하단은 여러 pose가 있어도 최고 confidence 한 명의 자세만 사용하며, 하단 count나 상단과의 count 불일치는 AUTO 차단
 근거가 아니다.
 
 현재 상단 재실 count는 YOLO pose 모델의 `person` 검출 수로 만들고, YuNet은 얼굴 box와
@@ -111,8 +111,8 @@ session이 없으면 위 객체 전체가 `null`이다. control/activity mode와
 
 얼굴이 전혀 보이지 않아도 익명 session을 시작할 수 있다. 등록·익명 session은 모두
 `controlMode=AUTO`로 시작한다. 등록은 profile의 기본 작업 모드와 LED를 적용하고 익명은
-activity mode 없이 75/110cm 높이 정책을 사용한다. 최초 자동 목표는 session 생성 후 2초
-동안 조건이 유지돼야 한다.
+activity mode 없이 75/110cm 높이 정책을 사용한다. 모든 자동 목표는 stable 자세가 된 뒤
+2초 동안 조건이 유지돼야 한다.
 
 ### 얼굴이 보이지 않을 때
 

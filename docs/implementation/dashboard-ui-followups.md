@@ -16,7 +16,7 @@
 | 기존 UI 영역 | 현재 상태 | 후속 검토가 필요한 이유 |
 | --- | --- | --- |
 | Vision 자세·얼굴 등록·프로필 제안 | UI placeholder | Vision module/API가 아직 없다. |
-| 자동 높이 조절 toggle·5초 유지 시간 | 비활성 UI | 5초는 전체 고정 자동화 설정이며 profile 입력 field로 만들지 않는다. |
+| 자동 높이 조절 toggle·2초 유지 시간 | 비활성 UI | 2초는 전체 고정 자동화 설정이며 profile 입력 field로 만들지 않는다. |
 | 작업 모드 | 앉은/선 버튼만 존재 | 기본·custom mode별 앉기/서기 높이와 LED를 합성하고 session 선택 계약이 필요하다. |
 | WLED 색상 적용·자동 색상 새로고침 | 비활성 UI | `ledColor` 저장 외 WLED command API가 없다. |
 | 서버 현재 사용자 | 화면에서 선택한 profile을 메인 사용자처럼 표시 | 현재 사용자는 Dashboard 선택이 아니라 서버의 안정화된 얼굴 식별로만 결정해야 한다. |

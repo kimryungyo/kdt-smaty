@@ -12,7 +12,7 @@ timezone-aware ISO 8601이다.
 {
   "state": "IDLE",
   "height": {"heightCm": 90.0, "observedAt": "2026-08-08T00:00:00Z", "status": "ONLINE"},
-  "relay": {"event": "online", "state": "STOP", "firmware": "smartdesk-fin-relay-1.0.0", "code": null, "detail": null, "receivedAt": "2026-08-08T00:00:00Z", "lastError": null},
+  "relay": {"event": "online", "state": "STOP", "firmware": "smartdesk-fin-relay-1.0.5", "code": null, "detail": null, "receivedAt": "2026-08-08T00:00:00Z", "lastError": null},
   "targetHeightCm": null,
   "direction": null,
   "detail": "안전 정지 상태입니다.",
