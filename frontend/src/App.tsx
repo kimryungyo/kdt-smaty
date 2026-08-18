@@ -133,11 +133,16 @@ function SmatyDashboard() {
   const close = () => setPanel(null);
 
   const currentHeight = desk.value?.height.heightCm ?? targetHeight;
-  // 책상이 붙어 있는지는 relay로 판단한다. 높이는 책상의 표시창을 읽어 오는
-  // 값이라, 가만히 있으면 표시창이 꺼져 읽을 숫자가 없다. 그건 연결 문제가
-  // 아니므로 연결 표시나 버튼을 막는 근거로 쓰지 않는다. 서버도 이동 직전에
-  // 센서를 다시 확인(WAKING)한 뒤 움직인다.
-  const deskOnline = Boolean(desk.value?.relay.receivedAt) && !desk.value?.relay.lastError;
+  // 높이는 책상의 표시창을 읽어 온다. 가만히 있으면 표시창이 꺼져 새 값이 안
+  // 들어오지만, 서버가 마지막 높이를 들고 있다(STALE는 이번 실행의 관측,
+  // SENSOR_SLEEPING은 저장해 둔 값). 둘 다 "높이를 안다"는 뜻이므로 연결로
+  // 친다. 값을 한 번도 못 받았거나(WAITING) 센서가 고장(ERROR)일 때만 아니다.
+  const heightStatus = desk.value?.height.status;
+  const heightKnown = desk.value?.height.heightCm !== null
+    && desk.value?.height.heightCm !== undefined
+    && heightStatus !== "ERROR" && heightStatus !== "WAITING";
+  const relayUp = Boolean(desk.value?.relay.receivedAt) && !desk.value?.relay.lastError;
+  const deskOnline = relayUp && heightKnown;
   // 책상이 실제로 움직이는 중인지. WAKING은 이동 직전 센서 확인 단계다.
   const deskBusy = desk.value?.state === "MOVING" || desk.value?.state === "WAKING";
   const deskBusyLabel = !deskBusy ? null
