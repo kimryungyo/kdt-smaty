@@ -21,6 +21,7 @@ import {
   type Profile,
 } from "./api/dashboard";
 import { DebugPanel } from "./features/debug/DebugPanel";
+import { chooseGoalHeight, shouldSaveToProfile } from "./features/desk/heightGoal";
 import { ProfileSettings } from "./features/profiles/ProfileSettings";
 import { WorkRhythm } from "./features/report/WorkRhythm";
 import { WorkRhythmCard } from "./features/report/WorkRhythmCard";
@@ -146,25 +147,22 @@ function SmatyDashboard() {
     if (Number.isFinite(value) && value >= MIN_HEIGHT && value <= MAX_HEIGHT) setTargetHeight(value);
   };
 
-  /** 앉기·서기를 둘 다 고쳤을 때 지금 자세로 갈 곳을 고른다. */
-  const goalForBothEdits = async (): Promise<number> => {
-    try {
-      const posture = (await getVisionStatus()).posture.status;
-      if (posture === "SITTING") return sittingHeight;
-      if (posture === "STANDING") return standingHeight;
-    } catch { /* 자세를 못 읽으면 아래 기준으로 넘어간다. */ }
-    // 자세를 모르면 지금 책상 높이에 더 가까운 쪽을 이어서 쓴다.
-    const here = desk.value?.height.heightCm ?? targetHeight;
-    return Math.abs(sittingHeight - here) <= Math.abs(standingHeight - here) ? sittingHeight : standingHeight;
-  };
-
   const applyHeight = async () => {
     try {
-      const bothEdited = heightEdits.sitting && heightEdits.standing;
-      const goal = bothEdited ? await goalForBothEdits() : targetHeight;
+      // 둘 다 고쳤을 때만 자세를 본다. 그 외에는 슬라이더가 이미 목표를 가리킨다.
+      let posture: string | null = null;
+      if (heightEdits.sitting && heightEdits.standing) {
+        posture = await getVisionStatus().then((status) => status.posture.status).catch(() => null);
+      }
+      const goal = chooseGoalHeight({
+        sittingEdited: heightEdits.sitting,
+        standingEdited: heightEdits.standing,
+        sittingHeight, standingHeight, targetHeight, posture,
+        currentHeight: desk.value?.height.heightCm ?? null,
+      });
       // 자동 제어는 서버가 자세를 보고 이 높이를 계속 쓰므로 프로필에 남긴다.
       // 수동 제어는 지금 한 번만 쓰는 값이라 저장하지 않는다.
-      if (automationMode !== "MANUAL" && profile) {
+      if (shouldSaveToProfile(automationMode) && profile) {
         setProfile(await updateProfile(profile.id, {
           sittingHeightCm: sittingHeight, standingHeightCm: standingHeight,
         }));

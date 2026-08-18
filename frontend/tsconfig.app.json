@@ -19,5 +19,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // 규칙 확인 스크립트는 node로 따로 돌린다. 앱 번들에는 넣지 않는다.
+  "exclude": ["src/**/*.check.ts"]
 }
