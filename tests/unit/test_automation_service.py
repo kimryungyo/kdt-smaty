@@ -692,6 +692,28 @@ async def test_height_change_is_announced_once_per_target() -> None:
     ]
 
 
+async def test_activity_mode_reselect_keeps_auto_but_set_target_does_not() -> None:
+    """자동 제어에서 높이를 반영하는 두 경로의 차이를 못박는다.
+
+    직접 목표를 주면 서버는 그 순간 수동으로 바꾼다. 대시보드가 자동에서
+    프로필 높이를 반영할 때 모드를 다시 고르는 이유다.
+    """
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user("a", registered=True))
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock,
+                          modes=FakeModes(mode()))
+    await observe(service, camera, (1, 1), clock)
+    await service.set_control_mode(ControlMode.AUTO, "a")
+    assert service.get_snapshot().control_mode is ControlMode.AUTO
+
+    await service.set_activity_mode("default", "a")
+    assert service.get_snapshot().control_mode is ControlMode.AUTO, "모드 재선택은 자동을 지킨다"
+
+    await service.set_target(95, "a")
+    assert service.get_snapshot().control_mode is ControlMode.MANUAL, "직접 목표는 수동으로 바꾼다"
+
+
 async def test_study_schedule_ramps_up_while_the_mode_stays_on() -> None:
     """공부 모드는 앉아 있는 동안 구간이 넘어갈 때마다 조명을 다시 보낸다."""
 
