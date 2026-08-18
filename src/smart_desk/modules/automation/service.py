@@ -563,11 +563,13 @@ class AutomationService:
                 self._candidate_started_mono = now_mono
                 self._replace_locked(state=AutomationState.OBSERVING, posture_candidate=posture,
                                      candidate_since=self._utc_now(),
-                                     initial_move_due_at=self._utc_now() + timedelta(seconds=2),
+                                     initial_move_due_at=self._utc_now() + timedelta(
+                                         seconds=self._settings.posture_confirmation_seconds
+                                     ),
                                      blocked_reason_codes=self._with_stop_failure(()))
                 return
             assert self._candidate_started_mono is not None
-            if now_mono - self._candidate_started_mono < 2:
+            if now_mono - self._candidate_started_mono < self._settings.posture_confirmation_seconds:
                 return
             target = self._target_for(self._snapshot, posture)
             if target is None:

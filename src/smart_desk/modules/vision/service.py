@@ -470,7 +470,7 @@ class VisionService:
 
         A brief missing pose does not discard the last stable posture.  A
         genuine posture recovery is fast, while an UNKNOWN transition requires
-        a continuous five-second loss.  Camera freshness failures are handled
+        a continuous four-second loss.  Camera freshness failures are handled
         before this method and remain immediate fail-closed events.
         """
 

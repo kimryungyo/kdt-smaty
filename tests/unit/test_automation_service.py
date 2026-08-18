@@ -243,7 +243,7 @@ async def test_auto_completed_target_requires_sustained_rearm_drift() -> None:
     assert desk.calls == [("target", 75.0)]
 
 
-async def test_anonymous_baseline_then_exact_two_seconds_and_targets() -> None:
+async def test_anonymous_baseline_then_one_second_and_targets() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
     service = service_for(users=users, camera=camera, desk=desk, clock=clock)
@@ -252,9 +252,7 @@ async def test_anonymous_baseline_then_exact_two_seconds_and_targets() -> None:
     await observe(service, camera, (3, 3), clock, 2)
     assert service.get_snapshot().target_height_cm == 75
     await observe(service, camera, (4, 4), clock, posture=PostureStatus.STANDING)
-    await observe(service, camera, (5, 5), clock, 1.9, posture=PostureStatus.STANDING)
-    assert service.get_snapshot().target_height_cm == 75
-    await observe(service, camera, (6, 6), clock, .1, posture=PostureStatus.STANDING)
+    await observe(service, camera, (5, 5), clock, 1.0, posture=PostureStatus.STANDING)
     assert service.get_snapshot().target_height_cm == 110
     assert [call for call in desk.calls if call[0] == "target"] == []
 
@@ -436,14 +434,14 @@ async def test_out_of_order_pair_does_not_advance_posture_candidate() -> None:
     assert service.get_snapshot().target_height_cm == 75
 
 
-async def test_reauto_requires_new_two_second_distinct_pair() -> None:
+async def test_reauto_requires_new_one_second_distinct_pair() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
     service = service_for(users=users, camera=camera, desk=desk, clock=clock)
     await observe(service, camera, (1, 1), clock)
     await service.set_control_mode(ControlMode.AUTO, "session-a")
     await observe(service, camera, (2, 2), clock)
-    await observe(service, camera, (3, 3), clock, 1.9)
+    await observe(service, camera, (3, 3), clock, .9)
     assert service.get_snapshot().target_height_cm is None
     await observe(service, camera, (4, 4), clock, .1)
     assert service.get_snapshot().target_height_cm == 75
@@ -738,7 +736,7 @@ async def test_vision_recovery_uses_first_usable_pair_only_as_baseline() -> None
     await observe(service, camera, (4, 4), clock, 100)
     assert service.get_snapshot().posture_candidate is None
     await observe(service, camera, (5, 5), clock)
-    await observe(service, camera, (6, 6), clock, 1.9)
+    await observe(service, camera, (6, 6), clock, .9)
     assert service.get_snapshot().target_height_cm is None
     await observe(service, camera, (7, 7), clock, .1)
     assert service.get_snapshot().target_height_cm == 75
