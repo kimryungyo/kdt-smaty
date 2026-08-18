@@ -155,9 +155,10 @@ export type VisionDebug = { cameras: Record<"upper" | "lower", VisionDebugCamera
 export type AutomationStatus = { sessionId: string | null; controlMode: "AUTO" | "MANUAL" | null; activityMode: ActivityMode | null; state: string; heightPolicy: string | null; postureCandidate: string | null; candidateSince: string | null; targetHeightCm: number | null; intentSource: string | null; blockedReasonCodes: string[]; initialMoveDueAt: string | null; parkDueAt: string | null; generation: number; revision: number; lastTransitionReason: string; lastTransitionSource: string; lastTransitionAt: string; updatedAt: string };
 export type Enrollment = { enrollmentId: string; profileId: string; state: "WAITING_FACE" | "CAPTURING" | "PROCESSING" | "SUCCEEDED" | "CANCELLED" | "FAILED"; requiredSamples: number; acceptedSamples: number; startedAt: string; changedAt: string; failureCode: string | null };
 
-export type TiltStatus = "UNAVAILABLE" | "ONLINE" | "MOVING" | "ERROR";
+export type TiltStatus = "UNAVAILABLE" | "IDLE" | "MOVING" | "AT_TARGET" | "STOPPED" | "ERROR";
 export type TiltSnapshot = {
   status: TiltStatus; level: number | null; targetLevel: number | null;
+  positionMm: number | null; positionValid: boolean;
   minLevel: number; maxLevel: number; detail: string; lastError: string | null; updatedAt: string;
 };
 
@@ -175,3 +176,4 @@ export const getTiltStatus = (signal?: AbortSignal) => request<TiltSnapshot>("/a
 export const setTiltTarget = (level: number) => request<TiltSnapshot>("/api/tilt/target", {
   method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ level }),
 });
+export const stopTilt = () => request<TiltSnapshot>("/api/tilt/stop", { method: "POST" });
