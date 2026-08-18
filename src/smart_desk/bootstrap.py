@@ -482,6 +482,22 @@ def build_container(settings: Settings) -> AppContainer:
                 settings=settings.voice,
                 task_manager=task_manager,
             )
+            if settings.voice.greeting_enabled:
+                # 얼굴을 알아본 순간 automation이 이 쪽으로 인사를 넘긴다.
+                from smart_desk.modules.assistant.greeting import GreetingService
+                from smart_desk.modules.voice.speech import OpenAiSpeechSynthesizer
+
+                container.greeting = GreetingService(
+                    voice=voice,
+                    profiles=profiles,
+                    synthesizer=OpenAiSpeechSynthesizer(api_key=api_key.get_secret_value()),
+                    api_key=api_key.get_secret_value(),
+                    model=settings.openai.response_model,
+                    memory=container.profile_memory,
+                    location=settings.voice.greeting_location,
+                    cooldown_seconds=settings.voice.greeting_cooldown_seconds,
+                )
+                automation.set_greeter(container.greeting)
         except Exception as error:
             LOGGER.exception(
                 "Voice resource를 조립하지 못했습니다.",

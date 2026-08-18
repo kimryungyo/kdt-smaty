@@ -1,0 +1,210 @@
+"""사용자를 알아본 순간 먼저 건네는 인사.
+
+책상이 얼굴을 알아보면 이름을 부르고, 오늘 날씨와 그 사람이 관심 있어 하던 것을
+한두 문장으로 얹는다. 날씨는 web search로 그때그때 찾고, 관심사는 프로필 기억에
+쌓인 내용에서 가져온다.
+
+말할 자리인지는 `VoiceService.announce`가 판단한다. 여기서는 무슨 말을 할지만
+정하고, 자리가 아니면 조용히 지나간다. 인사는 있으면 좋은 것이지 꼭 되어야 하는
+일이 아니므로, 어느 단계가 실패해도 위쪽으로 오류를 올리지 않는다.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from typing import Any, Protocol
+
+from smart_desk.modules.voice.speech import SpeechSynthesisError
+
+
+LOGGER = logging.getLogger(__name__)
+
+# 같은 사람에게 다시 인사하기까지 두는 시간. 얼굴 인식은 자리를 잠깐 비워도
+# 다시 잡히므로, 이 간격이 없으면 앉았다 일어설 때마다 말을 건다.
+DEFAULT_COOLDOWN_SECONDS = 1800.0
+# 인사말에 얹을 관심사 개수. 많이 넣으면 말이 길어진다.
+MAX_INTERESTS = 5
+# 날씨를 찾는 데 이만큼 넘게 걸리면 그냥 이름만 부르고 만다.
+COMPOSE_TIMEOUT_SECONDS = 12.0
+
+GREETING_INSTRUCTIONS = """\
+너는 스마트 책상의 음성 비서다. 방금 얼굴로 알아본 사용자에게 건넬 인사말을 쓴다.
+
+규칙:
+- 한국어 존댓말, 2~3문장, 소리 내어 읽을 글이므로 목록·이모지·기호를 쓰지 않는다.
+- 첫 문장은 반드시 "{name}님 반갑습니다"로 시작한다.
+- 오늘 {location} 날씨를 web search로 확인해 기온과 하늘 상태를 한 문장으로 전한다.
+- 관심사가 주어졌으면 그중 하나만 골라 가볍게 한마디 덧붙인다. 없으면 생략한다.
+- 사실이 확인되지 않으면 지어내지 말고 그 부분을 뺀다.
+"""
+
+
+class VoiceAnnouncePort(Protocol):
+    async def announce(self, chunks: Any) -> bool: ...
+
+
+class SpeechSynthesizerPort(Protocol):
+    def stream(self, text: str) -> Any: ...
+
+
+class GreetingService:
+    """알아본 사용자에게 인사를 건넨다."""
+
+    def __init__(
+        self,
+        *,
+        voice: VoiceAnnouncePort,
+        profiles: Any,
+        synthesizer: SpeechSynthesizerPort,
+        api_key: str,
+        model: str,
+        memory: Any | None = None,
+        location: str = "서울",
+        cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
+        monotonic=time.monotonic,
+    ) -> None:
+        self._voice = voice
+        self._profiles = profiles
+        self._synthesizer = synthesizer
+        self._api_key = api_key
+        self._model = model
+        self._memory = memory
+        self._location = location
+        self._cooldown = cooldown_seconds
+        self._monotonic = monotonic
+        self._last_greeted: dict[str, float] = {}
+        self._task: asyncio.Task[None] | None = None
+
+    def greet(self, profile_id: str | None) -> None:
+        """인사를 예약한다. 부르는 쪽을 붙잡지 않는다."""
+
+        if not profile_id or not self._should_greet(profile_id):
+            return
+        if self._task is not None and not self._task.done():
+            # 앞선 인사가 아직 말하는 중이다. 겹쳐 말하지 않는다.
+            return
+        self._last_greeted[profile_id] = self._monotonic()
+        self._task = asyncio.create_task(self._speak(profile_id), name="voice-greeting")
+
+    def reset(self, profile_id: str) -> None:
+        """쉬는 시간을 지운다. 다음 greet()가 바로 인사한다."""
+
+        self._last_greeted.pop(profile_id, None)
+
+    async def stop(self) -> None:
+        task, self._task = self._task, None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    def _should_greet(self, profile_id: str) -> bool:
+        last = self._last_greeted.get(profile_id)
+        return last is None or (self._monotonic() - last) >= self._cooldown
+
+    async def _speak(self, profile_id: str) -> None:
+        try:
+            name = await self._name_of(profile_id)
+            if name is None:
+                return
+            interests = await self._interests_of(profile_id)
+            text = await self._compose(name, interests)
+            spoke = await self._voice.announce(self._synthesizer.stream(text))
+            LOGGER.info(
+                "인사말을 건넸습니다." if spoke else "지금은 인사할 자리가 아니었습니다.",
+                extra={
+                    "component": "assistant.greeting",
+                    "event": "greeting_spoken" if spoke else "greeting_skipped",
+                    "profile_id": profile_id,
+                },
+            )
+            if not spoke:
+                # 말하지 못했으면 다음 기회에 다시 시도할 수 있게 기록을 지운다.
+                self._last_greeted.pop(profile_id, None)
+        except asyncio.CancelledError:
+            raise
+        except SpeechSynthesisError as error:
+            self._last_greeted.pop(profile_id, None)
+            LOGGER.warning(
+                "인사말을 소리로 바꾸지 못했습니다.",
+                extra={"component": "assistant.greeting", "event": "greeting_tts_failed",
+                       "error": error.code},
+            )
+        except Exception as error:
+            self._last_greeted.pop(profile_id, None)
+            LOGGER.warning(
+                "인사말을 건네지 못했습니다.",
+                extra={"component": "assistant.greeting", "event": "greeting_failed",
+                       "error": str(error)},
+            )
+
+    async def _name_of(self, profile_id: str) -> str | None:
+        try:
+            profile = await self._profiles.get_profile(profile_id)
+        except Exception:
+            return None
+        name = (getattr(profile, "name", "") or "").strip()
+        return name or None
+
+    async def _interests_of(self, profile_id: str) -> list[str]:
+        """프로필 기억에서 관심사로 쓸 문장을 모은다. 없으면 빈 목록이다."""
+
+        if self._memory is None:
+            return []
+        try:
+            entries = await self._memory.list_profile(profile_id)
+        except Exception:
+            return []
+        interests: list[str] = []
+        for entry in entries:
+            text = str(entry.get("memory") or entry.get("text") or "").strip()
+            if text:
+                interests.append(text)
+            if len(interests) >= MAX_INTERESTS:
+                break
+        return interests
+
+    async def _compose(self, name: str, interests: list[str]) -> str:
+        """날씨를 찾아 인사말을 쓴다. 실패하면 이름만 부르는 인사로 돌아간다."""
+
+        fallback = f"{name}님 반갑습니다."
+        if not self._api_key.strip():
+            return fallback
+        try:
+            written = await asyncio.wait_for(
+                self._run_agent(name, interests), timeout=COMPOSE_TIMEOUT_SECONDS
+            )
+        except (asyncio.TimeoutError, Exception) as error:  # noqa: B014 - 어떤 실패든 인사는 이어간다
+            LOGGER.info(
+                "날씨를 담은 인사말을 만들지 못해 짧게 인사합니다.",
+                extra={"component": "assistant.greeting", "event": "greeting_compose_failed",
+                       "error": str(error)},
+            )
+            return fallback
+        written = (written or "").strip()
+        return written or fallback
+
+    async def _run_agent(self, name: str, interests: list[str]) -> str:
+        # optional dependency imports: Voice가 꺼진 app import를 막지 않는다.
+        from openai import AsyncOpenAI
+        from agents import Agent, Runner, WebSearchTool
+        from agents.models.openai_responses import OpenAIResponsesModel
+
+        client = AsyncOpenAI(api_key=self._api_key)
+        try:
+            agent = Agent(
+                name="Smart Desk Greeter",
+                model=OpenAIResponsesModel(self._model, client),
+                instructions=GREETING_INSTRUCTIONS.format(name=name, location=self._location),
+                tools=[WebSearchTool()],
+            )
+            prompt = f"사용자 이름: {name}\n"
+            prompt += ("관심사: " + " / ".join(interests)) if interests else "관심사: 알려진 것 없음"
+            result = await Runner.run(agent, prompt)
+            return str(getattr(result, "final_output", "") or "")
+        finally:
+            await client.close()

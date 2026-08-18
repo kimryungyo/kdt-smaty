@@ -672,6 +672,13 @@ class VoiceSettings(BaseModel):
     )
     error_effect_path: Path = Path("assets/voice/effects/error.wav")
 
+    # 얼굴을 알아본 순간 이름을 부르고 날씨와 관심사를 전한다.
+    greeting_enabled: bool = True
+    # 날씨를 찾을 지역. 인사말에 그대로 쓰인다.
+    greeting_location: str = "서울"
+    # 같은 사람에게 다시 인사하기까지 두는 시간(초).
+    greeting_cooldown_seconds: float = 1800.0
+
     @field_validator("input_device_name", "output_device_name", mode="before")
     @classmethod
     def normalize_optional_device_name(cls, value: object) -> object:

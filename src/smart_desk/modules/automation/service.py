@@ -66,6 +66,12 @@ class ActivityModeUsagePort(Protocol):
     async def close_open_intervals(self, profile_id: str | None = None) -> None: ...
 
 
+class GreetingPort(Protocol):
+    """알아본 사용자에게 먼저 말을 거는 쪽. 부르는 자리를 붙잡지 않는다."""
+
+    def greet(self, profile_id: str | None) -> None: ...
+
+
 class AutomationService:
     """Serializes commands separately from short snapshot mutations.
 
@@ -111,6 +117,8 @@ class AutomationService:
         self._candidate_pair: tuple[float, float] | None = None
         self._last_pair: tuple[float, float] | None = None
         self._usage = usage
+        # 음성은 automation보다 늦게 조립된다. 준비되면 set_greeter로 끼운다.
+        self._greeter: GreetingPort | None = None
         # 자리를 비워도 잠깐이면 쓰던 모드로 돌아오게 profile별로 기억한다.
         # 기억하는 동안 사용 시간은 늘지 않는다(구간을 닫아 두기 때문이다).
         self._mode_memory_seconds = mode_memory_seconds
@@ -166,6 +174,11 @@ class AutomationService:
                                  return_exceptions=True)
             if live:
                 await self._safe_stop("자동화 종료 안전 정지")
+
+    def set_greeter(self, greeter: GreetingPort | None) -> None:
+        """인사를 건넬 쪽을 끼운다. 음성이 꺼져 있으면 None으로 둔다."""
+
+        self._greeter = greeter
 
     def _on_session_change(self, _event: object) -> None:
         self._wake.set()
@@ -457,9 +470,15 @@ class AutomationService:
             self._session_kind = current.kind
             self._session_profile_id = current.profile_id
             installed_profile_id, installed_mode = current.profile_id, activity
+            greet_profile_id = (
+                current.profile_id if current.kind is SessionKind.REGISTERED else None
+            )
             self._last_pair = self._pair(vision)
             self._vision_recovery_baseline_required = unusable_upgrade
             expected_generation = self._snapshot.generation
+        # 아는 얼굴이면 먼저 인사를 건넨다. 되든 안 되든 자동화는 그대로 간다.
+        if greet_profile_id is not None and self._greeter is not None:
+            self._greeter.greet(greet_profile_id)
         # 새 session이 모드를 물고 들어온 시점부터 사용 시간을 다시 센다.
         self._remember_mode(installed_profile_id, installed_mode.key if installed_mode else None)
         await self._begin_usage(installed_profile_id, installed_mode)

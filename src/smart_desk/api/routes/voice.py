@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from smart_desk.core.container import get_container
@@ -59,3 +59,29 @@ async def status() -> VoiceStatusResponse:
             last_error=None,
         )
     return _response(voice.get_snapshot())
+
+
+class GreetRequest(BaseModel):
+    """어느 프로필에게 인사할지 지정한다."""
+
+    model_config = ConfigDict(
+        alias_generator=_camel, extra="forbid", frozen=True,
+        serialize_by_alias=True, validate_by_alias=True, validate_by_name=True,
+    )
+
+    profile_id: str
+    # 쉬는 시간을 무시하고 지금 바로 인사하게 한다. 확인용이다.
+    force: bool = False
+
+
+@router.post("/greet", status_code=202)
+async def greet(request: GreetRequest) -> dict[str, str]:
+    """인사를 지금 건네게 한다. 평소에는 얼굴을 알아본 순간 자동으로 불린다."""
+
+    greeting = get_container().greeting
+    if greeting is None:
+        raise HTTPException(503, "음성 인사가 꺼져 있습니다.")
+    if request.force:
+        greeting.reset(request.profile_id)
+    greeting.greet(request.profile_id)
+    return {"status": "accepted"}
