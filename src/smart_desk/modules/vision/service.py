@@ -29,7 +29,12 @@ from smart_desk.modules.vision.models import (
     PresenceStatus,
     UpperDetection,
     VisionSnapshot,
+    VisionDebugCameraResponse,
+    VisionDebugResponse,
     VisionStatusResponse,
+    DebugBoxResponse,
+    DebugKeypointResponse,
+    DebugPoseResponse,
 )
 
 
@@ -193,6 +198,25 @@ class VisionService:
             ),
         )
 
+    def get_debug(self) -> VisionDebugResponse:
+        """마지막 성공 추론 frame의 geometry만 반환한다. raw image는 별도 JPEG endpoint다."""
+
+        snapshot = self.get_snapshot()
+        return VisionDebugResponse(
+            cameras={
+                "upper": self._debug_camera_response(snapshot.upper),
+                "lower": self._debug_camera_response(snapshot.lower),
+            }
+        )
+
+    def get_debug_frame(self, camera: str) -> np.ndarray | None:
+        """마지막 성공 추론 frame 복사본. 요청 처리 중 detector/source와 공유하지 않는다."""
+
+        if camera not in {"upper", "lower"}:
+            return None
+        observation = getattr(self.get_snapshot(), camera)
+        return observation.debug_frame.copy() if observation.debug_frame is not None else None
+
     def get_fresh_face_observation(self) -> FreshFaceObservation | None:
         """Task 05가 재검출 없이 소비하는, 아직 fresh한 상단 face box 결과다."""
 
@@ -234,7 +258,11 @@ class VisionService:
                 True, frame[1], now, wall, self._error_message(result), detector_error=True
             )
         face = FreshFaceObservation(frame[0], result.face_boxes, frame[1], wall)
-        return CameraObservation(True, frame[1], now, wall, None, result.count, face_observation=face)
+        return CameraObservation(
+            True, frame[1], now, wall, None, result.count, face_observation=face,
+            frame_width=int(frame[0].shape[1]), frame_height=int(frame[0].shape[0]),
+            person_boxes=result.person_boxes, debug_frame=frame[0].copy(),
+        )
 
     def _make_lower_observation(self, frame: LatestFrame, result: object) -> CameraObservation:
         now, wall = self._monotonic(), self._utc_now()
@@ -242,7 +270,11 @@ class VisionService:
             return CameraObservation(
                 True, frame[1], now, wall, self._error_message(result), detector_error=True
             )
-        return CameraObservation(True, frame[1], now, wall, None, result.count, result.posture)
+        return CameraObservation(
+            True, frame[1], now, wall, None, result.count, result.posture,
+            frame_width=int(frame[0].shape[1]), frame_height=int(frame[0].shape[0]),
+            pose_detections=result.pose_detections, debug_frame=frame[0].copy(),
+        )
 
     @staticmethod
     def _error_message(result: object) -> str:
@@ -346,6 +378,41 @@ class VisionService:
             observation.posture,
             observation.face_observation,
             observation.detector_error,
+            observation.frame_width,
+            observation.frame_height,
+            observation.person_boxes,
+            observation.pose_detections,
+            observation.debug_frame,
+        )
+
+    @staticmethod
+    def _debug_box(box) -> DebugBoxResponse:  # type: ignore[no-untyped-def]
+        return DebugBoxResponse(
+            x=box.x, y=box.y, width=box.width, height=box.height,
+            confidence=box.confidence,
+        )
+
+    def _debug_camera_response(self, observation: CameraObservation) -> VisionDebugCameraResponse:
+        return VisionDebugCameraResponse(
+            observed_at=observation.observed_at,
+            frame_width=observation.frame_width,
+            frame_height=observation.frame_height,
+            person_boxes=[self._debug_box(box) for box in observation.person_boxes],
+            face_boxes=[self._debug_box(box) for box in observation.face_observation.boxes]
+            if observation.face_observation else [],
+            pose_detections=[
+                DebugPoseResponse(
+                    box=self._debug_box(pose.box),
+                    keypoints=[
+                        DebugKeypointResponse(x=point.x, y=point.y, confidence=point.confidence)
+                        for point in pose.keypoints
+                    ],
+                )
+                for pose in observation.pose_detections
+            ],
+            detector_error=observation.detector_error,
+            error=observation.error,
+            frame_available=observation.debug_frame is not None,
         )
 
     def _reason_codes(self, upper: CameraObservation, lower: CameraObservation, force_stale: bool) -> tuple[BlockCode, ...]:

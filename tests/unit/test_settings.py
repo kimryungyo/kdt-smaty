@@ -217,13 +217,13 @@ def test_lower_pose_settings_default_disabled_and_normalize_blank_path(monkeypat
     assert settings.vision.lower_inference_interval_seconds == 0.5
 
 
-@pytest.mark.parametrize("value", [0, -1, 11])
+@pytest.mark.parametrize("value", [0, -1, 0.49, 11])
 def test_lower_pose_inference_interval_has_valid_range(value: float) -> None:
     with pytest.raises(ValidationError):
         VisionSettings(lower_inference_interval_seconds=value)
 
 
-@pytest.mark.parametrize("value", [0, -1, 11])
+@pytest.mark.parametrize("value", [0, -1, 0.49, 11])
 def test_upper_presence_inference_interval_has_valid_range(value: float) -> None:
     with pytest.raises(ValidationError):
         VisionSettings(upper_inference_interval_seconds=value)

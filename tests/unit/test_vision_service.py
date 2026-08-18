@@ -72,8 +72,8 @@ def make_service(
             stable_after_seconds=3,
             frame_stale_after_seconds=2,
             result_stale_after_seconds=2,
-            upper_inference_interval_seconds=0.01,
-            lower_inference_interval_seconds=0.01,
+            upper_inference_interval_seconds=0.5,
+            lower_inference_interval_seconds=0.5,
         ),
         monotonic=clock.monotonic,
         utc_now=clock.utc_now,
@@ -146,8 +146,8 @@ async def test_multiple_skew_stale_and_detector_error_are_fail_closed() -> None:
     assert BlockCode.MULTIPLE_PEOPLE in service.get_snapshot().reason_codes
 
     detector.upper, detector.lower = UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING)
-    clock.value = 0.1
-    upper.frame, lower.frame = (np.zeros((1, 1)), 0.1), (np.zeros((1, 1)), 1.0)
+    clock.value = 0.5
+    upper.frame, lower.frame = (np.zeros((1, 1)), 0.5), (np.zeros((1, 1)), 1.5)
     await service.process_once()
     assert BlockCode.CAMERA_TIMESTAMP_MISMATCH in service.get_snapshot().reason_codes
 
@@ -174,7 +174,8 @@ async def test_count_mismatch_disconnect_and_detector_exception_are_fail_closed(
 
     upper.connected = True
     detector.upper = RuntimeError("detector unavailable")  # type: ignore[assignment]
-    upper.frame = lower.frame = (np.zeros((1, 1)), 0.2)
+    clock.value = 0.6
+    upper.frame = lower.frame = (np.zeros((1, 1)), 0.6)
     await service.process_once()
     assert BlockCode.MODEL_ERROR in service.get_snapshot().reason_codes
     assert service.get_fresh_face_observation() is None

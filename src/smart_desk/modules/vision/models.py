@@ -73,9 +73,38 @@ class FaceBox:
 
 
 @dataclass(frozen=True, slots=True)
+class DetectionBox:
+    """메모리에만 보관하는 사람 detector 영역. Vision debug 화면 전용이다."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+    confidence: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PoseKeypoint:
+    """원본 frame 좌표계의 pose 관절 하나다."""
+
+    x: float
+    y: float
+    confidence: float
+
+
+@dataclass(frozen=True, slots=True)
+class PoseDetection:
+    """한 사람의 box와 17개 COCO pose 관절이다."""
+
+    box: DetectionBox
+    keypoints: tuple[PoseKeypoint, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class UpperDetection:
     body_count: int | None
     face_boxes: tuple[FaceBox, ...] = ()
+    person_boxes: tuple[DetectionBox, ...] = ()
 
     @property
     def count(self) -> int | None:
@@ -89,6 +118,7 @@ class UpperDetection:
 class LowerDetection:
     count: int | None
     posture: PostureStatus = PostureStatus.UNKNOWN
+    pose_detections: tuple[PoseDetection, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +142,13 @@ class CameraObservation:
     posture: PostureStatus = PostureStatus.UNKNOWN
     face_observation: FreshFaceObservation | None = None
     detector_error: bool = False
+    frame_width: int | None = None
+    frame_height: int | None = None
+    person_boxes: tuple[DetectionBox, ...] = ()
+    pose_detections: tuple[PoseDetection, ...] = ()
+    # 메모리에만 존재하며 /api/vision/debug/frame 에서만 JPEG로 반환한다.
+    # 일반 상태 API나 DB/세션에는 절대로 raw image를 싣지 않는다.
+    debug_frame: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,3 +223,40 @@ class VisionStatusResponse(VisionApiModel):
     presence: PresenceResponse
     posture: PostureResponse
     association: AssociationResponse
+
+
+class DebugBoxResponse(VisionApiModel):
+    x: int
+    y: int
+    width: int
+    height: int
+    confidence: float | None = None
+
+
+class DebugKeypointResponse(VisionApiModel):
+    x: float
+    y: float
+    confidence: float
+
+
+class DebugPoseResponse(VisionApiModel):
+    box: DebugBoxResponse
+    keypoints: list[DebugKeypointResponse]
+
+
+class VisionDebugCameraResponse(VisionApiModel):
+    observed_at: datetime | None = None
+    frame_width: int | None = None
+    frame_height: int | None = None
+    person_boxes: list[DebugBoxResponse] = []
+    face_boxes: list[DebugBoxResponse] = []
+    pose_detections: list[DebugPoseResponse] = []
+    detector_error: bool = False
+    error: str | None = None
+    frame_available: bool = False
+
+
+class VisionDebugResponse(VisionApiModel):
+    """디버그용 geometry만 노출한다. 이미지 bytes는 별도 endpoint로 반환한다."""
+
+    cameras: dict[str, VisionDebugCameraResponse]

@@ -129,6 +129,10 @@ export const getVoiceStatus = (signal?: AbortSignal) => request<VoiceStatus>("/a
 
 export type CurrentUser = { session: { sessionId: string; kind: "REGISTERED" | "ANONYMOUS"; profileId: string | null; startedAt: string; changedAt: string } | null };
 export type VisionStatus = { cameras: Record<string, { status: "OFFLINE" | "ONLINE" | "STALE" | "ERROR"; observedAt: string | null; expiresAt: string | null; ageSeconds: number | null; error: string | null }>; identity: { status: string; profileId: string | null; observedAt: string | null; expiresAt: string | null }; presence: { rawStatus: string; status: string; upperCount: number | null; lowerCount: number | null; observedAt: string | null; expiresAt: string | null }; posture: { rawStatus: string; status: string; candidateSince: string | null; observedAt: string | null; expiresAt: string | null }; association: { usable: boolean; reasonCodes: string[] } };
+export type VisionDebugBox = { x: number; y: number; width: number; height: number; confidence: number | null };
+export type VisionDebugPose = { box: VisionDebugBox; keypoints: { x: number; y: number; confidence: number }[] };
+export type VisionDebugCamera = { observedAt: string | null; frameWidth: number | null; frameHeight: number | null; personBoxes: VisionDebugBox[]; faceBoxes: VisionDebugBox[]; poseDetections: VisionDebugPose[]; detectorError: boolean; error: string | null; frameAvailable: boolean };
+export type VisionDebug = { cameras: Record<"upper" | "lower", VisionDebugCamera> };
 export type AutomationStatus = { sessionId: string | null; controlMode: "AUTO" | "MANUAL" | null; activityMode: ActivityMode | null; state: string; heightPolicy: string | null; postureCandidate: string | null; candidateSince: string | null; targetHeightCm: number | null; intentSource: string | null; blockedReasonCodes: string[]; initialMoveDueAt: string | null; parkDueAt: string | null; generation: number; revision: number; lastTransitionReason: string; lastTransitionSource: string; lastTransitionAt: string; updatedAt: string };
 export type Enrollment = { enrollmentId: string; profileId: string; state: "WAITING_FACE" | "CAPTURING" | "PROCESSING" | "SUCCEEDED" | "CANCELLED" | "FAILED"; requiredSamples: number; acceptedSamples: number; startedAt: string; changedAt: string; failureCode: string | null };
 
@@ -140,6 +144,7 @@ export type TiltSnapshot = {
 
 export const getCurrentUser = (signal?: AbortSignal) => request<CurrentUser>("/api/current-user", { signal });
 export const getVisionStatus = (signal?: AbortSignal) => request<VisionStatus>("/api/vision/status", { signal });
+export const getVisionDebug = (signal?: AbortSignal) => request<VisionDebug>("/api/vision/debug", { signal });
 export const getAutomationStatus = (signal?: AbortSignal) => request<AutomationStatus>("/api/automation/status", { signal });
 export const setControlMode = (controlMode: "AUTO" | "MANUAL", expectedSessionId: string) => request<AutomationStatus>("/api/desk/control-mode", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ controlMode, expectedSessionId }) });
 export const setActivityMode = (activityModeKey: string, expectedSessionId: string) => request<AutomationStatus>("/api/desk/activity-mode", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ activityModeKey, expectedSessionId }) });

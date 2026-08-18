@@ -381,10 +381,10 @@ class VisionSettings(BaseModel):
     # 같은 pose model을 상단 재실 인원 판정에도 별도 로드한다. 상단 얼굴 검출은
     # 프로필 식별 전용이며, 이 주기는 CPU 과점을 막기 위해 독립적으로 둔다.
     upper_inference_interval_seconds: float = Field(
-        default=0.5, gt=0, le=10, allow_inf_nan=False
+        default=0.5, ge=0.5, le=10, allow_inf_nan=False
     )
     lower_inference_interval_seconds: float = Field(
-        default=0.5, gt=0, le=10, allow_inf_nan=False
+        default=0.5, ge=0.5, le=10, allow_inf_nan=False
     )
     lower_pose_input_size: int = Field(default=640, ge=64, le=2048)
     lower_pose_min_person_confidence: float = Field(default=0.30, ge=0, le=1)

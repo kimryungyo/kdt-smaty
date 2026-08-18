@@ -12,7 +12,7 @@
 
 ## 현재 상태
 
-- 사용자·자세 카메라용 `CameraPublisher`와 `RtspFrameSource`가 lifecycle에 등록된다.
+- 사용자·자세 카메라용 WebRTC 최신 frame source가 lifecycle에 등록된다.
 - 각 source는 queue 없이 최신 `(frame, captured_at)` 하나를 유지하고 재연결한다.
 - `VisionService`가 container의 user(상단)·posture(하단) source를 소유하고 최신 frame만
   소비한다. `workspace`는 Vision 자세 입력으로 대체하지 않는다.
@@ -21,14 +21,16 @@
 - YuNet이 provision되면 한 번의 상단 inference에서 box·5 landmarks를 만들며, face row 수를
   upper count로 사용한다. landmark와 confidence는 내부 face 경계에만 남고 일반 API에는 노출하지 않는다.
 - 선택 하단 detector는 OpenCV DNN YOLO pose ONNX의 `(1,300,57)` end-to-end NMS 출력을 검증한다.
-  최신 posture RTSP frame 전체를 letterbox 640으로 처리하고 2Hz에서 최신 frame 하나만 사용한다.
+  상단 재실·얼굴과 하단 자세 모두 각 2Hz(0.5초 이상 간격)에서 최신 frame 하나만 사용한다.
   상단 model이 unavailable이어도 fresh singleton 하단의 frame-level raw posture는 보이지만,
   stable posture와 association/AUTO는 기존 양쪽 camera singleton 결합 조건을 계속 요구한다.
 - ROI calibration 전에는 전체 하단 frame을 사용한다. 주변 통행도 count되면 보수적으로
   `MULTIPLE_PEOPLE`가 되어 자동화를 차단한다. WHEP/aiortc, FastAPI/web UI, MJPEG/JPEG polling이나
-  preview endpoint는 구현하거나 복사하지 않았다.
-- Dashboard는 Vision snapshot을 표시한다. browser camera preview와 더 넓은 debug 근거 표시는
-  아직 미완료다.
+  일반 preview endpoint는 구현하거나 복사하지 않았다.
+- `/api/vision/debug`는 마지막 성공 추론의 box·face·pose 관절 geometry만,
+  `/api/vision/debug/frame/{upper|lower}`는 같은 시점의 메모리 JPEG 한 장만 반환한다.
+  Dashboard의 `/debug/vision`은 이를 2Hz로 갱신해 캔버스로 오버레이한다. 이는 스트리밍·녹화가
+  아니며 raw frame을 DB나 일반 상태 API에 노출하지 않는다.
 
 ## 첫 구현의 관측 범위
 
@@ -69,9 +71,9 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 
 ### 입력과 전처리
 
-- [x] 두 `RtspFrameSource`를 container에서 Vision service에 주입할 수 있게 보관한다.
+- [x] 두 `WebRtcFrameSource`를 container에서 Vision service에 주입할 수 있게 보관한다.
 - [ ] 설정 기반 카메라 경로·방향·해상도·FPS와 책상 ROI 구조를 만들고 실물 연결 뒤 값을 확인한다.
-- [x] 하단 detector 2Hz 처리 상한, frame/result freshness와 detector threshold 설정을 정의한다.
+- [x] 상단 재실과 하단 자세의 2Hz 처리 상한(0.5초보다 빠른 설정 거부), frame/result freshness와 detector threshold를 정의한다.
 - [ ] 상단 몸체/얼굴과 하단 하체의 책상 ROI 및 singleton 결합을 구현한다.
 - [ ] 상단 얼굴 detector를 한 번 load·실행하고 fresh box/count snapshot을 task 05가 재사용할
   수 있게 한다. task 05가 별도 얼굴 detector loop를 만들지 않게 한다.
@@ -97,15 +99,14 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 - [x] `/api/vision/status`에 raw·안정화 상태와 차단 이유를 camelCase로 노출한다.
 - [x] Task 04의 `identity`는 `UNKNOWN` placeholder이며 raw frame·face box·vector는 API에
   노출하지 않는다. Task 05는 `get_fresh_face_observation()`의 내부 frame+box만 소비한다.
-- [x] 일반 Dashboard에는 최소 Vision snapshot을 연결했다. preview와 상세 debug 근거는 별도
-  미완료 항목으로 유지한다.
-- [ ] MediaMTX WebRTC/HLS preview를 실제 브라우저에서 실측해 한 방식을 확정한다.
+- [x] 일반 Dashboard에는 최소 Vision snapshot을 연결했고, `/debug/vision`에는 같은 추론 frame의
+  재실 person box·face box·pose 관절/자세 오버레이를 연결했다.
 
 ## 제외 범위
 
 - 얼굴 정렬·품질 검사·임베딩, 등록 profile 비교와 현재 사용자 session
 - 카메라 간 범용 사람 Re-ID 또는 장기 trajectory 저장
-- 영상 녹화, raw frame DB 저장과 FastAPI JPEG polling API
+- 영상 녹화, raw frame DB 저장과 일반 사용자용 preview API
 - 자세에 따른 실제 책상 이동
 
 ## 검증
@@ -120,10 +121,9 @@ lifecycle과 API를 먼저 구현한다. 실제 ROI 좌표, 모델 선택의 최
 
 ## 실물 확인 항목
 
-- 하단 ONNX adapter의 fake output과 제공 sample 자동 회귀는 완료했지만, 실제 RTSP camera, CPU 지연,
-  threshold와 ROI 보정은 수행하지 않았다. 상단 detector/얼굴 embedding/전체 association도 미완료다.
-- MediaMTX WebRTC/HLS preview 방식과 상단·하단 camera 배치, FPS·조명·책상 주변 통행에 대한
-  실측은 아직 수행하지 않았다.
+- 하단 ONNX adapter의 fake output과 제공 sample 자동 회귀는 완료했지만, 실제 WebRTC camera, CPU 지연,
+  threshold와 ROI 보정은 계속 실측한다. 상단 detector/얼굴 embedding/전체 association의 현장 정확도도
+  별도 확인한다.
 - 앉음·섬·이탈과 책상 주변 통행을 ROI에서 촬영해 오검출 패턴을 기록한다.
 - 조명, 안경·모자, 의자 위치와 책상 높이 변화가 사람 수·자세 판정에 미치는 영향을 본다.
 - camera 한 대 제거, MediaMTX 중단과 복귀 후 snapshot과 memory 사용량을 확인한다.

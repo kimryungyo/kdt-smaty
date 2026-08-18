@@ -9,7 +9,15 @@ from typing import Protocol
 import cv2
 import numpy as np
 
-from smart_desk.modules.vision.models import FaceBox, LowerDetection, PostureStatus, UpperDetection
+from smart_desk.modules.vision.models import (
+    DetectionBox,
+    FaceBox,
+    LowerDetection,
+    PoseDetection,
+    PoseKeypoint,
+    PostureStatus,
+    UpperDetection,
+)
 
 
 class VisionDetector(Protocol):
@@ -52,7 +60,11 @@ class PresenceAndFaceUpperDetector:
     def detect_upper(self, frame: np.ndarray) -> UpperDetection:
         presence = self._presence.detect_upper(frame)
         faces = self._faces.detect_upper(frame)
-        return UpperDetection(body_count=presence.body_count, face_boxes=faces.face_boxes)
+        return UpperDetection(
+            body_count=presence.body_count,
+            face_boxes=faces.face_boxes,
+            person_boxes=presence.person_boxes,
+        )
 
     def detect_lower(self, _frame: np.ndarray) -> LowerDetection:
         return LowerDetection(count=None)
@@ -137,22 +149,31 @@ class OpenCvYoloPoseLowerDetector:
         self._decision_threshold = decision_threshold
 
     def detect_upper(self, frame: np.ndarray) -> UpperDetection:
-        return UpperDetection(body_count=len(self._people(frame)))
+        people, scale, pad_x, pad_y = self._people(frame)
+        return UpperDetection(
+            body_count=len(people),
+            person_boxes=tuple(
+                self._box_from_row(person, frame, scale, pad_x, pad_y) for person in people
+            ),
+        )
 
     def detect_lower(self, frame: np.ndarray) -> LowerDetection:
-        people = self._people(frame)
+        people, scale, pad_x, pad_y = self._people(frame)
         count = len(people)
+        poses = tuple(
+            self._pose_from_row(person, frame, scale, pad_x, pad_y) for person in people
+        )
         if count != 1:
-            return LowerDetection(count=count)
-        keypoints = people[0, 6:].reshape(17, 3).astype(np.float32)
-        _canvas, scale, pad_x, pad_y = self._letterbox(frame)
-        keypoints[:, 0] = (keypoints[:, 0] - pad_x) / scale
-        keypoints[:, 1] = (keypoints[:, 1] - pad_y) / scale
+            return LowerDetection(count=count, pose_detections=poses)
+        keypoints = np.array(
+            [(keypoint.x, keypoint.y, keypoint.confidence) for keypoint in poses[0].keypoints],
+            dtype=np.float32,
+        )
         posture = self._posture_from_keypoints(keypoints)
-        return LowerDetection(count=1, posture=posture)
+        return LowerDetection(count=1, posture=posture, pose_detections=poses)
 
-    def _people(self, frame: np.ndarray) -> np.ndarray:
-        canvas, _scale, _pad_x, _pad_y = self._letterbox(frame)
+    def _people(self, frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
+        canvas, scale, pad_x, pad_y = self._letterbox(frame)
         blob = cv2.dnn.blobFromImage(
             canvas, 1.0 / 255.0, (self._input_size, self._input_size), swapRB=True, crop=False
         )
@@ -163,7 +184,50 @@ class OpenCvYoloPoseLowerDetector:
                 f"Unexpected lower pose model output shape: {getattr(output, 'shape', None)!r}; "
                 f"expected {self._OUTPUT_SHAPE}"
             )
-        return output[0][output[0, :, 4] >= self._min_person_confidence]
+        people = output[0][output[0, :, 4] >= self._min_person_confidence]
+        # 사람 box/confidence가 깨진 경우에는 어느 좌표도 신뢰할 수 없으므로 detector
+        # 오류로 처리한다. 단일 관절의 NaN은 자세를 UNKNOWN으로 만들 수는 있어도
+        # 재실 count 자체를 없애서는 안 된다.
+        if not np.isfinite(people[:, :6]).all():
+            raise ValueError("Lower pose model returned non-finite person box")
+        return people, scale, pad_x, pad_y
+
+    @staticmethod
+    def _clip(value: float, upper: int) -> float:
+        return max(0.0, min(value, float(upper)))
+
+    def _box_from_row(
+        self, row: np.ndarray, frame: np.ndarray, scale: float, pad_x: int, pad_y: int
+    ) -> DetectionBox:
+        frame_height, frame_width = frame.shape[:2]
+        center_x, center_y, width, height = row[:4]
+        left = self._clip((center_x - width / 2 - pad_x) / scale, frame_width)
+        top = self._clip((center_y - height / 2 - pad_y) / scale, frame_height)
+        right = self._clip((center_x + width / 2 - pad_x) / scale, frame_width)
+        bottom = self._clip((center_y + height / 2 - pad_y) / scale, frame_height)
+        return DetectionBox(
+            x=round(left), y=round(top), width=max(0, round(right - left)),
+            height=max(0, round(bottom - top)), confidence=float(row[4]),
+        )
+
+    def _pose_from_row(
+        self, row: np.ndarray, frame: np.ndarray, scale: float, pad_x: int, pad_y: int
+    ) -> PoseDetection:
+        frame_height, frame_width = frame.shape[:2]
+        raw = row[6:].reshape(17, 3)
+        points = tuple(
+            PoseKeypoint(
+                x=self._clip((point[0] - pad_x) / scale, frame_width),
+                y=self._clip((point[1] - pad_y) / scale, frame_height),
+                confidence=max(0.0, min(float(point[2]), 1.0)),
+            )
+            if np.isfinite(point).all()
+            else PoseKeypoint(x=0.0, y=0.0, confidence=0.0)
+            for point in raw
+        )
+        return PoseDetection(
+            box=self._box_from_row(row, frame, scale, pad_x, pad_y), keypoints=points
+        )
 
     def _letterbox(self, frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
         if frame.ndim != 3 or frame.shape[0] <= 0 or frame.shape[1] <= 0:

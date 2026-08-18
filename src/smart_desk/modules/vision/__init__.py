@@ -11,10 +11,13 @@ from smart_desk.modules.vision.detector import (
 )
 from smart_desk.modules.vision.models import (
     BlockCode,
+    DetectionBox,
     FaceBox,
     FreshFaceObservation,
     IdentityStatus,
     LowerDetection,
+    PoseDetection,
+    PoseKeypoint,
     PostureStatus,
     PresenceStatus,
     UpperDetection,
@@ -31,7 +34,7 @@ def get_vision() -> VisionService:
 
 
 __all__ = [
-    "BlockCode", "CompositeVisionDetector", "PresenceAndFaceUpperDetector", "FaceBox", "FreshFaceObservation", "IdentityStatus", "LowerDetection",
+    "BlockCode", "CompositeVisionDetector", "PresenceAndFaceUpperDetector", "DetectionBox", "FaceBox", "FreshFaceObservation", "IdentityStatus", "LowerDetection", "PoseDetection", "PoseKeypoint",
     "OpenCvYuNetUpperDetector", "OpenCvYoloPoseLowerDetector", "NoopVisionDetector", "PostureStatus",
     "PresenceStatus", "UpperDetection", "VisionDetector", "VisionService",
     "VisionSnapshot", "get_vision",
