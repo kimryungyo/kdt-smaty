@@ -20,7 +20,7 @@ SDK 대화 session과 Mem0 adapter의 기준이다. [task 01 상태·워크플�
 | 음성 구조 | local Wake Word → Agents SDK `VoicePipeline`의 streaming STT → Agent workflow → streaming TTS |
 | Agent model | `gpt-5.6-terra`, `reasoning.effort="low"` |
 | STT model | `gpt-4o-transcribe` |
-| TTS model | `tts-1` |
+| TTS model | `gpt-4o-mini-tts` |
 | TTS voice | `nova` |
 | microphone | 24kHz mono PCM16으로 한 번만 capture |
 | Wake Word | 기존 local detector 유지, 24kHz 입력을 SoXR로 16kHz 변환 |
@@ -38,7 +38,7 @@ SDK 대화 session과 Mem0 adapter의 기준이다. [task 01 상태·워크플�
 
 OpenAI 공식 문서 기준으로 `gpt-5.6-terra`는 성능과 비용 균형형 모델이고 low reasoning은
 latency가 중요한 작업의 선택지다. `gpt-4o-transcribe`는 기존 Whisper 계열보다 정확도와
-언어 인식이 개선된 STT 모델이며, `tts-1`은 realtime TTS 사용에 맞춰 속도를 우선한다.
+언어 인식이 개선된 STT 모델이며, `gpt-4o-mini-tts`는 자연스러운 음성 합성에 사용한다.
 
 ## 2. 목표 구조
 
@@ -57,7 +57,7 @@ Microphone 24kHz PCM16
               │   ├─ Agents SDK session
               │   ├─ hosted/function tools
               │   └─ Mem0 MemoryService
-              └─ tts-1 streaming PCM
+              └─ gpt-4o-mini-tts streaming PCM
                        ↓
               PlaybackCoordinator
                        ↓
@@ -386,7 +386,7 @@ dependency 해석 결과와 native audio import는 x86 개발 환경과 Raspberr
 
 아래 항목은 큰 제품 결정이 아니라 실측과 운영으로 조정할 설정이다.
 
-- `tts-1` voice
+- `gpt-4o-mini-tts` voice
 - VAD threshold, prefix padding과 silence duration
 - session history item/token 제한과 compaction 시점
 - follow-up window
@@ -397,7 +397,7 @@ dependency 해석 결과와 native audio import는 x86 개발 환경과 Raspberr
 
 - [OpenAI GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
 - [OpenAI GPT-4o Transcribe](https://developers.openai.com/api/docs/models/gpt-4o-transcribe)
-- [OpenAI TTS-1](https://developers.openai.com/api/docs/models/tts-1)
+- [OpenAI GPT-4o mini TTS](https://developers.openai.com/api/docs/models/gpt-4o-mini-tts)
 - [OpenAI Realtime VAD](https://developers.openai.com/api/docs/guides/realtime-vad)
 - [OpenAI Voice Agents](https://developers.openai.com/api/docs/guides/voice-agents)
 - [OpenAI Agents SDK 실행](https://developers.openai.com/api/docs/guides/agents/running-agents)

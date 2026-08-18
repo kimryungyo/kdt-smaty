@@ -267,7 +267,7 @@ def test_build_container_registers_voice_at_order_90_when_enabled(
     config = received["config"]
     assert config.model == "configured-response-model"  # type: ignore[union-attr]
     assert config.stt_model == "gpt-4o-transcribe"  # type: ignore[union-attr]
-    assert config.tts_model == "tts-1"  # type: ignore[union-attr]
+    assert config.tts_model == "gpt-4o-mini-tts"  # type: ignore[union-attr]
 
 
 def test_build_container_registers_voice_debug_after_voice(

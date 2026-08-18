@@ -335,7 +335,7 @@ async def test_runtime_build_exposes_fixed_sdk_assembly() -> None:
         assert workflow is not None
         assert [type(tool) for tool in workflow.agent.tools] == [WebSearchTool]
         assert pipeline._stt_model_name == "gpt-4o-transcribe"  # noqa: SLF001
-        assert pipeline._tts_model_name == "tts-1"  # noqa: SLF001
+        assert pipeline._tts_model_name == "gpt-4o-mini-tts"  # noqa: SLF001
         assert pipeline.config.stt_settings.turn_detection == {
             "type": "server_vad", "threshold": 0.5,
             "prefix_padding_ms": 300, "silence_duration_ms": 600,

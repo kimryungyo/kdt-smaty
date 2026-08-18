@@ -65,7 +65,7 @@ class AgentsVoiceConfig:
     model: str = "gpt-5.6-terra"
     reasoning_effort: str = "low"
     stt_model: str = "gpt-4o-transcribe"
-    tts_model: str = "tts-1"
+    tts_model: str = "gpt-4o-mini-tts"
     vad_threshold: float = 0.5
     vad_prefix_padding_ms: int = 300
     vad_silence_duration_ms: int = 600
