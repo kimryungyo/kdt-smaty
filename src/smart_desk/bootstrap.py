@@ -505,6 +505,7 @@ def build_container(settings: Settings) -> AppContainer:
                     memory=container.profile_memory,
                     location=settings.voice.greeting_location,
                     cooldown_seconds=settings.voice.greeting_cooldown_seconds,
+                    state_file=settings.voice.greeting_state_file,
                 )
                 automation.set_greeter(container.greeting)
         except Exception as error:

@@ -677,9 +677,12 @@ class VoiceSettings(BaseModel):
     # 얼굴을 알아본 순간 이름을 부르고 날씨와 관심사를 전한다.
     greeting_enabled: bool = True
     # 날씨를 찾을 지역. 인사말에 그대로 쓰인다.
-    greeting_location: str = "서울"
-    # 같은 사람에게 다시 인사하기까지 두는 시간(초).
+    greeting_location: str = "시흥"
+    # 같은 사람에게 다시 인사하기까지 두는 시간(초). 작업 모드를 기억하는
+    # 시간과 같은 값이라야 "같은 방문"의 기준이 어긋나지 않는다.
     greeting_cooldown_seconds: float = 1800.0
+    # 마지막 인사 시각을 남길 파일. 프로세스가 다시 떠도 대기 시간이 이어진다.
+    greeting_state_file: Path = Path("data/greeting_state.json")
     # 책상이 움직일 때 어디로 가는지 말해 준다.
     height_announcement_enabled: bool = True
 

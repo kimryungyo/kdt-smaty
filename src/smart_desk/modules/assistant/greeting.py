@@ -12,8 +12,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import time
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Protocol
 
 from smart_desk.modules.voice.speech import SpeechSynthesisError
@@ -28,6 +30,9 @@ DEFAULT_COOLDOWN_SECONDS = 1800.0
 MAX_INTERESTS = 5
 # 날씨를 찾는 데 이만큼 넘게 걸리면 그냥 이름만 부르고 만다.
 COMPOSE_TIMEOUT_SECONDS = 12.0
+# 말할 자리가 아니어서 넘어간 경우 이만큼 뒤부터 다시 시도한다. 아예 지우면
+# session이 바뀔 때마다 다시 말을 걸어 대기 시간이 없는 것처럼 보인다.
+SKIPPED_RETRY_SECONDS = 120.0
 
 GREETING_INSTRUCTIONS = """\
 너는 스마트 책상의 음성 비서다. 방금 얼굴로 알아본 사용자에게 건넬 인사말을 쓴다.
@@ -61,9 +66,10 @@ class GreetingService:
         api_key: str,
         model: str,
         memory: Any | None = None,
-        location: str = "서울",
+        location: str = "시흥",
         cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
-        monotonic=time.monotonic,
+        state_file: Path | None = None,
+        now=lambda: datetime.now(UTC),
     ) -> None:
         self._voice = voice
         self._profiles = profiles
@@ -73,8 +79,11 @@ class GreetingService:
         self._memory = memory
         self._location = location
         self._cooldown = cooldown_seconds
-        self._monotonic = monotonic
-        self._last_greeted: dict[str, float] = {}
+        # 벽시계를 쓴다. monotonic은 프로세스가 다시 뜨면 0부터라 재시작 직후
+        # 다시 인사하게 된다. 마지막 인사 시각은 파일로도 남겨 둔다.
+        self._now = now
+        self._state_file = state_file
+        self._last_greeted: dict[str, datetime] = self._load_state()
         self._task: asyncio.Task[None] | None = None
 
     def greet(self, profile_id: str | None) -> None:
@@ -85,13 +94,51 @@ class GreetingService:
         if self._task is not None and not self._task.done():
             # 앞선 인사가 아직 말하는 중이다. 겹쳐 말하지 않는다.
             return
-        self._last_greeted[profile_id] = self._monotonic()
+        self._mark_greeted(profile_id, self._now())
         self._task = asyncio.create_task(self._speak(profile_id), name="voice-greeting")
 
     def reset(self, profile_id: str) -> None:
         """쉬는 시간을 지운다. 다음 greet()가 바로 인사한다."""
 
         self._last_greeted.pop(profile_id, None)
+        self._save_state()
+
+    def _mark_greeted(self, profile_id: str, when: datetime) -> None:
+        self._last_greeted[profile_id] = when
+        self._save_state()
+
+    def _load_state(self) -> dict[str, datetime]:
+        """지난 인사 시각을 읽는다. 없거나 깨져 있으면 빈 채로 시작한다."""
+
+        if self._state_file is None or not self._state_file.exists():
+            return {}
+        try:
+            raw = json.loads(self._state_file.read_text(encoding="utf-8"))
+            return {
+                str(key): datetime.fromisoformat(str(value))
+                for key, value in dict(raw).items()
+            }
+        except Exception:
+            LOGGER.info(
+                "지난 인사 기록을 읽지 못해 비운 채로 시작합니다.",
+                extra={"component": "assistant.greeting", "event": "greeting_state_unreadable"},
+            )
+            return {}
+
+    def _save_state(self) -> None:
+        """다음에 프로세스가 다시 떠도 대기 시간이 이어지게 남긴다."""
+
+        if self._state_file is None:
+            return
+        try:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = {key: value.isoformat() for key, value in self._last_greeted.items()}
+            self._state_file.write_text(json.dumps(payload), encoding="utf-8")
+        except Exception:
+            LOGGER.info(
+                "인사 기록을 남기지 못했습니다.",
+                extra={"component": "assistant.greeting", "event": "greeting_state_unwritable"},
+            )
 
     async def stop(self) -> None:
         task, self._task = self._task, None
@@ -104,7 +151,9 @@ class GreetingService:
 
     def _should_greet(self, profile_id: str) -> bool:
         last = self._last_greeted.get(profile_id)
-        return last is None or (self._monotonic() - last) >= self._cooldown
+        if last is None:
+            return True
+        return (self._now() - last).total_seconds() >= self._cooldown
 
     async def _speak(self, profile_id: str) -> None:
         try:
@@ -123,24 +172,33 @@ class GreetingService:
                 },
             )
             if not spoke:
-                # 말하지 못했으면 다음 기회에 다시 시도할 수 있게 기록을 지운다.
-                self._last_greeted.pop(profile_id, None)
+                self._allow_retry_soon(profile_id)
         except asyncio.CancelledError:
             raise
         except SpeechSynthesisError as error:
-            self._last_greeted.pop(profile_id, None)
+            self._allow_retry_soon(profile_id)
             LOGGER.warning(
                 "인사말을 소리로 바꾸지 못했습니다.",
                 extra={"component": "assistant.greeting", "event": "greeting_tts_failed",
                        "error": error.code},
             )
         except Exception as error:
-            self._last_greeted.pop(profile_id, None)
+            self._allow_retry_soon(profile_id)
             LOGGER.warning(
                 "인사말을 건네지 못했습니다.",
                 extra={"component": "assistant.greeting", "event": "greeting_failed",
                        "error": str(error)},
             )
+
+    def _allow_retry_soon(self, profile_id: str) -> None:
+        """말하지 못했으면 잠시 뒤 다시 시도한다.
+
+        기록을 아예 지우면 session이 바뀔 때마다 곧바로 다시 말을 걸어, 대기
+        시간이 없는 것처럼 보인다. 짧은 간격만 두고 물러난다.
+        """
+
+        retreat = self._cooldown - SKIPPED_RETRY_SECONDS
+        self._mark_greeted(profile_id, self._now() - timedelta(seconds=max(retreat, 0.0)))
 
     async def _name_of(self, profile_id: str) -> str | None:
         try:
