@@ -325,6 +325,10 @@ class VoiceService:
             self._audio.discard_pending()
             await asyncio.sleep(self._settings.post_playback_guard_seconds)
             if followup_requested and self._settings.followup_enabled and not self._stopping:
+                # Keep post-TTS room/speaker tail out of the follow-up pre-roll.
+                # The hardware stream remains open, but frames are discarded while
+                # accepting is false, so this is strictly half-duplex.
+                self._audio.discard_pending()
                 self._audio.set_accepting(True)
                 self._open_followup_window()
             else:

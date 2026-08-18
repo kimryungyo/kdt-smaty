@@ -789,7 +789,7 @@ class VoiceSettings(BaseModel):
     followup_enabled: bool = True
     followup_timeout_seconds: float = 4.0
     followup_preroll_seconds: float = 0.3
-    post_playback_guard_seconds: float = 0.25
+    post_playback_guard_seconds: float = 1.0
     input_queue_frames: int = 64
     session_max_turns: int = 12
     acknowledgement_effect_path: Path = Path("assets/voice/effects/acknowledgement.wav")

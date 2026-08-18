@@ -656,7 +656,7 @@ class VoiceSettings(BaseModel):
         allow_inf_nan=False,
     )
     post_playback_guard_seconds: float = Field(
-        default=0.25,
+        default=1.0,
         ge=0,
         le=2.0,
         allow_inf_nan=False,
