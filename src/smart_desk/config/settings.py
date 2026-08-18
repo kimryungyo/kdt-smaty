@@ -366,7 +366,10 @@ class VisionSettings(BaseModel):
     frame_stale_after_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
     result_stale_after_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
     stable_after_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
-    max_camera_skew_seconds: float = Field(default=0.5, gt=0, le=10, allow_inf_nan=False)
+    # 독립 WHEP receiver의 최신 frame 도착은 동일 15fps stream이라도 최대 약 0.5초
+    # 어긋날 수 있다. result freshness(1초) 안에서만 결합하되 정상 scheduler jitter가
+    # 안정화 timer를 계속 초기화하지 않도록 약간의 여유를 둔다.
+    max_camera_skew_seconds: float = Field(default=0.75, gt=0, le=10, allow_inf_nan=False)
     # 하단 YOLO pose는 선택 기능이다. 경로가 비어 있으면 Noop detector로 안전하게 동작한다.
     lower_pose_model_path: Path | None = None
     # 같은 pose model을 상단 재실 인원 판정에도 별도 로드한다. 상단 얼굴 검출은

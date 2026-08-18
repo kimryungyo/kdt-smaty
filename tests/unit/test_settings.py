@@ -193,6 +193,7 @@ def test_default_storage_database_path() -> None:
 
 def test_lower_pose_settings_default_disabled_and_normalize_blank_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert VisionSettings().lower_pose_model_path is None
+    assert VisionSettings().max_camera_skew_seconds == 0.75
     monkeypatch.setenv("SMART_DESK_VISION__LOWER_POSE_MODEL_PATH", "   ")
     monkeypatch.setenv("SMART_DESK_VISION__UPPER_INFERENCE_INTERVAL_SECONDS", "0.5")
     monkeypatch.setenv("SMART_DESK_VISION__LOWER_INFERENCE_INTERVAL_SECONDS", "0.5")
