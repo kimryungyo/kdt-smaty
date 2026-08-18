@@ -19,7 +19,7 @@ from smart_desk.modules.voice.wakeword import (
 )
 
 
-MODEL_PATH = Path("assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx")
+MODEL_PATH = Path("assets/voice/models/hi_smarty_ko_mixed_v0_2_0.onnx")
 
 
 class FakeModel:

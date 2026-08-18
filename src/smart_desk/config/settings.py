@@ -513,7 +513,7 @@ class VoiceSettings(BaseModel):
     output_device_name: str | None = None
 
     wakeword_model_path: Path = Path(
-        "assets/voice/models/hi_smarty_ko_synthetic_v0_1_0.onnx"
+        "assets/voice/models/hi_smarty_ko_mixed_v0_2_0.onnx"
     )
     wakeword_threshold: float = Field(default=0.35, gt=0, le=1, allow_inf_nan=False)
     wakeword_consecutive_frames: int = Field(default=1, ge=1, le=5)

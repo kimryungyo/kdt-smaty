@@ -21,18 +21,18 @@ model을 다운로드하지 않으므로 설치와 추론은 배포된 wheel과 
 
 ## hi_smarty_ko model
 
-- model: `hi_smarty_ko_synthetic_v0_1_0.onnx`
+- model: `hi_smarty_ko_mixed_v0_2_0.onnx`
 - 호출어: `하이 스마티`
-- SHA-256: `893c8d8d06892aac3f9b285a36801acb92f6a140c886e19ca1679822e55217c2`
+- SHA-256: `29bbe36b71105d9e4e3de24dcc368e7e1c681bde931085939224ec3e3cfe37ec`
 - model key: `hi_smarty_ko`
 - threshold: validation에서 선택한 `0.13`
 - 연속 판정: 실제 streaming 검증 전 임시값 `2`
-- 원본 release: `/srv/wakeword/artifacts/releases/hi-smarty-ko-synthetic-v0.1.0/`
+- 원본 release: `/srv/wakeword/artifacts/releases/hi-smarty-ko-mixed-v0.2.0/`
 
-학습에는 합성 TTS, Zeroth-Korean 일반 발화, MUSAN 환경음과 MIT IR을 사용했다. 실제
-사용자나 대상 microphone 녹음은 포함하지 않은 비운영 합성 기준선이다. frozen test에서
-positive recall 96.8%, 고난도 유사 발화 오탐 1/250이었지만, 연속 생활 소음에서 측정한
-운영 오탐률은 아니다.
+학습에는 합성 TTS, Zeroth-Korean 일반 발화, MUSAN 환경음과 MIT IR, 실제 화자 4명의
+녹음 130개를 사용했다. 실제 화자 시험은 학습 화자와 같은 녹음 세션에서 이뤄졌으므로,
+대상 microphone의 연속 생활 소음과 미학습 화자에 대한 운영 품질을 보장하지 않는다.
+frozen 평가에서 실제 화자 recall은 13/13, 고난도 합성 유사 발화 오탐은 1/250이었다.
 
 provider 생성 TTS와 corpus attribution 및 재배포 조건은 원본 release의
 `MODEL_CARD.md`와 provenance를 확인한다. 이 문서는 생성 TTS에 새 배포 license를
