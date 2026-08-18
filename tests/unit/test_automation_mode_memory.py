@@ -157,6 +157,36 @@ async def test_mode_returns_when_the_user_comes_back_within_the_window(parts) ->
     assert service.get_snapshot().activity_mode.key == STUDY
 
 
+class FakeGreeter:
+    def __init__(self) -> None:
+        self.greeted: list[str] = []
+
+    def greet(self, profile_id: str | None) -> None:
+        if profile_id is not None:
+            self.greeted.append(profile_id)
+
+
+async def test_greeting_follows_the_same_window_as_mode_memory(parts) -> None:
+    """잠깐 자리를 비웠다 돌아온 것은 같은 방문이라 다시 인사하지 않는다."""
+
+    service, users, _modes, _usage, clock = parts
+    greeter = FakeGreeter()
+    service.set_greeter(greeter)
+
+    await install(service, users, "session-a")
+    assert greeter.greeted == [PROFILE]          # 처음 왔으니 인사한다
+
+    await service._end_session("session-a")
+    clock.advance(600)                            # 10분 뒤 복귀
+    await install(service, users, "session-b")
+    assert greeter.greeted == [PROFILE]           # 같은 방문이라 조용하다
+
+    await service._end_session("session-b")
+    clock.advance(1801)                           # 30분을 넘겨 돌아왔다
+    await install(service, users, "session-c")
+    assert greeter.greeted == [PROFILE, PROFILE]  # 새 방문이라 다시 인사한다
+
+
 async def test_mode_is_forgotten_after_the_window(parts) -> None:
     service, users, _modes, _usage, clock = parts
     await install(service, users, "session-a")

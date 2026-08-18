@@ -496,8 +496,12 @@ class AutomationService:
             self._last_pair = self._pair(vision)
             self._vision_recovery_baseline_required = unusable_upgrade
             expected_generation = self._snapshot.generation
-        # 아는 얼굴이면 먼저 인사를 건넨다. 되든 안 되든 자동화는 그대로 간다.
-        if greet_profile_id is not None and self._greeter is not None:
+        # 아는 얼굴이면 먼저 인사를 건넨다. 다만 쓰던 모드를 아직 기억하고 있다면
+        # 잠깐 자리를 비웠다 돌아온 것이므로 같은 방문으로 보고 말을 걸지 않는다.
+        # 모드 기억과 같은 신호를 써서 두 시간이 어긋나지 않게 한다.
+        # (_remember_mode는 아래에서 갱신되므로 여기서는 직전 방문이 보인다.)
+        if (greet_profile_id is not None and self._greeter is not None
+                and self._recall_mode(greet_profile_id) is None):
             self._greeter.greet(greet_profile_id)
         # 새 session이 모드를 물고 들어온 시점부터 사용 시간을 다시 센다.
         self._remember_mode(installed_profile_id, installed_mode.key if installed_mode else None)
