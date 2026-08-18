@@ -1,0 +1,83 @@
+/* 워크 리듬 리포트. 색은 검증된 categorical slot을 role로만 참조한다. */
+.rhythm-root{
+  color-scheme:light;
+  --series-1:#2a78d6;--series-2:#eb6834;--series-3:#1baf7a;--series-4:#eda100;--series-5:#e87ba4;
+  --series-other:#8a8f98;
+  --grid:#e7e9ed;
+}
+@media(prefers-color-scheme:dark){
+  :root:where(:not([data-theme=light])) .rhythm-root{
+    color-scheme:dark;
+    --series-1:#3987e5;--series-2:#d95926;--series-3:#199e70;--series-4:#c98500;--series-5:#d55181;
+    --series-other:#9198a3;
+    --grid:#30343e;
+  }
+}
+:root[data-theme=dark] .rhythm-root{
+  color-scheme:dark;
+  --series-1:#3987e5;--series-2:#d95926;--series-3:#199e70;--series-4:#c98500;--series-5:#d55181;
+  --series-other:#9198a3;
+  --grid:#30343e;
+}
+
+.rhythm-page{min-height:100vh;background:var(--bg);color:var(--text)}
+.rhythm-main{width:min(1000px,calc(100% - 56px));margin:auto;padding:56px 0 90px}
+.rhythm-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:34px}
+.rhythm-head p{margin:0 0 10px;color:var(--accent);font:700 12px 'DM Sans';letter-spacing:.15em}
+.rhythm-head h1{margin:0 0 8px;font-size:38px;letter-spacing:-.04em}
+.rhythm-head span{color:var(--muted);font-size:14px}
+.rhythm-back{border:1px solid var(--line);border-radius:10px;padding:9px 13px;background:var(--card);color:var(--text);font-size:13px;font-weight:700;cursor:pointer}
+
+.rhythm-hero{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:22px}
+.rhythm-stat{flex:1 1 180px;padding:18px 20px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+.rhythm-stat span{display:block;color:var(--muted);font-size:12px}
+.rhythm-stat b{display:block;margin-top:7px;font:700 26px 'DM Sans';letter-spacing:-.02em}
+.rhythm-stat small{display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--muted);font-size:12px}
+
+.rhythm-card{margin-top:18px;padding:24px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+.rhythm-card h2{margin:0 0 4px;font-size:17px}
+.rhythm-card>p{margin:0 0 20px;color:var(--muted);font-size:13px}
+
+.rhythm-legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:18px}
+.rhythm-legend span{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+.rhythm-swatch{width:11px;height:11px;border-radius:3px;flex:none}
+
+/* 일별 스택 막대. 세그먼트 사이 2px 표면 간격으로 경계를 만든다. */
+.rhythm-bars{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;align-items:end;height:230px}
+.rhythm-day{display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:8px}
+.rhythm-stack{display:flex;flex-direction:column-reverse;gap:2px;justify-content:flex-start;border-radius:4px}
+.rhythm-seg{width:100%;min-height:3px}
+.rhythm-stack>.rhythm-seg:first-child{border-radius:0 0 4px 4px}
+.rhythm-stack>.rhythm-seg:last-child{border-radius:4px 4px 0 0}
+.rhythm-empty-day{height:3px;border-radius:3px;background:var(--grid)}
+.rhythm-daylabel{display:block;text-align:center;color:var(--muted);font-size:11px}
+.rhythm-daylabel b{display:block;color:var(--text);font-size:12px;font-weight:700}
+
+.rhythm-split{display:grid;gap:10px;margin-top:4px}
+.rhythm-row{display:grid;grid-template-columns:96px 1fr auto;align-items:center;gap:12px}
+.rhythm-row span{color:var(--text);font-size:13px;display:flex;align-items:center;gap:7px;min-width:0}
+.rhythm-row span i{font-style:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rhythm-track{height:10px;border-radius:5px;background:var(--grid);overflow:hidden}
+.rhythm-fill{height:100%;border-radius:5px}
+.rhythm-row b{font:700 13px 'DM Sans';color:var(--text)}
+
+.rhythm-table{width:100%;margin-top:6px;border-collapse:collapse;font-size:13px}
+.rhythm-table th,.rhythm-table td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:right}
+.rhythm-table th:first-child,.rhythm-table td:first-child{text-align:left}
+.rhythm-table th{color:var(--muted);font-weight:700;font-size:12px}
+.rhythm-scroll{overflow-x:auto}
+.rhythm-note{margin:16px 0 0;color:var(--muted);font-size:12px;line-height:1.6}
+.rhythm-empty{margin:0;padding:28px;text-align:center;color:var(--muted);font-size:13px}
+
+@media(max-width:650px){
+  .rhythm-main{width:min(100% - 28px,1000px);padding-top:34px}
+  .rhythm-head{flex-direction:column;align-items:flex-start}
+  .rhythm-bars{gap:6px;height:180px}
+  .rhythm-row{grid-template-columns:76px 1fr auto;gap:8px}
+}
+
+/* 대시보드 카드 안의 7일 미니 막대. 값은 페이지에서 읽고 여기서는 형태만 준다. */
+.rhythm-mini{display:flex;align-items:flex-end;gap:5px;height:56px;margin-top:20px}
+.rhythm-mini i{flex:1;border-radius:3px 3px 0 0;min-height:4px}
+/* 6번째 카드는 격자에서 두 칸을 쓴다(.c0,.c1과 같은 규칙). */
+.card.c5{grid-column:span 2}
