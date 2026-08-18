@@ -130,17 +130,24 @@ function SmatyDashboard() {
     : desk.value?.direction === "DOWN" ? "내려가는 중" : "이동 중";
   const tiltBusyLabel = tilt.value?.status === "MOVING" ? "틸팅 중" : null;
 
+  // 앉기·서기 높이를 직접 고치면 그 값이 곧 이번에 갈 목표가 된다. 슬라이더가
+  // 같이 움직여, 적용 전에 어디로 갈지 화면에서 그대로 보인다.
+  const editStoredHeight = (key: "sitting" | "standing", value: number) => {
+    if (key === "sitting") setSittingHeight(value); else setStandingHeight(value);
+    if (Number.isFinite(value) && value >= MIN_HEIGHT && value <= MAX_HEIGHT) setTargetHeight(value);
+  };
+
   const applyHeight = async () => {
     try {
-      if (profile) setProfile(await updateProfile(profile.id, { sittingHeightCm: sittingHeight, standingHeightCm: standingHeight }));
-      if (automationMode === "MANUAL" || !expectedSessionId) {
-        await setTarget(targetHeight);
-        await desk.refresh();
-        toast("목표 높이 이동을 요청했어요.");
-      } else {
-        toast("AUTO 모드에서는 감지된 자세에 따라 서버가 높이를 결정합니다. 프로필 높이만 저장했어요.");
+      // 저장한 높이를 프로필에 반영하고, 그 값으로 실제로 옮긴다. 목표를 직접
+      // 주면 서버가 수동 제어로 전환하므로 AUTO에서도 그대로 움직인다.
+      if (profile) {
+        setProfile(await updateProfile(profile.id, { sittingHeightCm: sittingHeight, standingHeightCm: standingHeight }));
       }
+      await setTarget(targetHeight);
+      await Promise.allSettled([desk.refresh(), automation.refresh()]);
       close();
+      toast(`${targetHeight.toFixed(1)}cm로 이동을 요청했어요.`);
     } catch (error) { toast(errorText(error)); }
   };
 
@@ -191,7 +198,7 @@ function SmatyDashboard() {
     </main><footer>SMATY <span>나에게 맞춰지는 더 나은 작업 환경</span></footer>
     {notice && <div className="toast" role="status">✓ {notice}</div>}
     {panel && <div className="shade" onMouseDown={close}><section className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="x" type="button" onClick={close} aria-label="닫기">×</button>
-      {panel === "height" && <><Title icon="height" eyebrow="DESK HEIGHT" title="높이 및 제어 설정" /><div className="tabs"><button type="button" className={automationMode === "AUTO" ? "on" : ""} onClick={() => void changeControlMode("AUTO")}>자동 제어</button><button type="button" className={automationMode === "MANUAL" ? "on" : ""} onClick={() => void changeControlMode("MANUAL")}>수동 제어</button></div><div className="read"><span>목표 높이</span><b>{targetHeight.toFixed(1)} cm</b></div><input className="range" aria-label="목표 높이" type="range" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.5" value={targetHeight} onChange={(event) => setTargetHeight(Number(event.target.value))} /><div className="twocol"><Field title="앉은 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={sittingHeight} onChange={(event) => setSittingHeight(Number(event.target.value))} /></Field><Field title="서있는 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={standingHeight} onChange={(event) => setStandingHeight(Number(event.target.value))} /></Field></div><Primary disabled={!deskOnline} onClick={() => void applyHeight()}>설정 적용하기</Primary></>}
+      {panel === "height" && <><Title icon="height" eyebrow="DESK HEIGHT" title="높이 및 제어 설정" /><div className="tabs"><button type="button" className={automationMode === "AUTO" ? "on" : ""} onClick={() => void changeControlMode("AUTO")}>자동 제어</button><button type="button" className={automationMode === "MANUAL" ? "on" : ""} onClick={() => void changeControlMode("MANUAL")}>수동 제어</button></div><div className="read"><span>목표 높이</span><b>{targetHeight.toFixed(1)} cm</b></div><input className="range" aria-label="목표 높이" type="range" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.5" value={targetHeight} onChange={(event) => setTargetHeight(Number(event.target.value))} /><div className="twocol"><Field title="앉은 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={sittingHeight} onChange={(event) => editStoredHeight("sitting", Number(event.target.value))} /></Field><Field title="서있는 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={standingHeight} onChange={(event) => editStoredHeight("standing", Number(event.target.value))} /></Field></div><Primary disabled={!deskOnline} onClick={() => void applyHeight()}>설정 적용하기</Primary></>}
       {panel === "led" && <><Title icon="led" eyebrow="LED LIGHT" title="조명 설정" /><div className="power"><span><b>LED 전원</b><small>{ledOn ? "조명이 켜져 있어요" : "조명이 꺼져 있어요"}</small></span><button type="button" className={ledOn ? "on" : ""} onClick={() => setLedOn((value) => !value)} aria-label="LED 전원"><i /></button></div><Field title="모든 색상에서 선택"><div className="color"><input type="color" value={`#${color}`} onChange={(event) => setColor(event.target.value.slice(1).toUpperCase())} /><b>#{color}</b></div></Field><div className="swatches">{["765CF6", "50C59D", "F5B544", "F06C7E", "4D9CF0", "FFFFFF"].map((item) => <button type="button" key={item} aria-label={`#${item}`} style={{ background: `#${item}` }} onClick={() => setColor(item)} />)}</div><p className="modal-note">지금 조명에만 적용하는 일회성 설정이에요. 작업 모드를 바꾸면 그 모드에 저장된 색으로 돌아갑니다.</p><Primary onClick={() => void applyLed()}>조명에 적용하기</Primary></>}
       {panel === "mode" && <><Title icon="mode" eyebrow="WORK MODE" title="모드 선택" /><div className="options">{modes.length ? modes.map((mode) => <button type="button" key={mode.key} className={selectedMode?.key === mode.key ? "on" : ""} onClick={() => void chooseMode(mode)}><Icon name="mode" /><span><b>{mode.name}{mode.ledColor && <i className="swatch" style={{ background: `#${mode.ledColor}` }} />}</b><small>{modeSubtitle(mode)}</small></span>{selectedMode?.key === mode.key && "✓"}</button>) : <p className="modal-note">등록 사용자가 인식되면 저장한 작업 모드를 선택할 수 있어요.</p>}</div></>}
       {panel === "tilt" && <><Title icon="tilt" eyebrow="DESK TILTING" title="틸팅 단계 선택" /><p className="desc">{tilt.value?.detail ?? "틸팅 제어 장치를 확인하고 있습니다."}</p><div className="tilts">{tiltLevels.map((level, index) => <button type="button" key={level} className={tilt.value?.level === level ? "on" : ""} disabled={!tiltCanMove} onClick={() => void chooseTiltLevel(level)}><span style={{ transform: `rotate(${-index * 4}deg)` }}>━</span><b>{level}단계</b><small>{level === tilt.value?.level ? "현재 단계" : "이동"}</small></button>)}</div>{tilt.value?.status === "MOVING" && <Primary onClick={() => void stopTiltMotion()}>틸팅 정지</Primary>}{!tiltLevels.length && <p className="modal-note">단계 설정을 불러오지 못했습니다.</p>}</>}
