@@ -39,7 +39,7 @@
 - AUTO mode 선택은 fresh 자세로 목표를 재평가하고 MANUAL에서는 책상을 움직이지 않는다.
 - 설정값 수정은 active session에 즉시 반영되지 않고 다음 선택부터 적용된다.
 - 같은 session에서 AUTO를 다시 선택하면 이전 자세 후보를 버리고 fresh 자세를 5초 확인한다.
-- 다중·count 불일치·Vision 만료는 AUTO만, 센서·릴레이 오류는 모든 이동을 STOP한다.
+- 상단 다중·Vision 만료는 AUTO만, 센서·릴레이 오류는 모든 이동을 STOP한다.
 - fresh VACANT 30초 뒤에만 75cm park하고 사람 후보·수동 명령에서 즉시 취소한다.
 - stale session control/activity mode 요청은 `409`, HOLD·직접 높이·STOP은 session 없이 처리한다.
 - 추론 중에도 health와 STOP 응답이 지연되지 않는다.

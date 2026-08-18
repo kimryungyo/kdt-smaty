@@ -50,12 +50,14 @@ def pose_output(*, confidences: tuple[float, ...] = (0.9,), legs: tuple[str, str
     return output
 
 
-def test_counts_all_confident_end_to_end_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lower_uses_highest_confidence_pose_without_using_people_count_for_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     frame = np.zeros((640, 640, 3), dtype=np.uint8)
     assert make_detector(monkeypatch, pose_output(confidences=())).detect_lower(frame).count == 0
     assert make_detector(monkeypatch, pose_output()).detect_lower(frame).posture is PostureStatus.SITTING
     multiple = make_detector(monkeypatch, pose_output(confidences=(0.9, 0.8))).detect_lower(frame)
-    assert multiple.count == 2 and multiple.posture is PostureStatus.UNKNOWN
+    assert multiple.count == 2 and multiple.posture is PostureStatus.SITTING
 
 
 def test_same_pose_model_counts_upper_presence_without_requiring_visible_face(monkeypatch: pytest.MonkeyPatch) -> None:

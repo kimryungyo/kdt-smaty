@@ -89,26 +89,25 @@ session 시작은 `PRESENT_SINGLE`과 자세를 3초 확인하고 session 생성
 `postureTransitionHoldSeconds`를 다시 더하지 않는다. 5초 자세 전환 확인은 최초 목표 이후
 앉음↔섬 전환과 같은 session에서 사용자가 `MANUAL`에서 `AUTO`를 다시 선택한 경우에 적용한다.
 
-## 두 카메라 관측 결합
+## 상단 재실과 하단 자세 결합
 
 첫 구현은 사람 Re-ID 없이 단일 책상·단일 사용자 조건만 지원한다.
 
 ```text
-상단 카메라 전체 화각: 몸체 또는 얼굴 한 명
+상단 카메라 전체 화각: person count 한 명
 AND
-하단 카메라 전체 화각: 하체 한 명
+하단 카메라 전체 화각: confidence가 가장 높은 pose 한 명
 AND
 두 frame과 detector 결과가 fresh하고 허용 시각 차이 안
 → PRESENT_SINGLE 후보
 ```
 
-상단 얼굴과 몸체가 함께 검출돼도 두 사람으로 합산하지 않고 한 사람의 존재 근거로 결합한다.
-몸체 또는 얼굴 한쪽만 상단에서 보여도 하단의 fresh한 하체 한 명과 결합할 수 있다. 두
-카메라 count가 다르거나 어느 자세가 한 사람에게 귀속되는지 불명확하면 결합 상태를
-사용 불가로 만들고 새 AUTO 목표를 금지한다.
+상단 얼굴은 신원 확인에만 쓰고 person count에 더하지 않는다. 상단에서 두 명 이상이 검출되면
+즉시 AUTO를 STOP·차단한다. 하단은 여러 사람이 검출돼도 가장 높은 score의 pose 한 명만 사용하며,
+하단 count와 상단 count의 불일치는 결합 상태나 AUTO 차단 근거가 아니다.
 
 허용 frame 시각 차이와 detector threshold의 실제 수치는 카메라 설치 후 task 04에서
-측정하지만, 두 카메라 singleton과 freshness를 생략하는 운영 fallback은 두지 않는다.
+측정하지만, 상단 재실과 하단 자세 freshness를 생략하는 운영 fallback은 두지 않는다.
 
 ## session 시작
 
@@ -141,7 +140,7 @@ session 없음
   → SITTING이면 75cm, STANDING이면 110cm
 ```
 
-2초 대기 중 자세 변경, 사람 후보 이탈, `MULTIPLE`, count 불일치, frame 만료, session 전환,
+2초 대기 중 자세 변경, 상단 사람 후보 이탈 또는 `MULTIPLE`, frame 만료, session 전환,
 수동 명령 또는 장치 오류가 발생하면 최초 목표를 취소한다. 자세가 `UNKNOWN`이면 session만
 시작하고 자세가 새로 안정화될 때까지 이동하지 않는다.
 
@@ -150,7 +149,7 @@ session 없음
 fresh한 `PRESENT_SINGLE`이 끊기지 않는 동안 얼굴이 계속 보이지 않아도 현재 session,
 profile 귀속, control mode와 activity mode를 유지한다. v1에는 주기적 얼굴 재확인 timeout을 두지 않으며 등록
 session의 AUTO 자세 제어와 Agent 대화 session도 계속 사용할 수 있다. 단, 아래의
-`MULTIPLE`·count 불일치 정책에서는 보존만 하고 개인화에 접근하지 않는다.
+상단 `MULTIPLE` 정책에서는 보존만 하고 개인화에 접근하지 않는다.
 
 이 정책은 A와 B가 `VACANT`나 `MULTIPLE` 없이 교대하고 B 얼굴도 보이지 않으면 A session이
 남을 수 있다는 알려진 제한이 있다. 단기 단일 책상 프로젝트에서는 수용하며 실측에서 반복
@@ -186,11 +185,11 @@ A 얼굴이 안 보이거나 품질이 낮다는 이유로 전환하지 않는�
 오류와 stale frame은 이 전환 근거가 아니다. A와 미등록 얼굴이 동시에 보이면 익명 전환이
 아니라 `MULTIPLE` 정책을 적용한다.
 
-### 다중 사용자와 count 불일치
+### 상단 다중 사용자와 자세 불확실성
 
-`MULTIPLE`, 카메라 count 불일치 또는 자세 불확실성이 3초 관측창에서 70% 이상이면 현재
-session과 두 mode를 유지하되 AUTO generation과 진행 AUTO 이동을 STOP하고 자세 후보를
-초기화한다. 한두 frame의 단발 오탐은 raw 상태에만 남기고 기존 stable 상태와 AUTO를 유지한다.
+상단 `MULTIPLE`은 raw 검출 즉시 진행 AUTO 이동을 STOP하고 새 AUTO를 차단한다. 상단 다중 또는
+자세 불확실성이 3초 관측창에서 70% 이상이면 현재 session과 두 mode를 유지하되 자세 후보를
+초기화한다. 하단 다중 검출은 최고 score pose 선택으로 흡수하며 AUTO 차단 사유가 아니다.
 카메라 단절과 stale은 즉시 STOP·차단한다. 단일 detector 예외·결과 누락은 `UNKNOWN` 표로
 처리하고, 3초 관측창의 다수를 차지하는 지속 장애에서 STOP·차단한다.
 Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
@@ -239,7 +238,7 @@ ESP32 안전 오류는 AUTO와 수동 이동을 모두 차단한다. STOP은 어
 두 mode와 session 제거, WLED OFF best-effort 요청, park 후보 시작이다. WLED 실패는 STOP과
 session 종료를 rollback하지 않는다.
 
-session 종료 뒤 두 카메라의 fresh한 `VACANT`가 30초 동안 계속되고 새 session·활성 수동
+session 종료 뒤 상단의 fresh한 `VACANT`가 30초 동안 계속되고 새 session·활성 수동
 의도가 없으며 장치가 준비된 경우에만 75cm `PARK` 목표를 만든다. 다음 사건은 park 대기 또는 진행
 이동을 즉시 취소하고 진행 PARK 이동을 STOP한다.
 
@@ -281,7 +280,7 @@ current `sessionId`가 바뀌거나 없어지면 Dashboard는 이전 session의 
 중 TTS와 조건부 follow-up을 취소하고 해당 SDK 대화 session을 폐기한다. 취소와 경합해 늦게
 도착한 transcript, tool 결과, audio와 Dashboard event는 같은 `turnId`라도 모두 버린다.
 
-session 없음 또는 `MULTIPLE`·count 불일치 중 허용하는 일반 질문은 임시 비개인화 session을
+session 없음 또는 상단 `MULTIPLE` 중 허용하는 일반 질문은 임시 비개인화 session을
 사용한다. 이 실행은 기존 사용자 Agent session과 Mem0를 읽거나 쓰지 않으며 묶음 종료 후
 폐기한다. 조건부 follow-up도 `request_followup` 요청이 있고 현재 정책을 재검증한 경우에만
 연다.
@@ -334,7 +333,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 | A 중 고품질 미등록 얼굴 3초 | 새 익명 | 새 AUTO / 없음 | 기본 자세 재안정화 | A AUTO STOP | 게스트로 전환 |
 | AUTO에서 작업 모드 변경 | 유지 | AUTO / 새 mode | fresh 자세로 새 목표 평가 | 필요 시 안전 교체 | 새 mode·LED |
 | MANUAL에서 작업 모드 변경 | 유지 | MANUAL / 새 mode | 없음 | 이동 없음 | 새 mode·LED |
-| `MULTIPLE`/count 불일치 | 기존 session 유지 | 유지 | BLOCKED | AUTO만 STOP | 자동 일시 중지 |
+| 상단 `MULTIPLE` | 기존 session 유지 | 유지 | BLOCKED | AUTO 즉시 STOP | 자동 일시 중지 |
 | 자세 또는 관련 frame stale | 기존 session 유지 | 유지 | BLOCKED | AUTO만 STOP | 원인 표시 |
 | 안정 `VACANT` | 없음 | 없음 | PARK_WAITING | AUTO STOP | 사용자 없음 |
 | fresh `VACANT` 30초 | 없음 | 없음 | 75cm PARK | 조건 유지 시 시작 | 주차 이동 표시 |
@@ -347,7 +346,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 ## 후속 task 테스트 계약
 
 - distinct frame과 monotonic fake clock으로 3초 재실·자세·미등록 얼굴 안정화를 재현한다.
-- 상단 몸체 또는 얼굴과 하단 하체가 각각 단일 관측일 때만 결합 재실을 만든다.
+- 상단 person count만으로 재실을 만들고, 하단 여러 pose 중 최고 score 한 명의 자세를 쓴다.
 - 얼굴 없이 익명 session이 생기고 2초 지연 뒤 자세에 따라 정확히 75/110cm 목표를 한 번만
   만든다.
 - 최초 이동 대기 중 자세·재실·session·수동 명령과 frame freshness 변화가 목표를 취소한다.
@@ -359,7 +358,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 - A→B는 새 session ID, AUTO와 새 자세 안정화를 사용한다.
 - 최초 목표 이후 등록·익명 자세 전환과 명시적 AUTO 재활성화는 모두 fresh 자세 5초를
   요구한다.
-- `MULTIPLE`, count 불일치와 stale frame은 AUTO만 STOP하고 수동 명령은 허용한다.
+- 상단 `MULTIPLE`과 stale frame은 AUTO만 STOP하고 수동 명령은 허용한다.
 - height·relay 오류는 AUTO와 수동을 차단하며 STOP은 항상 접수한다.
 - 안정 VACANT 전에 session을 끝내지 않고 fresh VACANT 30초 전에는 park하지 않는다.
 - park 중 사람 후보·수동 명령·장치 오류가 generation을 무효화하고 STOP한다.
@@ -394,7 +393,7 @@ session ID 또는 `null`을 제공한다. Dashboard는 성공처럼 표시하지
 
 - [x] 신원·재실·자세·session·control mode·activity mode·자동화를 별도 축으로 확정했다.
 - [x] 등록·익명 session 시작, 유지, 전환과 종료 규칙을 확정했다.
-- [x] 두 카메라 singleton 결합과 fail-closed 범위를 확정했다.
+- [x] 상단 단독 재실·하단 최고 score 자세와 fail-closed 범위를 확정했다.
 - [x] AUTO와 수동 제어의 Vision·장치 차단 범위를 분리했다.
 - [x] `expectedSessionId`, 오류 의미와 STOP 우선순위를 확정했다.
 - [x] 얼굴 lifecycle, 서버 재시작과 30초 park 순서를 확정했다.

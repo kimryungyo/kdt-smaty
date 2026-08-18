@@ -34,10 +34,10 @@ camera 검증이 필요하다.
 | 신원 | `AMBIGUOUS` | 후보 간 차이가 부족하거나 불확실 |
 | 신원 | `NO_FACE` | fresh frame에 얼굴이 보이지 않음 |
 | 신원 | `UNKNOWN` | frame/model 오류 또는 유효 관측 없음 |
-| 재실 | `PRESENT_SINGLE` | 두 카메라 전체 화각에서 한 명 |
+| 재실 | `PRESENT_SINGLE` | 상단 카메라 전체 화각에서 한 명 |
 | 재실 | `VACANT` | 이탈이 안정화됨 |
-| 재실 | `MULTIPLE` | 어느 카메라든 전체 화각에 여러 명 |
-| 재실 | `UNKNOWN` | count 불일치, stale 또는 귀속 불가 |
+| 재실 | `MULTIPLE` | 상단 카메라 전체 화각에 두 명 이상 |
+| 재실 | `UNKNOWN` | 상단 stale·모델 오류 또는 유효 count 없음 |
 | 자세 | `SITTING`, `STANDING`, `UNKNOWN` | 재실과 독립적인 자세 관측 |
 
 각 카메라 frame, 신원, 재실과 자세는 자체 `observedAt`과 `expiresAt` 또는 age를 가진다.
@@ -48,7 +48,7 @@ camera 검증이 필요하다.
 재실과 자세는 같은 값이 3초 내내 한 번도 끊기지 않아야 하는 연속 판정이 아니다. 현재
 stable 값과 다른 관측이 시작되면 3초 관측 묶음을 열고, 서로 다른 결합 frame 최소 3개 중
 70% 이상을 차지한 값을 다음 stable 값으로 채택한다. 표결 중에는 기존 stable 값을 유지한다.
-따라서 단발 `UNKNOWN`, `MULTIPLE`, count 불일치와 자세 오탐은 raw 상태에만 보이고 session과
+따라서 단발 `UNKNOWN`, 자세 오탐은 raw 상태에만 보이고 session과
 AUTO를 흔들지 않는다. 같은 이상이 관측 묶음의 다수를 차지하면 stable `UNKNOWN` 또는
 `MULTIPLE`로 전환해 AUTO를 차단한다.
 
@@ -60,20 +60,21 @@ AUTO를 흔들지 않는다. 같은 이상이 관측 묶음의 다수를 차지�
 운영 장비의 상·하단 직렬 추론 한 묶음은 약 0.8초이므로 frame/result 만료값은 3초로 둔다.
 이는 정상 처리 지연을 stale로 오판하지 않으면서 실제 입력 정지는 3초 안에 차단한다.
 
-## 두 카메라 결합
+## 상단 재실과 하단 자세 결합
 
 첫 구현은 Re-ID 없이 단일 책상 singleton만 결합한다.
 
 ```text
-상단 전체 화각의 몸체 또는 얼굴 한 명
-  + 하단 전체 화각의 하체 한 명
-  + 양쪽 fresh frame과 허용 시각 차이
+상단 전체 화각의 person count 한 명
+  + 하단 전체 화각에서 confidence가 가장 높은 pose 한 명
+  + 각 fresh frame과 허용 시각 차이
   → PRESENT_SINGLE 후보
 ```
 
-상단 얼굴과 몸체가 함께 검출돼도 같은 사람의 두 존재 근거로 결합하며 count를 더하지 않는다.
-두 카메라 count가 다르거나 자세를 한 사람에게 귀속할 수 없으면 AUTO 입력으로 사용하지
-않는다.
+상단 얼굴은 신원 식별 전용이며 person count에 더하지 않는다. 상단에서 두 명 이상이면 raw
+검출 한 번만으로도 진행 AUTO를 STOP하고 새 AUTO를 차단한다. 하단은 여러 pose가 있어도
+최고 confidence 한 명의 자세만 사용하며, 하단 count나 상단과의 count 불일치는 AUTO 차단
+근거가 아니다.
 
 현재 상단 재실 count는 YOLO pose 모델의 `person` 검출 수로 만들고, YuNet은 얼굴 box와
 profile 식별에만 사용한다. 따라서 서 있는 사용자의 얼굴이 상단 frame 밖에 있어도 상체가
@@ -101,7 +102,7 @@ session이 없으면 위 객체 전체가 `null`이다. control/activity mode와
 
 ### session 시작
 
-상단 몸체 또는 얼굴 한 명과 하단 하체 한 명, 자세가 3초 동안 안정화되면 session을 만든다.
+상단 person count 한 명과 하단 최고 score 자세가 각각 안정화되면 session을 만든다.
 
 - 등록 얼굴도 안정화됐으면 `REGISTERED` session
 - 등록 사용자가 확정되지 않았으면 `ANONYMOUS` session
@@ -127,7 +128,7 @@ false negative는 사용자 변경 근거가 아니다.
   session과 자세 안정화를 시작한다.
 - A 중 고품질 `UNKNOWN_FACE`가 3초 안정화되면 A AUTO와 session을 종료하고 새 익명 AUTO
   session을 시작한다. A와 미등록 얼굴이 동시에 보이면 `MULTIPLE`로 처리한다.
-- 안정화된 `MULTIPLE`, count 불일치와 관측 불확실성은 session을 유지하지만 AUTO를
+- 상단의 `MULTIPLE`과 관측 불확실성은 session을 유지하지만 AUTO를
   STOP·차단한다. 단발 추론 오탐은 위 3초 다수결에서 흡수한다.
   등록 session은 같은 얼굴 재확인, 익명 session은 단일 재실 3초 재안정화 뒤 AUTO 차단을
   해제한다.
@@ -190,13 +191,13 @@ background 식별과 재실 안정화를 새로 통과해야 다음 session이 �
 
 ## 자동화 입력과 Voice
 
-AUTO에는 현재 session, fresh `PRESENT_SINGLE`, 귀속 가능한 fresh 자세와 안전한 장치 상태가
-모두 필요하다. 다중·count 불일치·자세 또는 frame 만료는 AUTO만 차단하며 명시적 수동
+AUTO에는 현재 session, 상단의 fresh `PRESENT_SINGLE`, 하단 최고 score의 fresh 자세와 안전한 장치 상태가
+모두 필요하다. 상단 다중·자세 또는 frame 만료는 AUTO만 차단하며 명시적 수동
 제어는 허용한다.
 
 등록 session은 `profile:<profile_id>` 기억을 사용할 수 있다. 익명 session은 일반 Voice와
 session 범위의 짧은 history만 사용하고 profile 장기 기억을 읽거나 저장하지 않는다.
-`MULTIPLE`과 count 불일치에서는 등록 사용자 개인화를 일시 차단한다. Dashboard에서 편집한
+상단 `MULTIPLE`에서는 등록 사용자 개인화를 일시 차단한다. Dashboard에서 편집한
 profile을 Voice 사용자로 사용하지 않는다.
 
 `CurrentUserSessionService`는 Voice가 turn 시작 상태를 원자적으로 capture하고 실행 직전에

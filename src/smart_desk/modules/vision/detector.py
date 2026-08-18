@@ -163,14 +163,17 @@ class OpenCvYoloPoseLowerDetector:
         poses = tuple(
             self._pose_from_row(person, frame, scale, pad_x, pad_y) for person in people
         )
-        if count != 1:
+        if count == 0:
             return LowerDetection(count=count, pose_detections=poses)
+        # 하단은 재실 인원수를 결정하지 않는다. 여러 사람이 보이더라도 모델 confidence가
+        # 가장 높은 한 명을 자세 입력으로 선택해 주변 통행 때문에 AUTO를 막지 않는다.
+        selected = max(poses, key=lambda pose: pose.box.confidence or 0.0)
         keypoints = np.array(
-            [(keypoint.x, keypoint.y, keypoint.confidence) for keypoint in poses[0].keypoints],
+            [(keypoint.x, keypoint.y, keypoint.confidence) for keypoint in selected.keypoints],
             dtype=np.float32,
         )
         posture = self._posture_from_keypoints(keypoints)
-        return LowerDetection(count=1, posture=posture, pose_detections=poses)
+        return LowerDetection(count=count, posture=posture, pose_detections=poses)
 
     def _people(self, frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
         canvas, scale, pad_x, pad_y = self._letterbox(frame)

@@ -100,7 +100,7 @@ Dashboard polling이 중단돼도 사용자 이탈로 간주하지 않는다. �
 - 최초 AUTO 목표는 session 시작 뒤 2초 동안 조건이 유지돼야 한다.
 - 이후 자세 전환과 같은 session의 명시적 AUTO 재활성화는 자세를 5초 확인한다.
 - 얼굴이 안 보여도 fresh 단일 재실이 이어지면 session과 AUTO를 유지한다.
-- 다중·count 불일치는 session을 유지하고 AUTO만 STOP하며 수동 제어는 허용한다.
+- 상단 다중은 session을 유지하고 AUTO를 즉시 STOP하며 수동 제어는 허용한다.
 - 안정 VACANT로 session이 끝난 뒤 fresh VACANT 30초가 이어지면 75cm park를 시도한다.
 - 사용자 종속 control/activity mode·Voice Desk 명령은 `expectedSessionId`를 검증하고 STOP은 항상
   우선한다.

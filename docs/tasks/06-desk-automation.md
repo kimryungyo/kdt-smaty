@@ -69,7 +69,7 @@ control mode, activity mode와 자동화 상태는 같은 enum으로 합치지 �
 - [x] 익명 자세 목표는 앉음 75cm·섬 110cm로 선택한다.
 - [x] 현재 높이가 목표 허용 오차 안이면 새 이동을 만들지 않는다.
 - [x] 같은 자세·같은 목표를 frame마다 반복 설정하지 않는다.
-- [x] fake-driven 사용자 교대, 이탈, 미등록 얼굴 전환, 다중 사용자와 freshness 만료를
+- [x] fake-driven 사용자 교대, 이탈, 미등록 얼굴 전환, 상단 다중 사용자와 freshness 만료를
   결정표대로 STOP 또는 BLOCK 처리한다. 실제 Vision·hardware 입력 검증은 남아 있다.
 - [x] 익명 AUTO 중 등록 identity 확정은 현재 목표를 안전하게 profile 목표로 교체한다.
 - [x] fresh VACANT 30초 뒤 75cm PARK를 만들고 사람 후보·수동 명령에서 취소한다.
@@ -136,7 +136,7 @@ Vision 불확실성 STOP을 확인했다. 기본값과 배포 예시는 안전�
   이어 받아 profile 기본 작업 모드 목표로 교체할 수 있다.
 - 익명 앉음·섬은 75/110cm 목표를 정확히 한 번 만들고 activity mode를 제공하지 않는다.
 - 앉음→섬과 섬→앉음은 고정 5초 뒤 목표를 한 번만 설정한다.
-- 흔들리는 자세, 다중·count 불일치와 stale frame은 timer를 잘못 이어가지 않는다.
+- 흔들리는 자세, 상단 다중과 stale frame은 timer를 잘못 이어가지 않는다.
 - 직접 목표·HOLD는 먼저 MANUAL로 바뀌고 이전 자동 목표를 무효화하며 active 작업 모드를 유지한다.
 - MANUAL에서는 자세가 바뀌어도 자동 목표가 생성되지 않는다.
 - 이전 session ID, 다른 profile activity mode와 오래된 generation을 거절한다.

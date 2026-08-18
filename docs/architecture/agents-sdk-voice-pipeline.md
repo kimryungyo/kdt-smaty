@@ -233,7 +233,7 @@ TTS 중 사용자의 끼어들기, AEC와 barge-in은 범위에서 제외한다.
 - `ANONYMOUS`: `sessionId`용 SDK memory session만 사용한다.
 - session 없음: Wake Word와 그 조건부 follow-up 묶음에만 유효한 임시 비개인화 session을
   사용하고 종료 후 폐기한다.
-- `MULTIPLE` 또는 count 불일치: 기존 사용자 session memory는 보존하지만 읽거나 쓰지 않는다.
+- 상단 `MULTIPLE`: 기존 사용자 session memory는 보존하지만 읽거나 쓰지 않는다.
   일반 질문은 별도 임시 비개인화 session으로 처리한다.
 - 익명→등록, A→B, A→익명, `VACANT` 종료: 항상 새 `sessionId`이므로 이전 SDK session을
   폐기한다. 같은 profile이 나중에 돌아와도 새 session이다.
