@@ -21,6 +21,7 @@ from smart_desk.modules.profiles.usage import ActivityModeUsageRepository
 from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.modules.tilt.controller import TiltController
 from smart_desk.modules.tilt.level_repository import TiltLevelRepository
+from smart_desk.modules.tilt.mqtt_link import TiltMqttLink
 from smart_desk.modules.tilt.serial_link import TiltSerialLink
 from smart_desk.modules.wled.client import WledClient
 from smart_desk.modules.vision import (
@@ -195,7 +196,12 @@ def build_container(settings: Settings) -> AppContainer:
             max_level=settings.tilt.max_level,
             move_duty_percent=settings.tilt.move_duty_percent,
         )
-        tilt_link = TiltSerialLink(settings.tilt)
+        # relay와 같은 결로 기본은 MQTT다. 보드를 직접 물려 확인할 때만 serial로 둔다.
+        tilt_link = (
+            TiltMqttLink(mqtt, settings.tilt)
+            if settings.tilt.transport == "mqtt"
+            else TiltSerialLink(settings.tilt)
+        )
         tilt = TiltController(tilt_link, tilt_levels, mqtt, settings.tilt, task_manager)
         container.tilt = tilt
         mqtt.register_handler(

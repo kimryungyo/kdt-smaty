@@ -96,6 +96,9 @@ class TiltSettings(BaseModel):
     """
 
     enabled: bool = False
+    # 장치와 어떻게 이야기할지. relay와 맞춰 mqtt를 기본으로 쓰고, 보드를
+    # 직접 물려 확인할 때만 serial로 되돌린다.
+    transport: Literal["mqtt", "serial"] = "mqtt"
     # 이 환경에는 ESP32-C3 native USB 장치가 relay-controller와 틸트 보드
     # 두 개 있어 glob 자동탐색은 쓰지 않는다. 실측된 by-id 경로로 고정한다.
     serial_port: str = (
