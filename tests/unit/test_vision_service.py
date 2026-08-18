@@ -72,6 +72,7 @@ def make_service(
             stable_after_seconds=3,
             frame_stale_after_seconds=2,
             result_stale_after_seconds=2,
+            upper_inference_interval_seconds=0.01,
             lower_inference_interval_seconds=0.01,
         ),
         monotonic=clock.monotonic,

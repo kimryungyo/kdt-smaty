@@ -79,10 +79,10 @@ class UpperDetection:
 
     @property
     def count(self) -> int | None:
-        if self.body_count is None:
-            return len(self.face_boxes) if self.face_boxes else None
-        # 얼굴과 상단 몸체는 같은 사람의 복수 근거라 더하지 않는다.
-        return max(self.body_count, len(self.face_boxes))
+        # 재실 판단은 상단 몸체 detector만 책임진다. 얼굴은 프로필 식별의 보조
+        # 입력이므로, 얼굴이 검출됐다는 이유만으로 사람이 책상 ROI에 있다고
+        # 가정하지 않는다.
+        return self.body_count
 
 
 @dataclass(frozen=True, slots=True)

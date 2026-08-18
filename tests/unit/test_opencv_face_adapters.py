@@ -5,7 +5,11 @@ import pytest
 
 from smart_desk.modules.identity.opencv import OpenCvSFaceEmbeddingExtractor
 import smart_desk.modules.identity.opencv as sface_module
-from smart_desk.modules.vision.detector import CompositeVisionDetector, OpenCvYuNetUpperDetector
+from smart_desk.modules.vision.detector import (
+    CompositeVisionDetector,
+    OpenCvYuNetUpperDetector,
+    PresenceAndFaceUpperDetector,
+)
 import smart_desk.modules.vision.detector as yunet_module
 from smart_desk.modules.vision.models import FaceBox, FreshFaceObservation, LowerDetection, UpperDetection
 
@@ -22,25 +26,25 @@ class YuNet:
         return 0, self.rows
 
 
-def test_yunet_preserves_five_landmarks_and_raw_count(tmp_path, monkeypatch) -> None:
+def test_yunet_preserves_five_landmarks_without_claiming_presence(tmp_path, monkeypatch) -> None:
     model = tmp_path / "yunet.onnx"
     model.touch()
     fake = YuNet(np.array([[1, 2, 80, 90, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, .9]]))
     monkeypatch.setattr(yunet_module.cv2, "FaceDetectorYN", type("Factory", (), {"create": staticmethod(lambda *_args: fake)}))
     detector = OpenCvYuNetUpperDetector(model, score_threshold=.85, nms_threshold=.3, min_face_size=64)
     result = detector.detect_upper(np.zeros((120, 160, 3), dtype=np.uint8))
-    assert result.body_count == 1
+    assert result.body_count is None
     assert fake.size == (160, 120)
     assert result.face_boxes[0].landmarks == ((10.0, 11.0), (20.0, 21.0), (30.0, 31.0), (40.0, 41.0), (50.0, 51.0))
 
 
 @pytest.mark.parametrize("rows", [np.empty((0, 15)), None])
-def test_yunet_zero_rows_is_a_usable_zero_count(tmp_path, monkeypatch, rows) -> None:
+def test_yunet_zero_rows_leaves_presence_unavailable(tmp_path, monkeypatch, rows) -> None:
     model = tmp_path / "yunet.onnx"
     model.touch()
     monkeypatch.setattr(yunet_module.cv2, "FaceDetectorYN", type("Factory", (), {"create": staticmethod(lambda *_args: YuNet(rows))}))
     detector = OpenCvYuNetUpperDetector(model, score_threshold=.85, nms_threshold=.3, min_face_size=64)
-    assert detector.detect_upper(np.zeros((10, 10, 3), dtype=np.uint8)).body_count == 0
+    assert detector.detect_upper(np.zeros((10, 10, 3), dtype=np.uint8)).body_count is None
 
 
 @pytest.mark.parametrize("rows", [np.ones((1, 14)), np.full((1, 15), np.nan), np.array([[0] * 15])])
@@ -121,3 +125,25 @@ def test_composite_delegates_camera_roles_without_cross_inference() -> None:
     frame = np.zeros((1, 1, 3), dtype=np.uint8)
     assert detector.detect_upper(frame).body_count == 0
     assert detector.detect_lower(frame).count == 0
+
+
+def test_upper_presence_uses_pose_person_count_and_preserves_yunet_faces(monkeypatch) -> None:
+    class Person:
+        def detect_upper(self, _frame): return UpperDetection(1)
+        def detect_lower(self, _frame): raise AssertionError("wrong role")
+
+    class Faces:
+        def detect_upper(self, _frame):
+            return UpperDetection(None, (FaceBox(1, 2, 3, 4),))
+        def detect_lower(self, _frame): raise AssertionError("wrong role")
+
+    result = PresenceAndFaceUpperDetector(Person(), Faces()).detect_upper(
+        np.zeros((1, 1, 3), dtype=np.uint8)
+    )
+    assert result.body_count == result.count == 1
+    assert result.face_boxes == (FaceBox(1, 2, 3, 4),)
+
+
+def test_face_boxes_never_promote_presence_without_body_detector() -> None:
+    result = UpperDetection(None, (FaceBox(1, 2, 3, 4),))
+    assert result.count is None

@@ -58,6 +58,11 @@ camera 검증이 필요하다.
 두 카메라 count가 다르거나 자세를 한 사람에게 귀속할 수 없으면 AUTO 입력으로 사용하지
 않는다.
 
+현재 상단 재실 count는 YOLO pose 모델의 `person` 검출 수로 만들고, YuNet은 얼굴 box와
+profile 식별에만 사용한다. 따라서 서 있는 사용자의 얼굴이 상단 frame 밖에 있어도 상체가
+사람으로 검출되면 익명 재실·AUTO 후보가 될 수 있다. 반대로 얼굴 box만으로 재실 count를
+올리지 않는다.
+
 ## 사용자 session
 
 session snapshot은 최소한 다음 필드를 가진다.

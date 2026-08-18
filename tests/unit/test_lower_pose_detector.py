@@ -58,6 +58,12 @@ def test_counts_all_confident_end_to_end_rows(monkeypatch: pytest.MonkeyPatch) -
     assert multiple.count == 2 and multiple.posture is PostureStatus.UNKNOWN
 
 
+def test_same_pose_model_counts_upper_presence_without_requiring_visible_face(monkeypatch: pytest.MonkeyPatch) -> None:
+    frame = np.zeros((640, 640, 3), dtype=np.uint8)
+    detector = make_detector(monkeypatch, pose_output(confidences=(0.9,)))
+    assert detector.detect_upper(frame).body_count == 1
+
+
 def test_leg_geometry_uses_most_bent_valid_side(monkeypatch: pytest.MonkeyPatch) -> None:
     frame = np.zeros((640, 640, 3), dtype=np.uint8)
     assert make_detector(monkeypatch, pose_output(legs=("straight", "straight"))).detect_lower(frame).posture is PostureStatus.STANDING

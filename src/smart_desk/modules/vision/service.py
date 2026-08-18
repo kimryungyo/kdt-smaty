@@ -69,6 +69,7 @@ class VisionService:
         self._detector_lock = threading.Lock()
         self._last_upper_capture: float | None = None
         self._last_lower_capture: float | None = None
+        self._last_upper_inference_monotonic: float | None = None
         self._last_lower_inference_monotonic: float | None = None
         self._last_combined_pair: tuple[float, float] | None = None
         self._upper = self._empty_observation(upper_source)
@@ -125,7 +126,7 @@ class VisionService:
         lower_frame = self._new_frame(self._lower_source, self._last_lower_capture)
         jobs: list[asyncio.Future[object] | asyncio.Task[object]] = []
         kinds: list[tuple[str, LatestFrame]] = []
-        if upper_frame is not None:
+        if upper_frame is not None and self._upper_inference_due():
             kinds.append(("upper", upper_frame))
             jobs.append(asyncio.to_thread(self._detect_upper, upper_frame[0]))
         if lower_frame is not None and self._lower_inference_due():
@@ -136,6 +137,7 @@ class VisionService:
             for (kind, frame), result in zip(kinds, results, strict=True):
                 if kind == "upper":
                     self._last_upper_capture = frame[1]
+                    self._last_upper_inference_monotonic = self._monotonic()
                     self._upper = self._make_upper_observation(frame, result)
                 else:
                     self._last_lower_capture = frame[1]
@@ -212,6 +214,12 @@ class VisionService:
         previous = self._last_lower_inference_monotonic
         return previous is None or (
             self._monotonic() - previous >= self._settings.lower_inference_interval_seconds
+        )
+
+    def _upper_inference_due(self) -> bool:
+        previous = self._last_upper_inference_monotonic
+        return previous is None or (
+            self._monotonic() - previous >= self._settings.upper_inference_interval_seconds
         )
 
     def _make_upper_observation(self, frame: LatestFrame, result: object) -> CameraObservation:

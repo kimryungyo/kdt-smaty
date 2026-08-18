@@ -194,9 +194,11 @@ def test_default_storage_database_path() -> None:
 def test_lower_pose_settings_default_disabled_and_normalize_blank_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert VisionSettings().lower_pose_model_path is None
     monkeypatch.setenv("SMART_DESK_VISION__LOWER_POSE_MODEL_PATH", "   ")
+    monkeypatch.setenv("SMART_DESK_VISION__UPPER_INFERENCE_INTERVAL_SECONDS", "0.5")
     monkeypatch.setenv("SMART_DESK_VISION__LOWER_INFERENCE_INTERVAL_SECONDS", "0.5")
     settings = Settings(_env_file=None)
     assert settings.vision.lower_pose_model_path is None
+    assert settings.vision.upper_inference_interval_seconds == 0.5
     assert settings.vision.lower_inference_interval_seconds == 0.5
 
 
@@ -204,6 +206,12 @@ def test_lower_pose_settings_default_disabled_and_normalize_blank_path(monkeypat
 def test_lower_pose_inference_interval_has_valid_range(value: float) -> None:
     with pytest.raises(ValidationError):
         VisionSettings(lower_inference_interval_seconds=value)
+
+
+@pytest.mark.parametrize("value", [0, -1, 11])
+def test_upper_presence_inference_interval_has_valid_range(value: float) -> None:
+    with pytest.raises(ValidationError):
+        VisionSettings(upper_inference_interval_seconds=value)
 
 
 def test_storage_database_path_is_loaded_from_environment(

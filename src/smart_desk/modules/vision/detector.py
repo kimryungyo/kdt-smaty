@@ -43,8 +43,23 @@ class CompositeVisionDetector:
         return self._lower.detect_lower(frame)
 
 
+class PresenceAndFaceUpperDetector:
+    """상단 재실 인원과 얼굴 식별 근거를 독립 detector로 결합한다."""
+
+    def __init__(self, presence: VisionDetector, faces: VisionDetector) -> None:
+        self._presence, self._faces = presence, faces
+
+    def detect_upper(self, frame: np.ndarray) -> UpperDetection:
+        presence = self._presence.detect_upper(frame)
+        faces = self._faces.detect_upper(frame)
+        return UpperDetection(body_count=presence.body_count, face_boxes=faces.face_boxes)
+
+    def detect_lower(self, _frame: np.ndarray) -> LowerDetection:
+        return LowerDetection(count=None)
+
+
 class OpenCvYuNetUpperDetector:
-    """One YuNet inference produces face boxes and five landmarks."""
+    """YuNet 얼굴 검출기. 재실 인원 수는 판단하지 않는다."""
 
     _ROW_WIDTH = 15
 
@@ -65,7 +80,7 @@ class OpenCvYuNetUpperDetector:
         self._detector.setInputSize((int(frame.shape[1]), int(frame.shape[0])))
         _status, rows = self._detector.detect(frame)
         if rows is None:
-            return UpperDetection(body_count=0)
+            return UpperDetection(body_count=None)
         rows = np.asarray(rows)
         if rows.ndim != 2 or rows.shape[1] != self._ROW_WIDTH or not np.isfinite(rows).all():
             raise ValueError("Malformed YuNet output")
@@ -84,7 +99,7 @@ class OpenCvYuNetUpperDetector:
             if width < self._min_face_size or height < self._min_face_size:
                 continue
             boxes.append(FaceBox(int(x), int(y), int(width), int(height), landmarks, float(row[14])))
-        return UpperDetection(body_count=len(rows), face_boxes=tuple(boxes))
+        return UpperDetection(body_count=None, face_boxes=tuple(boxes))
 
     def detect_lower(self, _frame: np.ndarray) -> LowerDetection:
         return LowerDetection(count=None)
@@ -93,7 +108,8 @@ class OpenCvYuNetUpperDetector:
 class OpenCvYoloPoseLowerDetector:
     """OpenCV DNN YOLO pose 하단 detector.
 
-    상단 detector는 이번 단계의 범위 밖이므로 의도적으로 unavailable을 유지한다.
+    동일 ONNX를 상단에 별도 인스턴스로 조립하면, pose keypoint 여부와 무관하게
+    person confidence로 상체 재실 인원만 판정한다. 하단 인스턴스만 자세를 판정한다.
     """
 
     _OUTPUT_SHAPE = (1, 300, 57)
@@ -117,11 +133,23 @@ class OpenCvYoloPoseLowerDetector:
         self._min_knee_ankle_confidence = min_knee_ankle_confidence
         self._decision_threshold = decision_threshold
 
-    def detect_upper(self, _frame: np.ndarray) -> UpperDetection:
-        return UpperDetection(body_count=None)
+    def detect_upper(self, frame: np.ndarray) -> UpperDetection:
+        return UpperDetection(body_count=len(self._people(frame)))
 
     def detect_lower(self, frame: np.ndarray) -> LowerDetection:
-        canvas, scale, pad_x, pad_y = self._letterbox(frame)
+        people = self._people(frame)
+        count = len(people)
+        if count != 1:
+            return LowerDetection(count=count)
+        keypoints = people[0, 6:].reshape(17, 3).astype(np.float32)
+        _canvas, scale, pad_x, pad_y = self._letterbox(frame)
+        keypoints[:, 0] = (keypoints[:, 0] - pad_x) / scale
+        keypoints[:, 1] = (keypoints[:, 1] - pad_y) / scale
+        posture = self._posture_from_keypoints(keypoints)
+        return LowerDetection(count=1, posture=posture)
+
+    def _people(self, frame: np.ndarray) -> np.ndarray:
+        canvas, _scale, _pad_x, _pad_y = self._letterbox(frame)
         blob = cv2.dnn.blobFromImage(
             canvas, 1.0 / 255.0, (self._input_size, self._input_size), swapRB=True, crop=False
         )
@@ -132,15 +160,7 @@ class OpenCvYoloPoseLowerDetector:
                 f"Unexpected lower pose model output shape: {getattr(output, 'shape', None)!r}; "
                 f"expected {self._OUTPUT_SHAPE}"
             )
-        people = output[0][output[0, :, 4] >= self._min_person_confidence]
-        count = len(people)
-        if count != 1:
-            return LowerDetection(count=count)
-        keypoints = people[0, 6:].reshape(17, 3).astype(np.float32)
-        keypoints[:, 0] = (keypoints[:, 0] - pad_x) / scale
-        keypoints[:, 1] = (keypoints[:, 1] - pad_y) / scale
-        posture = self._posture_from_keypoints(keypoints)
-        return LowerDetection(count=1, posture=posture)
+        return output[0][output[0, :, 4] >= self._min_person_confidence]
 
     def _letterbox(self, frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
         if frame.ndim != 3 or frame.shape[0] <= 0 or frame.shape[1] <= 0:

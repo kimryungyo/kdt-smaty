@@ -21,6 +21,7 @@ from smart_desk.modules.serial.source import SerialLineSource
 from smart_desk.modules.wled.client import WledClient
 from smart_desk.modules.vision import (
     CompositeVisionDetector,
+    PresenceAndFaceUpperDetector,
     OpenCvYuNetUpperDetector,
     OpenCvYoloPoseLowerDetector,
     NoopVisionDetector,
@@ -227,21 +228,24 @@ def build_container(settings: Settings) -> AppContainer:
         )
     # Vision은 user(상단)와 posture(하단)만 소비한다. workspace 영상은 AI 작업공간
     # 역할이므로 편의상 자세 입력으로 대체하지 않는다.
-    upper_detector = NoopVisionDetector()
+    face_detector = NoopVisionDetector()
+    upper_presence_detector = NoopVisionDetector()
     lower_detector = NoopVisionDetector()
     if settings.face.detector_model_path is not None:
         try:
-            upper_detector = OpenCvYuNetUpperDetector(
+            face_detector = OpenCvYuNetUpperDetector(
                 settings.face.detector_model_path,
                 score_threshold=settings.face.detector_score_threshold,
                 nms_threshold=settings.face.detector_nms_threshold,
                 min_face_size=settings.face.min_face_size,
             )
         except Exception:
-            LOGGER.exception("Failed to load YuNet face model; using unavailable upper detector")
+            LOGGER.exception("Failed to load YuNet face model; face identification is unavailable")
     if settings.vision.lower_pose_model_path is not None:
         try:
-            lower_detector = OpenCvYoloPoseLowerDetector(
+            # 상단 재실과 하단 자세는 서로 다른 frame에서 실행되므로 model file은
+            # 재사용하되 DNN net 인스턴스는 분리한다.
+            upper_presence = OpenCvYoloPoseLowerDetector(
                 settings.vision.lower_pose_model_path,
                 input_size=settings.vision.lower_pose_input_size,
                 min_person_confidence=settings.vision.lower_pose_min_person_confidence,
@@ -249,10 +253,26 @@ def build_container(settings: Settings) -> AppContainer:
                 min_knee_ankle_confidence=settings.vision.lower_pose_min_knee_ankle_confidence,
                 decision_threshold=settings.vision.lower_pose_decision_threshold,
             )
+            lower = OpenCvYoloPoseLowerDetector(
+                settings.vision.lower_pose_model_path,
+                input_size=settings.vision.lower_pose_input_size,
+                min_person_confidence=settings.vision.lower_pose_min_person_confidence,
+                min_hip_confidence=settings.vision.lower_pose_min_hip_confidence,
+                min_knee_ankle_confidence=settings.vision.lower_pose_min_knee_ankle_confidence,
+                decision_threshold=settings.vision.lower_pose_decision_threshold,
+            )
+            upper_presence_detector, lower_detector = upper_presence, lower
         except Exception:
             LOGGER.exception(
-                "Failed to load lower YOLO pose model; using unavailable detector"
+                "Failed to load YOLO pose model; presence and posture detection are unavailable"
             )
+    if not isinstance(upper_presence_detector, NoopVisionDetector) and not isinstance(face_detector, NoopVisionDetector):
+        upper_detector = PresenceAndFaceUpperDetector(upper_presence_detector, face_detector)
+    elif not isinstance(upper_presence_detector, NoopVisionDetector):
+        upper_detector = upper_presence_detector
+    else:
+        # 얼굴 검출은 재실 detector가 없어도 얼굴 등록/식별을 계속 지원한다.
+        upper_detector = face_detector
     if not isinstance(upper_detector, NoopVisionDetector) and not isinstance(lower_detector, NoopVisionDetector):
         detector = CompositeVisionDetector(upper_detector, lower_detector)
     elif not isinstance(upper_detector, NoopVisionDetector):

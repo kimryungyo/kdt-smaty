@@ -369,6 +369,11 @@ class VisionSettings(BaseModel):
     max_camera_skew_seconds: float = Field(default=0.5, gt=0, le=10, allow_inf_nan=False)
     # 하단 YOLO pose는 선택 기능이다. 경로가 비어 있으면 Noop detector로 안전하게 동작한다.
     lower_pose_model_path: Path | None = None
+    # 같은 pose model을 상단 재실 인원 판정에도 별도 로드한다. 상단 얼굴 검출은
+    # 프로필 식별 전용이며, 이 주기는 CPU 과점을 막기 위해 독립적으로 둔다.
+    upper_inference_interval_seconds: float = Field(
+        default=0.5, gt=0, le=10, allow_inf_nan=False
+    )
     lower_inference_interval_seconds: float = Field(
         default=0.5, gt=0, le=10, allow_inf_nan=False
     )
