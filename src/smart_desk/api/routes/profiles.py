@@ -74,16 +74,27 @@ async def _is_current_user(profile_id: str) -> bool:
     )
 
 
-async def _require_pin(profile_id: str, supplied: str | None) -> None:
-    """현재 인식된 본인이 아니면 PIN 없이는 프로필을 건드리지 못하게 막는다."""
+async def _require_pin(
+    profile_id: str,
+    supplied: str | None,
+    *,
+    allow_current_user: bool = True,
+) -> None:
+    """PIN 없이는 프로필을 건드리지 못하게 막는다.
+
+    `allow_current_user`가 True면 얼굴로 인식된 본인은 그냥 통과시킨다. 삭제처럼
+    되돌릴 수 없는 작업은 본인이어도 PIN을 받도록 False로 호출한다.
+    """
 
     stored = await _run(lambda: get_container().profiles.get_pin_hash(profile_id))
-    if stored is None or await _is_current_user(profile_id):
+    if stored is None:
+        return
+    if allow_current_user and await _is_current_user(profile_id):
         return
     if supplied is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="현재 사용자가 아닌 프로필은 PIN을 입력해야 수정할 수 있습니다.",
+            detail="이 작업에는 프로필 PIN이 필요합니다.",
         )
     if not verify_pin(supplied, stored):
         raise HTTPException(
@@ -139,7 +150,9 @@ async def delete_profile(
     x_profile_pin: str | None = Header(default=None),
 ) -> Response:
     await _run(lambda: get_dashboard().get_profile(profile_id))
-    await _require_pin(profile_id, x_profile_pin)
+    # 삭제는 얼굴·작업 모드·기억까지 함께 지우고 되돌릴 수 없으므로 본인이어도
+    # PIN을 받는다.
+    await _require_pin(profile_id, x_profile_pin, allow_current_user=False)
     container = get_container()
     memory = container.profile_memory
     if memory is not None:

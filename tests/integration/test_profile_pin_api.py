@@ -155,6 +155,21 @@ async def test_recognized_owner_edits_without_pin(api) -> None:
     assert (await client.patch(f"/api/profiles/{profile_id}", json={"name": "본인변경"})).status_code == 200
 
 
+async def test_delete_needs_pin_even_for_the_recognized_owner(api) -> None:
+    client, current_user = api
+    profile_id = await _create(client)
+    await client.put(f"/api/profiles/{profile_id}/pin", json={"pin": "1234"})
+    current_user.profile_id = profile_id  # 본인이 인식돼 있어도 삭제는 막는다.
+
+    assert (await client.delete(f"/api/profiles/{profile_id}")).status_code == 401
+    assert (await client.delete(
+        f"/api/profiles/{profile_id}", headers={"X-Profile-Pin": "9999"}
+    )).status_code == 403
+    assert (await client.delete(
+        f"/api/profiles/{profile_id}", headers={"X-Profile-Pin": "1234"}
+    )).status_code == 204
+
+
 async def test_profile_without_pin_stays_open(api) -> None:
     client, current_user = api
     profile_id = await _create(client)
