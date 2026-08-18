@@ -462,6 +462,7 @@ def build_container(settings: Settings) -> AppContainer:
                         voice=voice,
                         wakeword=wakeword,
                         audio_input=audio_input,
+                        assistant_turns=container.assistant_turns,
                     ),
                     settings.voice_debug,
                     task_manager,
