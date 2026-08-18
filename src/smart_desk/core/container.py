@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.desk.relay import RelayClient
     from smart_desk.modules.media import WebRtcCameraPublisher, WebRtcFrameSource
     from smart_desk.modules.vision.service import VisionService
+    from smart_desk.modules.vision.remote import RemoteVisionService
     from smart_desk.modules.identity.service import FaceIdentityService
     from smart_desk.modules.identity.repository import FaceEmbeddingRepository
     from smart_desk.modules.identity.session import CurrentUserSessionService
@@ -80,7 +81,7 @@ class AppContainer:
     user_frame_source: WebRtcFrameSource | None = None
     workspace_frame_source: WebRtcFrameSource | None = None
     posture_frame_source: WebRtcFrameSource | None = None
-    vision: VisionService | None = None
+    vision: VisionService | RemoteVisionService | None = None
     face_embeddings: FaceEmbeddingRepository | None = None
     current_user: CurrentUserSessionService | None = None
     identity: FaceIdentityService | None = None

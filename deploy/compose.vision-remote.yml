@@ -1,0 +1,11 @@
+name: smart-desk-vision
+
+services:
+  vision:
+    image: ${SMART_DESK_VISION_IMAGE:?set SMART_DESK_VISION_IMAGE to an immutable image tag}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - ${SMART_DESK_VISION_ENV_FILE:?set SMART_DESK_VISION_ENV_FILE}
+    ports:
+      - "${SMART_DESK_VISION_BIND:-127.0.0.1}:9091:9091"

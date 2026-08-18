@@ -14,6 +14,7 @@ import uvicorn
 
 from smart_desk.config.settings import VoiceDebugSettings
 from smart_desk.core.task_manager import TaskManager
+from smart_desk.modules.assistant.turns import AssistantTurnStore
 from smart_desk.modules.voice.audio import LocalAudioInput
 from smart_desk.modules.voice.service import VoiceService
 from smart_desk.modules.voice.wakeword import LiveKitWakeWordOnnxDetector
@@ -31,16 +32,27 @@ class VoiceDebugView:
         voice: VoiceService,
         wakeword: LiveKitWakeWordOnnxDetector,
         audio_input: LocalAudioInput,
+        assistant_turns: AssistantTurnStore,
     ) -> None:
         self._voice = voice
         self._wakeword = wakeword
         self._audio_input = audio_input
+        self._assistant_turns = assistant_turns
 
-    def snapshot(self) -> dict[str, object]:
+    async def snapshot(self) -> dict[str, object]:
+        turn = await self._assistant_turns.latest()
+        response = None
+        if turn is not None:
+            response = {
+                "text": turn.detail or turn.summary,
+                "status": turn.status,
+                "updated_at": turn.updated_at,
+            }
         return {
             "voice": asdict(self._voice.get_snapshot()),
             "wakeword": asdict(self._wakeword.get_debug_snapshot()),
             "audio_input": asdict(self._audio_input.get_debug_snapshot()),
+            "assistant_response": response,
         }
 
 
@@ -142,7 +154,7 @@ def create_voice_debug_application(view: VoiceDebugView) -> FastAPI:
 
     @app.get("/api/snapshot")
     async def snapshot() -> dict[str, object]:
-        return view.snapshot()
+        return await view.snapshot()
 
     return app
 
@@ -171,6 +183,7 @@ DEBUG_PAGE = """<!doctype html>
     progress { width:100%; height:13px; margin-top:12px; accent-color:#49cfee; }
     section { margin-top:18px; } section > h2 { margin-bottom:10px; font-size:1rem; color:#cbd9de; }
     .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .response { white-space:pre-wrap; line-height:1.55; min-height:76px; }
     dl { display:grid; grid-template-columns:150px 1fr; gap:9px; margin:0; } dt { color:#82939c; } dd { margin:0; font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
     .privacy { margin-top:18px; padding:12px 14px; border-radius:10px; background:#271f12; color:#dfc689; font-size:.8rem; }
     @media(max-width:760px){header{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:repeat(2,1fr)}.score{grid-column:span 2}.two{grid-template-columns:1fr}}
@@ -191,7 +204,8 @@ DEBUG_PAGE = """<!doctype html>
     <article><h2>Microphone input</h2><dl id="audio"></dl></article>
     <article><h2>Wake Word telemetry</h2><dl id="wakewordTelemetry"></dl></article>
   </section>
-  <p class="privacy">이 페이지는 사용자 발화, 음성 응답, 개인 대화 문맥과 provider secrets를 표시하지 않습니다. 신뢰할 수 있는 디버그 환경에서만 사용하세요.</p>
+  <section><article><h2>AI response</h2><p id="assistantResponse" class="response muted">아직 응답이 없습니다.</p></article></section>
+  <p class="privacy">이 페이지는 최신 AI 응답 텍스트를 표시합니다. 사용자 발화, 개인 대화 문맥과 provider secrets는 표시하지 않습니다. 신뢰할 수 있는 디버그 환경에서만 사용하세요.</p>
 </main><script>
   const byId=(id)=>document.getElementById(id);
   const text=(id,value)=>{byId(id).textContent=value ?? "--"};
@@ -201,11 +215,12 @@ DEBUG_PAGE = """<!doctype html>
   const percent=(value)=>value==null ? "--" : `${(value*100).toFixed(3)}%`;
   const renderDl=(id,rows)=>{const root=byId(id);root.replaceChildren();for(const [key,value] of rows){const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=key;dd.textContent=String(value);root.append(dt,dd)}};
   const render=(data)=>{
-    const w=data.wakeword,v=data.voice,a=data.audio_input;
+    const w=data.wakeword,v=data.voice,a=data.audio_input,r=data.assistant_response;
     const score=w.score ?? 0;text("score",w.score==null?"warming up":w.score.toFixed(4));text("threshold",w.threshold.toFixed(2));byId("scoreBar").value=score;
     text("state",v.state);text("armed",w.armed?"ARMED":"DISARMED");text("streak",`${w.activation_streak} / ${w.consecutive_frames}`);text("followup",localTime(v.followup_expires_at));text("error",v.last_error);
     renderDl("audio",[["accepting",a.accepting],["queue",`${a.queue_size} / ${a.queue_capacity}`],["dropped",a.dropped_frames],["overflow",a.overflow_frames],["callback errors",a.callback_errors],["input RMS",dbfs(a.latest_rms_dbfs)],["input peak",dbfs(a.latest_peak_dbfs)],["recent peak",dbfs(a.recent_peak_dbfs)],["noise floor (est.)",dbfs(a.estimated_noise_floor_dbfs)],["SNR (est.)",a.estimated_snr_db==null ? "--" : `${a.estimated_snr_db.toFixed(1)} dB`],["clipping",`${percent(a.latest_clipping_ratio)} / clipped frames ${a.clipped_frames}`],["signal frames",a.signal_frames],["DC offset",a.latest_dc_offset_pcm==null ? "--" : `${number(a.latest_dc_offset_pcm)} PCM`]]);
     renderDl("wakewordTelemetry",[["recent max",number(w.recent_max_score,4)],["inference count",w.inference_count],["inference",w.last_inference_ms==null ? "--" : `last ${number(w.last_inference_ms)}ms / p50 ${number(w.inference_p50_ms)}ms / p95 ${number(w.inference_p95_ms)}ms`]]);
+    text("assistantResponse",r?.text || "아직 응답이 없습니다.");
   };
   const refresh=async()=>{try{const response=await fetch("/api/snapshot",{cache:"no-store"});if(!response.ok)throw new Error(String(response.status));render(await response.json());text("connection","LIVE");byId("connection").classList.remove("offline")}catch(_){text("connection","연결 끊김");byId("connection").classList.add("offline")}};
   refresh();setInterval(refresh,250);

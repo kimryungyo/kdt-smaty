@@ -46,7 +46,7 @@ MANUAL
 - 사용자 STOP은 활성 session을 MANUAL로 만들고, Vision·장치 안전 STOP은 control mode를
   보존한다.
 - 같은 session에서 AUTO를 다시 선택하면 이전 자세 snapshot으로 움직이지 않고 fresh 자세를
-  5초 다시 확인한다.
+  2초 다시 확인한다.
 - 여러 Dashboard가 열려도 서버 snapshot이 기준이다.
 
 ## 작업 모드 모델
@@ -78,7 +78,7 @@ session은 선택 시점의 유효 값을 snapshot으로 보관한다. 설정 �
 1. 새 session은 `controlMode=AUTO`로 시작한다.
 2. profile의 `기본` 작업 모드를 active snapshot으로 선택한다.
 3. 기본 모드의 LED 색상을 한 번 적용한다. 색상이 `null`이면 OFF를 요청한다.
-4. 최초 AUTO 책상 목표는 기존 규칙대로 session 생성 후 조건을 2초 더 확인한다.
+4. AUTO 책상 목표는 stable 자세가 된 뒤 조건을 2초 더 확인한다.
 
 ### 익명 session
 
@@ -122,7 +122,7 @@ profile 소유권과 저장값을 다시 조회한다.
 
 - `controlMode=MANUAL`을 유지한다.
 - active mode와 LED만 바꾸고 책상은 움직이지 않는다.
-- 이후 사용자가 AUTO를 명시적으로 선택하면 그 active mode를 사용해 fresh 자세를 5초 확인한다.
+- 이후 사용자가 AUTO를 명시적으로 선택하면 그 active mode를 사용해 fresh 자세를 2초 확인한다.
 
 ## 수동 LED 변경
 
@@ -139,13 +139,19 @@ Dashboard 또는 Agent의 수동 WLED 색상 변경은 현재 session의 임시 
 | 익명 사용자 | 75cm / 110cm | 없음 |
 | session 없음 | 없음 | 없음 |
 
-상단 몸체 또는 얼굴 한 명, 하단 하체 한 명과 자세가 3초 안정화돼 session이 생긴 뒤 2초를
-더 기다린다. 동일 session, 단일 재실, 같은 자세, fresh frame과 장치 준비가 유지된 경우에만
-첫 목표를 만든다.
+상단 몸체 또는 얼굴 한 명, 하단 하체 한 명과 자세가 3초 안정화된 뒤 2초를 더 기다린다.
+동일 session, 단일 재실, 같은 자세, fresh frame과 장치 준비가 유지된 경우에만 목표를 만든다.
 
-최초 목표 이후 자세 전환과 명시적 AUTO 재활성화는 동일 조건의 fresh 자세를 5초 확인한다.
-현재 높이가 목표 허용 오차 안이면 이동을 만들지 않고, 같은 자세·같은 목표를 frame마다
-반복 설정하지 않는다.
+자세 전환과 명시적 AUTO 재활성화도 동일 조건의 fresh 자세를 2초 확인한다.
+현재 높이가 목표의 **1.0cm** 허용 오차 안이면 이동을 만들지 않고, 같은 자세·같은 목표를
+frame마다 반복 설정하지 않는다. 완료 뒤에는 목표에서 **1.5cm 이상** 벗어난 상태가 3초
+지속될 때만 AUTO 재보정을 허용한다. 따라서 표시값의 작은 흔들림이나 관성으로 릴레이가
+반복 ON/OFF하지 않는다.
+
+목표 근처(1.5cm 이내)는 350ms 미세 pulse 뒤 1.2초 동안 새 높이를 기다리며, 미세 pulse는
+한 목표당 최대 두 번이다. 그 이상은 현재 높이에서 정지한다. 1cm를 넘는 단거리 이동은
+같은 방향 500ms deadline 연장으로 처리하므로, 연속 명령은 ESP32에서 relay를 재투입하지
+않고 deadline만 연장한다.
 
 자동화 상태는 control mode와 별도로 `WAITING_USER`, `OBSERVING`, `READY`, `MOVING`,
 `MANUAL`, `BLOCKED`, `PARK_WAITING`, `PARKING`을 제공한다. `AUTO`이면서 Vision 만료로
@@ -167,7 +173,8 @@ Vision의 다중 사용자, count·timestamp 불일치, 자세 귀속 불가와 
 STOP·차단한다. HOLD, 직접 목표와 STOP은 허용한다.
 
 height stale·invalid, MQTT/relay 미준비, ACK 오류, 범위 밖 목표와 ESP32 안전 상태는 AUTO,
-PARK와 수동 이동을 모두 차단한다. STOP은 항상 접수한다. 현재 운영 relay transport는
+PARK와 수동 이동을 모두 차단한다. 단, `STALE`/`SENSOR_SLEEPING`의 유효한 마지막 높이는
+`DeskController`가 새 live 높이를 얻기 위한 제한된 WAKE에만 쓸 수 있다. STOP은 항상 접수한다. 현재 운영 relay transport는
 Wi-Fi/MQTT이며 serial bridge fallback은 없다.
 
 ## 직접 수동 명령
@@ -187,7 +194,9 @@ Agents SDK Desk function tool은 Dashboard와 같은 `AutomationService` public 
 
 안정 `VACANT`로 session이 끝나면 먼저 active mode를 제거하고 WLED OFF를 요청한 뒤
 `PARK_WAITING`을 시작한다. 두 카메라의 fresh VACANT가 30초 계속되고 활성 수동 의도·새
-session이 없으며 장치가 준비된 경우에만 75cm PARK 목표를 만든다.
+session이 없으면 75cm PARK 목표를 만든다. 이 목표는 AUTO·Dashboard와 동일하게
+`DeskController`를 거치므로, 절전 표시기에는 유효한 마지막 높이를 근거로 WAKE를 요청하고
+fresh 높이 확인 뒤에만 실제 이동한다.
 
 사람 후보, 새 session 후보, 수동 명령, camera·height·MQTT·relay 오류와 서버 종료는 대기나
 진행 park를 취소하고 PARK 이동을 STOP한다. 서버 시작 직후 과거 VACANT나 retained height로

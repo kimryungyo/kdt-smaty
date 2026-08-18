@@ -21,11 +21,12 @@ enum class Error : uint8_t {
   InvalidHeight,
 };
 
-enum class CommandType : uint8_t { Stop, Up, Down };
+enum class CommandType : uint8_t { Stop, Up, Down, WakeUp, WakeDown };
 
 struct Command {
   CommandType type = CommandType::Stop;
   uint16_t holdMs = 0;
+  float basisHeightCm = NAN;
 };
 
 struct Height {
@@ -78,6 +79,44 @@ inline Error parseControl(
     return Error::None;
   }
 
+  if (std::strcmp(command, "WAKE") == 0) {
+    constexpr const char* KEYS[] = {
+        "command", "source", "direction", "hold_ms", "basis_height_cm"};
+    if (!hasExactKeys(object, KEYS, 5)) return Error::ExtraFields;
+    const ArduinoJson::JsonVariantConst sourceValue = object["source"];
+    const ArduinoJson::JsonVariantConst directionValue = object["direction"];
+    const ArduinoJson::JsonVariantConst holdValue = object["hold_ms"];
+    const ArduinoJson::JsonVariantConst basisValue = object["basis_height_cm"];
+    if (!sourceValue.is<const char*>() ||
+        std::strcmp(sourceValue.as<const char*>(), "desk_service") != 0) {
+      return Error::UntrustedSource;
+    }
+    if (holdValue.is<bool>() || !holdValue.is<long>() ||
+        holdValue.as<long>() != 400) {
+      return Error::InvalidHold;
+    }
+    if (!basisValue.is<float>() && !basisValue.is<double>() &&
+        !basisValue.is<long>() && !basisValue.is<unsigned long>()) {
+      return Error::InvalidHeight;
+    }
+    const float basisHeight = basisValue.as<float>();
+    if (!SmartDeskPolicy::measuredHeightAllowed(basisHeight)) {
+      return Error::InvalidHeight;
+    }
+    if (!directionValue.is<const char*>()) return Error::InvalidCommand;
+    const char* direction = directionValue.as<const char*>();
+    if (std::strcmp(direction, "UP") == 0) {
+      output.type = CommandType::WakeUp;
+    } else if (std::strcmp(direction, "DOWN") == 0) {
+      output.type = CommandType::WakeDown;
+    } else {
+      return Error::InvalidCommand;
+    }
+    output.holdMs = 400;
+    output.basisHeightCm = basisHeight;
+    return Error::None;
+  }
+
   CommandType type;
   if (std::strcmp(command, "UP") == 0) {
     type = CommandType::Up;
@@ -100,6 +139,7 @@ inline Error parseControl(
   if (!SmartDeskPolicy::holdAllowed(holdMs)) return Error::InvalidHold;
   output.type = type;
   output.holdMs = static_cast<uint16_t>(holdMs);
+  output.basisHeightCm = NAN;
   return Error::None;
 }
 

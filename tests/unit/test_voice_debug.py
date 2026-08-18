@@ -8,6 +8,7 @@ from smart_desk.modules.voice.audio import AudioInputDebugSnapshot
 from smart_desk.modules.voice.debug import VoiceDebugView, create_voice_debug_application
 from smart_desk.modules.voice.models import VoiceSnapshot, VoiceState
 from smart_desk.modules.voice.wakeword import WakeWordDebugSnapshot
+from smart_desk.modules.assistant.turns import AssistantTurn, TurnPhase, TurnStatus
 
 
 NOW = datetime(2026, 8, 11, tzinfo=timezone.utc)
@@ -61,11 +62,30 @@ class FakeAudioInput:
         )
 
 
+class FakeAssistantTurns:
+    async def latest(self) -> AssistantTurn:
+        return AssistantTurn(
+            turn_id="turn-test",
+            session_id=None,
+            profile_id=None,
+            phase=TurnPhase.FINAL,
+            sequence=3,
+            status=TurnStatus.SUCCEEDED,
+            title="음성 요청",
+            summary="책상을 10cm 올렸습니다.",
+            detail=None,
+            started_at=NOW,
+            updated_at=NOW,
+            completed_at=NOW,
+        )
+
+
 def make_application():
     view = VoiceDebugView(
         voice=FakeVoice(),  # type: ignore[arg-type]
         wakeword=FakeWakeWord(),  # type: ignore[arg-type]
         audio_input=FakeAudioInput(),  # type: ignore[arg-type]
+        assistant_turns=FakeAssistantTurns(),  # type: ignore[arg-type]
     )
     return create_voice_debug_application(view)
 
@@ -78,13 +98,14 @@ async def test_debug_snapshot_combines_voice_observability_without_provider_secr
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload) == {"voice", "wakeword", "audio_input"}
+    assert set(payload) == {"voice", "wakeword", "audio_input", "assistant_response"}
     assert payload["voice"]["state"] == "WAITING_FOLLOWUP"
     assert payload["wakeword"]["score"] == 0.73
     assert payload["wakeword"]["inference_p95_ms"] == 31.0
     assert payload["audio_input"]["queue_capacity"] == 64
     assert payload["audio_input"]["estimated_snr_db"] == 23.2
-    assert "assistant" not in response.text.lower()
+    assert payload["assistant_response"]["text"] == "책상을 10cm 올렸습니다."
+    assert payload["assistant_response"]["status"] == "SUCCEEDED"
     assert "transcript" not in response.text.lower()
     assert "api_key" not in response.text.lower()
 
@@ -102,6 +123,7 @@ async def test_debug_page_is_no_store_and_polls_snapshot() -> None:
     assert "setInterval(refresh,250)" in response.text
     assert "noise floor (est.)" in response.text
     assert "Wake Word telemetry" in response.text
-    assert "data.assistant" not in response.text
+    assert "data.assistant_response" in response.text
+    assert 'id="assistantResponse"' in response.text
     assert 'id="session"' not in response.text
     assert 'id="turns"' not in response.text

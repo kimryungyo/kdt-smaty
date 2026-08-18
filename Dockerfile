@@ -9,8 +9,11 @@ FROM python:3.11-slim-bookworm AS python-build
 WORKDIR /build
 RUN python -m pip install --no-cache-dir --upgrade pip
 COPY pyproject.toml README.md ./
-COPY src/ ./src/
+# 의존성 레이어는 패키지 메타데이터만으로 만들고, 실제 소스는 아래에서 복사한다.
+# 따라서 일반 코드 수정은 무거운 voice 의존성 재설치를 무효화하지 않는다.
+COPY src/smart_desk/__init__.py ./src/smart_desk/__init__.py
 RUN python -m pip install --no-cache-dir --prefix=/install ".[voice]"
+COPY src/ ./src/
 
 FROM python:3.11-slim-bookworm AS runtime-base
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -24,10 +27,9 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /app smartdesk
 COPY --from=python-build /install /usr/local
 COPY src/ ./src/
-COPY assets/voice/ ./assets/voice/
-
 FROM runtime-base AS main-runtime
 COPY --from=frontend-build /frontend/dist ./frontend/dist
+COPY assets/voice/ ./assets/voice/
 USER smartdesk
 EXPOSE 9090
 CMD ["uvicorn", "smart_desk.main:app", "--host", "0.0.0.0", "--port", "9090", "--workers", "1"]

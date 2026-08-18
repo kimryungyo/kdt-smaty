@@ -116,8 +116,8 @@ best-second margin을 함께 적용한다.
 
 ## 얼굴 일시 누락의 안전 원칙
 
-fresh 단일 재실이 이어지면 얼굴이 보이지 않아도 등록 session과 AUTO를 유지한다. 반면
-`MULTIPLE`, count 불일치나 관측 연속성 단절은 session을 유지하면서 AUTO와 개인화 Voice를
+fresh 단일 재실이 이어지면 얼굴이 보이지 않아도 등록 session과 AUTO를 유지한다. 반면 상단의
+`MULTIPLE`이나 관측 연속성 단절은 session을 유지하면서 AUTO와 개인화 Voice를
 차단한다. 등록 session은 같은 얼굴 재확인, 익명 session은 단일 재실 3초 재안정화 뒤 AUTO
 차단을 해제한다. 별도 얼굴 재확인 timeout은 v1에 추가하지 않는다.
 

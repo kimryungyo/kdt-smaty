@@ -15,12 +15,7 @@ LatestFrame = tuple[np.ndarray, float]
 
 
 class MjpegFrameSource:
-    """Reads an MJPEG stream in one background thread and retains only its latest frame.
-
-    The producer is deliberately a direct V4L2-to-MJPEG relay.  This class is
-    only the remote consumer: decoded frames are kept in memory for inference
-    and are never written to disk.
-    """
+    """Reads an MJPEG stream in one background thread and retains only its latest frame."""
 
     def __init__(self, *, name: str, stream_url: str, reconnect_interval_seconds: float = 1.0) -> None:
         self._name = name

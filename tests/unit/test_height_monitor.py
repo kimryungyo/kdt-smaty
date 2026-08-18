@@ -154,7 +154,7 @@ async def test_valid_height_updates_snapshot_and_publishes_retained_message() ->
     assert snapshot.status is HeightStatus.ONLINE
     publication = mqtt.publications[0]
     assert publication["topic"] == HEIGHT_TOPIC
-    assert publication["qos"] == 1
+    assert publication["qos"] == 0
     assert publication["retain"] is True
     payload = json.loads(str(publication["payload"]))
     assert payload == {
@@ -354,3 +354,20 @@ async def test_naive_clock_fails_critical_runner() -> None:
 
     await monitor.stop()
     await task_manager.shutdown()
+
+
+async def test_reset_display_is_held_until_a_normal_numeric_height_arrives() -> None:
+    now = FakeNow(datetime(2026, 8, 6, 5, 0, tzinfo=UTC))
+    source, mqtt, tasks = FakeSerialSource(), FakeMqttClient(), TaskManager()
+    monitor = make_monitor(source, mqtt, tasks, now)
+    await monitor.start()
+    source.put(b'{"m8":5,"p8":0,"m9":83,"p9":0,"m10":15,"p10":0,"fresh":7}')
+    await wait_until(monitor.panel_reset_active)
+    assert mqtt.publications == []
+
+    source.put(height_line("730", point_after=9))
+    await wait_until(lambda: len(mqtt.publications) == 1)
+    assert monitor.panel_reset_active() is False
+    assert monitor.get_snapshot().height_cm == 73.0
+    await monitor.stop()
+    await tasks.shutdown()

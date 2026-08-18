@@ -33,7 +33,7 @@ Voice 구현은 legacy `AssistantService`가 아니라
 | 분류 | 대상 | 실패 처리 |
 | --- | --- | --- |
 | 애플리케이션 시작 필수 | 유효한 설정, SQLite schema·저장소, lifecycle 조립 | 시작 실패와 역순 정리 |
-| 책상 이동 필수 | MQTT 연결, fresh Arduino 높이, fresh·ready ESP32 relay 상태 | 서버는 유지하되 AUTO·PARK·수동 이동 차단, STOP은 계속 접수 |
+| 책상 이동 필수 | MQTT 연결, fresh Arduino 높이, fresh·ready ESP32 relay 상태 | 서버는 유지하되 AUTO·PARK·수동 이동 차단, STOP은 계속 접수. 단, 유효한 마지막 `STALE`/`SENSOR_SLEEPING` 높이에서는 `DeskController`만 fresh 측정을 위한 WAKE를 허용 |
 | AUTO 추가 필수 | fresh Vision, 단일 재실, 귀속 가능한 자세 | AUTO만 차단, 명시적 수동 제어는 장치가 준비되면 허용 |
 | 선택 제품 기능 | WLED, Voice/OpenAI·오디오, Voice debug | 해당 기능만 `DISABLED`/`DEGRADED`/`ERROR`, 핵심 readiness와 Desk 제어에 영향 없음 |
 
@@ -57,7 +57,8 @@ dependency 또는 model 파일이 잘못된 경우에는 조용히 기능을 생
 - profile CRUD, current-user·Vision·자동화·장치 상태 조회는 관련 저장소나 service가
   사용 가능하면 전역 readiness가 낮아도 응답한다.
 - AUTO·PARK·HOLD·직접 목표는 실행 직전에 필요한 Vision·height·MQTT·relay 상태를 각각
-  검사한다. 전역 readiness를 통과했다는 이유로 기능별 안전 검사를 생략하지 않는다.
+  검사한다. height 신선도와 절전 표시기 WAKE admission은 모든 목표 출처가
+  `DeskController`에 위임한다. 전역 readiness를 통과했다는 이유로 기능별 안전 검사를 생략하지 않는다.
 - STOP/CANCEL은 사용자 session, Vision과 전역 readiness 때문에 거절하지 않는다. 가능한
   transport로 즉시 STOP을 시도하고 결과를 상태에 남긴다.
 - 선택 기능 장애는 기능별 snapshot으로 표시하며 `/health/ready`를 내리지 않는다.
@@ -111,8 +112,9 @@ dependency 또는 model 파일이 잘못된 경우에는 조용히 기능을 생
 
 - SQLite schema가 잘못되면 시작이 실패하고 이미 시작한 resource가 남지 않는다.
 - MQTT task 또는 Desk critical task가 종료되면 readiness와 STOP 경로에 반영된다.
-- Arduino 높이 또는 ESP32 상태가 stale이면 모든 이동이 차단되지만 profile CRUD와 상태
-  조회는 가능하다.
+- Arduino 높이 또는 ESP32 상태가 stale이면 일반 이동은 차단되지만 profile CRUD와 상태
+  조회는 가능하다. 유효한 마지막 높이가 있을 때만 `DeskController`가 WAKE로 새 측정을
+  요청할 수 있고, fresh 높이 전에는 이동을 재개하지 않는다.
 - Vision 장애는 AUTO만 차단하고 장치가 준비된 수동 제어와 STOP은 유지한다.
 - WLED·Voice가 비활성 또는 장애여도 Desk·profile·Dashboard는 정상 동작한다.
 - 활성화한 WLED·Voice의 잘못된 정적 구성은 조용한 기능 누락으로 처리되지 않는다.

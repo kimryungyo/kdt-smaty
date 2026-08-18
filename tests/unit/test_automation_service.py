@@ -104,12 +104,19 @@ class FakeDesk:
         self.raise_stop = False
         self.stop_started: asyncio.Event | None = None
         self.release_stop: asyncio.Event | None = None
+        self.target_started: asyncio.Event | None = None
+        self.release_target: asyncio.Event | None = None
         self.snapshot = self._snapshot(height)
 
     def delay_next_stop(self) -> tuple[asyncio.Event, asyncio.Event]:
         self.stop_started = asyncio.Event()
         self.release_stop = asyncio.Event()
         return self.stop_started, self.release_stop
+
+    def delay_next_target(self) -> tuple[asyncio.Event, asyncio.Event]:
+        self.target_started = asyncio.Event()
+        self.release_target = asyncio.Event()
+        return self.target_started, self.release_target
 
     @staticmethod
     def _snapshot(height: float) -> DeskSnapshot:
@@ -122,8 +129,15 @@ class FakeDesk:
 
     async def set_target(self, height_cm: float) -> None:
         self.calls.append(("target", height_cm))
+        # The real adapter can have changed physical desk intent before its
+        # coroutine yields. Model that side effect before an injected delay.
         self.snapshot = DeskSnapshot(DeskState.MOVING, self.snapshot.height, self.snapshot.relay,
                                      height_cm, Direction.UP, "", None, NOW)
+        if self.target_started is not None and self.release_target is not None:
+            started, release = self.target_started, self.release_target
+            self.target_started = self.release_target = None
+            started.set()
+            await release.wait()
 
     async def stop_motion(self, reason: str = "") -> None:
         self.calls.append(("stop", reason))
@@ -211,7 +225,29 @@ async def flush_background_tasks() -> None:
     await asyncio.sleep(0)
 
 
-async def test_anonymous_baseline_then_exact_two_seconds_and_targets() -> None:
+async def test_auto_completed_target_requires_sustained_rearm_drift() -> None:
+    """Small post-settle height variation must not repeatedly click the relay."""
+
+    clock, desk, users = Clock(), FakeDesk(height=75.0), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    await observe(service, camera, (3, 3), clock, 2)
+    assert desk.calls == []
+
+    desk.snapshot = FakeDesk._snapshot(73.4)
+    await observe(service, camera, (4, 4), clock)
+    await observe(service, camera, (5, 5), clock, 2.9)
+    assert desk.calls == []
+
+    await observe(service, camera, (6, 6), clock, 0.1)
+    await flush_background_tasks()
+    assert desk.calls == [("target", 75.0)]
+
+
+async def test_anonymous_baseline_then_one_second_and_targets() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
     service = service_for(users=users, camera=camera, desk=desk, clock=clock)
@@ -220,7 +256,7 @@ async def test_anonymous_baseline_then_exact_two_seconds_and_targets() -> None:
     await observe(service, camera, (3, 3), clock, 2)
     assert service.get_snapshot().target_height_cm == 75
     await observe(service, camera, (4, 4), clock, posture=PostureStatus.STANDING)
-    await observe(service, camera, (5, 5), clock, 5, posture=PostureStatus.STANDING)
+    await observe(service, camera, (5, 5), clock, 1.0, posture=PostureStatus.STANDING)
     assert service.get_snapshot().target_height_cm == 110
     assert [call for call in desk.calls if call[0] == "target"] == []
 
@@ -402,14 +438,14 @@ async def test_out_of_order_pair_does_not_advance_posture_candidate() -> None:
     assert service.get_snapshot().target_height_cm == 75
 
 
-async def test_reauto_requires_new_five_second_distinct_pair() -> None:
+async def test_reauto_requires_new_one_second_distinct_pair() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
     service = service_for(users=users, camera=camera, desk=desk, clock=clock)
     await observe(service, camera, (1, 1), clock)
     await service.set_control_mode(ControlMode.AUTO, "session-a")
     await observe(service, camera, (2, 2), clock)
-    await observe(service, camera, (3, 3), clock, 4.9)
+    await observe(service, camera, (3, 3), clock, .9)
     assert service.get_snapshot().target_height_cm is None
     await observe(service, camera, (4, 4), clock, .1)
     assert service.get_snapshot().target_height_cm == 75
@@ -636,6 +672,64 @@ async def test_vision_block_stops_live_auto_once_and_resets_candidate() -> None:
     assert service.get_snapshot().posture_candidate is None
 
 
+async def test_vision_block_serializes_with_inflight_auto_dispatch_and_finishes_blocked() -> None:
+    """A vision STOP cannot be overtaken by a queued automatic target command."""
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    target_started, release_target = desk.delay_next_target()
+    dispatch = asyncio.create_task(observe(service, camera, (3, 3), clock, 2))
+    await target_started.wait()
+
+    blocked = asyncio.create_task(
+        observe(service, camera, (4, 4), clock, usable=False, reasons=(BlockCode.MULTIPLE_PEOPLE,))
+    )
+    await asyncio.sleep(0)
+    assert not [call for call in desk.calls if call[0] == "stop"]
+
+    release_target.set()
+    await dispatch
+    await blocked
+
+    assert desk.calls[:2] == [("target", 75.0), ("stop", "Vision 불확실성 안전 정지")]
+    snapshot = service.get_snapshot()
+    assert snapshot.state is AutomationState.BLOCKED
+    assert snapshot.blocked_reason_codes == ("MULTIPLE_PEOPLE",)
+
+
+async def test_live_automatic_desk_error_is_reflected_as_blocked_not_moving() -> None:
+    """Physical Desk errors must win over a previously accepted AUTO intent."""
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    await observe(service, camera, (3, 3), clock, 2)
+    await flush_background_tasks()
+    assert service.get_snapshot().state is AutomationState.MOVING
+
+    desk.snapshot = DeskSnapshot(
+        DeskState.ERROR,
+        desk.snapshot.height,
+        desk.snapshot.relay,
+        None,
+        None,
+        "relay stopped",
+        "unexpected relay stop",
+        NOW,
+    )
+    await observe(service, camera, (4, 4), clock)
+
+    snapshot = service.get_snapshot()
+    assert snapshot.state is AutomationState.BLOCKED
+    assert snapshot.blocked_reason_codes == ("DESK_ERROR",)
+    assert snapshot.last_transition_reason == "DESK_ERROR"
+
+
 async def test_vision_recovery_uses_first_usable_pair_only_as_baseline() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
@@ -646,7 +740,7 @@ async def test_vision_recovery_uses_first_usable_pair_only_as_baseline() -> None
     await observe(service, camera, (4, 4), clock, 100)
     assert service.get_snapshot().posture_candidate is None
     await observe(service, camera, (5, 5), clock)
-    await observe(service, camera, (6, 6), clock, 4.9)
+    await observe(service, camera, (6, 6), clock, .9)
     assert service.get_snapshot().target_height_cm is None
     await observe(service, camera, (7, 7), clock, .1)
     assert service.get_snapshot().target_height_cm == 75
@@ -667,7 +761,7 @@ async def test_vision_recovery_redispatches_same_interrupted_target() -> None:
     await observe(service, camera, (4, 4), clock, usable=False)
     await observe(service, camera, (5, 5), clock)  # recovery freshness baseline
     await observe(service, camera, (6, 6), clock)  # new posture hold
-    await observe(service, camera, (7, 7), clock, 5)
+    await observe(service, camera, (7, 7), clock, 2)
     await asyncio.sleep(0)
 
     targets = [call for call in desk.calls if call[0] == "target"]
@@ -730,6 +824,7 @@ async def test_sessionless_user_stop_recovers_stop_latch_to_waiting() -> None:
 
     snapshot = service.get_snapshot()
     assert snapshot.session_id is None
+    assert snapshot.blocked_reason_codes == ()
     assert snapshot.state is AutomationState.WAITING_USER
     assert snapshot.height_policy is None
     assert "DESK_STOP_FAILED" not in snapshot.blocked_reason_codes
@@ -784,6 +879,84 @@ async def test_park_needs_fresh_baseline_and_safe_desk() -> None:
     assert service.get_snapshot().target_height_cm == 75
     assert not [call for call in desk.calls if call[0] == "target"]
     await service.stop()
+
+
+@pytest.mark.parametrize("status, provenance", [
+    (HeightStatus.STALE, HeightProvenance.LIVE),
+    (HeightStatus.SENSOR_SLEEPING, HeightProvenance.CACHED),
+])
+async def test_park_delegates_non_live_height_to_desk_controller(
+    status: HeightStatus, provenance: HeightProvenance,
+) -> None:
+    """PARK must reach the controller so its common WAKE path can run."""
+
+    clock, desk, users = Clock(), FakeDesk(height=110.0), FakeUsers(None)
+    camera = FakeVision(vision((1, 1), vacant=True))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    desk.snapshot = DeskSnapshot(
+        DeskState.IDLE,
+        HeightSnapshot(110.0, NOW, status, provenance),
+        desk.snapshot.relay,
+        None, None, "", None, NOW,
+    )
+
+    await service.start()
+    await observe(service, camera, (1, 1), clock, vacant=True)
+    await observe(service, camera, (2, 2), clock, vacant=True)
+    await observe(service, camera, (3, 3), clock, 30, vacant=True)
+    await flush_background_tasks()
+
+    assert ("target", 75.0) in desk.calls
+    assert service.get_snapshot().state is AutomationState.PARKING
+    await service.stop()
+
+
+async def test_park_without_any_height_basis_waits_without_false_block() -> None:
+    """A cold start cannot select a bounded WAKE direction yet."""
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(None)
+    camera = FakeVision(vision((1, 1), vacant=True))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    desk.snapshot = DeskSnapshot(
+        DeskState.IDLE,
+        HeightSnapshot(None, None, HeightStatus.WAITING, HeightProvenance.LIVE),
+        desk.snapshot.relay,
+        None, None, "", None, NOW,
+    )
+
+    await service.start()
+    await observe(service, camera, (1, 1), clock, vacant=True)
+    await observe(service, camera, (2, 2), clock, vacant=True)
+    await observe(service, camera, (3, 3), clock, 30, vacant=True)
+
+    snapshot = service.get_snapshot()
+    assert snapshot.blocked_reason_codes == ()
+    assert snapshot.state is AutomationState.WAITING_USER
+    assert not [call for call in desk.calls if call[0] == "target"]
+    await service.stop()
+
+
+@pytest.mark.parametrize("relay_event", [None, RelayEvent.OFFLINE])
+async def test_sessionless_park_readiness_wait_does_not_block_automation(
+    relay_event: RelayEvent | None,
+) -> None:
+    """Startup can observe VACANT before MQTT relay readiness without a false BLOCKED state."""
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(None)
+    camera = FakeVision(vision((1, 1), vacant=True))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock)
+    desk.snapshot = DeskSnapshot(
+        DeskState.IDLE, desk.snapshot.height,
+        RelaySnapshot(relay_event, RelayState.STOP, "1", None, None, NOW, None),
+        None, None, "", None, NOW,
+    )
+
+    await observe(service, camera, (1, 1), clock, vacant=True)
+
+    snapshot = service.get_snapshot()
+    assert snapshot.state is AutomationState.WAITING_USER
+    assert snapshot.blocked_reason_codes == ()
+    assert snapshot.park_due_at is None
 
 
 async def test_park_cancels_for_manual_or_relay_error_but_not_its_own_motion() -> None:

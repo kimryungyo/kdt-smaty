@@ -90,7 +90,7 @@ class RelayClient:
         await self._mqtt.publish(
             ESP32_COMMAND_TOPIC,
             message.model_dump_json(),
-            qos=1,
+            qos=0,
             retain=False,
         )
 
@@ -100,12 +100,12 @@ class RelayClient:
         await self._mqtt.publish(
             ESP32_COMMAND_TOPIC,
             RelayStopMessage().model_dump_json(),
-            qos=1,
+            qos=0,
             retain=False,
         )
 
     async def wake(self, direction: Direction, basis_height_cm: float) -> None:
-        """cache 높이를 근거로 센서를 깨우는 정확히 한 번의 100ms pulse를 발행한다."""
+        """cache 높이를 근거로 센서를 깨우는 정확히 한 번의 400ms pulse를 발행한다."""
 
         if not isinstance(direction, Direction):
             raise TypeError("WAKE 방향은 Direction.UP 또는 Direction.DOWN이어야 합니다.")
@@ -116,7 +116,7 @@ class RelayClient:
         await self._mqtt.publish(
             ESP32_COMMAND_TOPIC,
             message.model_dump_json(),
-            qos=1,
+            qos=0,
             retain=False,
         )
 

@@ -162,7 +162,7 @@ custom row가 존재하면 `204`, 없으면 `404`이며, 수정값은 다음 mod
 ```
 
 현재 session 없음·불일치는 `409`다. AUTO 요청은 기존 이동 STOP, generation과 자세 후보
-초기화 후 active 작업 모드로 fresh 자세를 5초 다시 확인한다.
+초기화 후 active 작업 모드로 fresh 자세를 2초 다시 확인한다.
 
 ## 현재 session 작업 모드 변경
 

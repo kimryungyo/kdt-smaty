@@ -97,7 +97,7 @@ async def test_same_frame_cannot_complete_stabilization() -> None:
     assert snapshot.stable_presence is PresenceStatus.UNKNOWN
 
 
-async def test_one_camera_new_frames_cannot_advance_combined_stabilization() -> None:
+async def test_upper_presence_stabilizes_without_new_lower_frame_but_auto_stays_blocked() -> None:
     clock, upper, lower = Clock(), FakeSource(), FakeSource()
     detector = FakeDetector(UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING))
     service = make_service(clock, detector, upper, lower)
@@ -110,8 +110,8 @@ async def test_one_camera_new_frames_cannot_advance_combined_stabilization() -> 
         await service.process_once()
 
     snapshot = service.get_snapshot()
-    assert snapshot.raw_presence is PresenceStatus.UNKNOWN
-    assert snapshot.stable_presence is PresenceStatus.UNKNOWN
+    assert snapshot.raw_presence is PresenceStatus.PRESENT_SINGLE
+    assert snapshot.stable_presence is PresenceStatus.PRESENT_SINGLE
     assert snapshot.stable_posture is PostureStatus.UNKNOWN
     assert BlockCode.LOWER_FRAME_STALE in snapshot.reason_codes
 
@@ -143,7 +143,8 @@ async def test_multiple_skew_stale_and_detector_error_are_fail_closed() -> None:
     service = make_service(clock, detector, upper, lower)
     upper.frame, lower.frame = (np.zeros((1, 1)), 0.0), (np.zeros((1, 1)), 0.0)
     await service.process_once()
-    assert BlockCode.MULTIPLE_PEOPLE in service.get_snapshot().reason_codes
+    # 첫 raw MULTIPLE은 안정화 전이므로 AUTO를 즉시 STOP시키지 않는다.
+    assert service.get_snapshot().reason_codes == (BlockCode.PRESENCE_NOT_SINGLE,)
 
     detector.upper, detector.lower = UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING)
     clock.value = 0.5
@@ -155,7 +156,7 @@ async def test_multiple_skew_stale_and_detector_error_are_fail_closed() -> None:
     assert BlockCode.UPPER_FRAME_STALE in service.get_snapshot().reason_codes
 
 
-async def test_count_mismatch_disconnect_and_detector_exception_are_fail_closed() -> None:
+async def test_lower_count_is_not_an_association_input_and_detector_errors_fail_closed() -> None:
     clock, upper, lower = Clock(), FakeSource(), FakeSource()
     detector = FakeDetector(
         UpperDetection(body_count=1, face_boxes=(FaceBox(0, 0, 1, 1),)),
@@ -164,7 +165,10 @@ async def test_count_mismatch_disconnect_and_detector_exception_are_fail_closed(
     service = make_service(clock, detector, upper, lower)
     upper.frame = lower.frame = (np.zeros((1, 1)), 0.0)
     await service.process_once()
-    assert BlockCode.COUNT_MISMATCH in service.get_snapshot().reason_codes
+    first = service.get_snapshot()
+    assert BlockCode.COUNT_MISMATCH not in first.reason_codes
+    assert first.raw_presence is PresenceStatus.PRESENT_SINGLE
+    assert first.raw_posture is PostureStatus.SITTING
 
     clock.value = 0.1
     upper.connected = False
@@ -181,7 +185,7 @@ async def test_count_mismatch_disconnect_and_detector_exception_are_fail_closed(
     assert service.get_fresh_face_observation() is None
 
 
-async def test_initial_window_without_seventy_percent_majority_stays_unknown() -> None:
+async def test_unknown_recovers_to_a_consistent_posture_after_one_second() -> None:
     clock, upper, lower = Clock(), FakeSource(), FakeSource()
     detector = FakeDetector(UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING))
     service = make_service(clock, detector, upper, lower)
@@ -197,8 +201,8 @@ async def test_initial_window_without_seventy_percent_majority_stays_unknown() -
 
     snapshot = service.get_snapshot()
     assert snapshot.raw_posture is PostureStatus.STANDING
-    assert snapshot.stable_posture is PostureStatus.UNKNOWN
-    assert snapshot.posture_candidate_since is None
+    assert snapshot.stable_posture is PostureStatus.SITTING
+    assert snapshot.posture_candidate_since is not None
 
 
 async def test_stable_values_ignore_brief_multiple_and_unknown_observations() -> None:
@@ -230,7 +234,13 @@ async def test_stable_values_ignore_brief_multiple_and_unknown_observations() ->
     detector.lower = LowerDetection(0, PostureStatus.UNKNOWN)
     upper.frame = lower.frame = (np.zeros((1, 1)), 4.0)
     await service.process_once()
-    assert service.get_snapshot().raw_presence is PresenceStatus.UNKNOWN
+    lower_unknown = service.get_snapshot()
+    assert lower_unknown.raw_presence is PresenceStatus.PRESENT_SINGLE
+    assert lower_unknown.raw_posture is PostureStatus.UNKNOWN
+    # 책상 이동 중 한 frame pose 누락은 이미 안정화된 자세/재실을 무효화하지 않는다.
+    # 다중 인원과 camera freshness는 별도로 즉시 fail-closed 처리한다.
+    assert lower_unknown.usable is True
+    assert lower_unknown.reason_codes == ()
 
     detector.lower = LowerDetection(1, PostureStatus.STANDING)
     for value in (4.5, 5.0, 5.5, 6.0, 6.5):
@@ -244,7 +254,37 @@ async def test_stable_values_ignore_brief_multiple_and_unknown_observations() ->
     assert snapshot.usable is True
 
 
-async def test_posture_changes_after_three_second_majority_window() -> None:
+async def test_persistent_unknown_posture_blocks_only_after_stability_window() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=1), LowerDetection(1, PostureStatus.STANDING)
+    )
+    service = make_service(clock, detector, upper, lower)
+
+    for value in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    assert service.get_snapshot().usable is True
+
+    detector.lower = LowerDetection(0, PostureStatus.UNKNOWN)
+    for value in (3.5, 4.0, 4.5, 5.0, 5.5):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+        assert service.get_snapshot().usable is True
+
+    # 최근 6개 sample이 모두 UNKNOWN인 시점부터만 차단한다.
+    clock.value = 6.0
+    upper.frame = lower.frame = (np.zeros((1, 1)), 6.0)
+    await service.process_once()
+    snapshot = service.get_snapshot()
+    assert snapshot.stable_posture is PostureStatus.UNKNOWN
+    assert snapshot.usable is False
+    assert snapshot.reason_codes == (BlockCode.POSTURE_UNKNOWN,)
+
+
+async def test_posture_changes_after_two_second_rolling_window() -> None:
     clock, upper, lower = Clock(), FakeSource(), FakeSource()
     detector = FakeDetector(
         UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING)
@@ -267,7 +307,7 @@ async def test_posture_changes_after_three_second_majority_window() -> None:
     upper.frame = lower.frame = (np.zeros((1, 1)), 5.0)
     await service.process_once()
     detector.lower = LowerDetection(1, PostureStatus.STANDING)
-    for value in (5.5, 6.0, 6.5):
+    for value in (5.5, 6.0, 6.5, 7.0, 7.5):
         clock.value = value
         upper.frame = lower.frame = (np.zeros((1, 1)), value)
         await service.process_once()
@@ -291,7 +331,7 @@ async def test_persistent_multiple_wins_window_and_blocks_vision() -> None:
         await service.process_once()
     detector.upper = UpperDetection(body_count=2)
     detector.lower = LowerDetection(2, PostureStatus.UNKNOWN)
-    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5):
+    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5):
         clock.value = value
         upper.frame = lower.frame = (np.zeros((1, 1)), value)
         await service.process_once()
@@ -410,7 +450,7 @@ async def test_malformed_lower_result_is_model_error_and_unknown() -> None:
     assert snapshot.raw_posture is PostureStatus.UNKNOWN
 
 
-async def test_non_single_lower_cannot_expose_raw_posture() -> None:
+async def test_multiple_lower_people_still_expose_selected_raw_posture() -> None:
     clock, upper, lower = Clock(), FakeSource(), FakeSource()
     detector = FakeDetector(
         UpperDetection(body_count=None), LowerDetection(2, PostureStatus.SITTING)
@@ -418,4 +458,4 @@ async def test_non_single_lower_cannot_expose_raw_posture() -> None:
     lower.frame = (np.zeros((1, 1)), 0.0)
     service = make_service(clock, detector, upper, lower)
     await service.process_once()
-    assert service.get_snapshot().raw_posture is PostureStatus.UNKNOWN
+    assert service.get_snapshot().raw_posture is PostureStatus.SITTING

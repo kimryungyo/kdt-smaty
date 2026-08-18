@@ -1,0 +1,29 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+# Keep the 2304x1296 sensor mode used by the original 1920x1080 stream.
+# The ISP produces the lower 640x360 stream, preserving the camera field of
+# view without a CPU-side scale pass.
+: "${MEDIAMTX_HOST:=192.168.0.10}"
+: "${MEDIAMTX_WHIP_PORT:=8889}"
+
+/usr/bin/rpicam-vid \
+  --nopreview \
+  --timeout 0 \
+  --width 640 \
+  --height 360 \
+  --framerate 4 \
+  --mode 2304:1296:10:P \
+  --hflip \
+  --vflip \
+  --codec yuv420 \
+  --denoise cdn_off \
+  -o - | \
+  /usr/bin/gst-launch-1.0 -q -e \
+    fdsrc fd=0 blocksize=345600 \
+    ! rawvideoparse use-sink-caps=false format=i420 width=640 height=360 framerate=4/1 \
+    ! queue max-size-buffers=2 leaky=downstream \
+    ! x264enc tune=zerolatency speed-preset=ultrafast bitrate=800 key-int-max=4 bframes=0 byte-stream=false sliced-threads=false threads=2 \
+    ! video/x-h264,profile=constrained-baseline,stream-format=avc,alignment=au \
+    ! whipclientsink name=ws congestion-control=disabled do-fec=false \
+      signaller::whip-endpoint="http://${MEDIAMTX_HOST}:${MEDIAMTX_WHIP_PORT}/bottom-cam/whip"

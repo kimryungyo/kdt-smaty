@@ -30,6 +30,7 @@ from smart_desk.modules.vision import (
     NoopVisionDetector,
     VisionService,
 )
+from smart_desk.modules.vision.remote import RemoteFaceEmbeddingExtractor, RemoteVisionService
 from smart_desk.modules.identity import (
     FaceIdentityService, OpenCvSFaceEmbeddingExtractor, UnavailableFaceEmbeddingExtractor,
 )
@@ -41,6 +42,64 @@ from smart_desk.storage import SQLiteDatabase
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _build_local_vision(settings: Settings, container: AppContainer) -> VisionService:
+    """Keep the legacy in-process Vision path for non-Docker development."""
+
+    face_detector = NoopVisionDetector()
+    upper_presence_detector = NoopVisionDetector()
+    lower_detector = NoopVisionDetector()
+    if settings.face.detector_model_path is not None:
+        try:
+            face_detector = OpenCvYuNetUpperDetector(
+                settings.face.detector_model_path,
+                score_threshold=settings.face.detector_score_threshold,
+                nms_threshold=settings.face.detector_nms_threshold,
+                min_face_size=settings.face.min_face_size,
+            )
+        except Exception:
+            LOGGER.exception("Failed to load YuNet face model; face identification is unavailable")
+    if settings.vision.lower_pose_model_path is not None:
+        try:
+            upper_presence_detector = OpenCvYoloPoseLowerDetector(
+                settings.vision.lower_pose_model_path,
+                input_size=settings.vision.lower_pose_input_size,
+                min_person_confidence=settings.vision.upper_presence_min_person_confidence,
+                min_hip_confidence=settings.vision.lower_pose_min_hip_confidence,
+                min_knee_ankle_confidence=settings.vision.lower_pose_min_knee_ankle_confidence,
+                decision_threshold=settings.vision.lower_pose_decision_threshold,
+            )
+            lower_detector = OpenCvYoloPoseLowerDetector(
+                settings.vision.lower_pose_model_path,
+                input_size=settings.vision.lower_pose_input_size,
+                min_person_confidence=settings.vision.lower_pose_min_person_confidence,
+                min_hip_confidence=settings.vision.lower_pose_min_hip_confidence,
+                min_knee_ankle_confidence=settings.vision.lower_pose_min_knee_ankle_confidence,
+                decision_threshold=settings.vision.lower_pose_decision_threshold,
+            )
+        except Exception:
+            LOGGER.exception("Failed to load YOLO pose model; Vision is unavailable")
+    if not isinstance(upper_presence_detector, NoopVisionDetector) and not isinstance(face_detector, NoopVisionDetector):
+        upper_detector = PresenceAndFaceUpperDetector(upper_presence_detector, face_detector)
+    elif not isinstance(upper_presence_detector, NoopVisionDetector):
+        upper_detector = upper_presence_detector
+    else:
+        upper_detector = face_detector
+    if not isinstance(upper_detector, NoopVisionDetector) and not isinstance(lower_detector, NoopVisionDetector):
+        detector = CompositeVisionDetector(upper_detector, lower_detector)
+    elif not isinstance(upper_detector, NoopVisionDetector):
+        detector = upper_detector
+    elif not isinstance(lower_detector, NoopVisionDetector):
+        detector = lower_detector
+    else:
+        detector = NoopVisionDetector()
+    return VisionService(
+        upper_source=container.user_frame_source,
+        lower_source=container.posture_frame_source,
+        detector=detector,
+        settings=settings.vision,
+    )
 
 
 def build_container(settings: Settings) -> AppContainer:
@@ -204,7 +263,7 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=42,
             )
         )
-    if settings.media.user.receive_enabled:
+    if not settings.vision_client.enabled and settings.media.user.receive_enabled:
         user_frame_source = WebRtcFrameSource(
             name="user",
             whep_url=settings.media.user.receive_url,
@@ -219,7 +278,7 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=50,
             )
         )
-    if settings.media.posture.receive_enabled:
+    if not settings.vision_client.enabled and settings.media.posture.receive_enabled:
         posture_frame_source = WebRtcFrameSource(
             name="posture",
             whep_url=settings.media.posture.receive_url,
@@ -234,7 +293,7 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=51,
             )
         )
-    if settings.media.workspace.receive_enabled:
+    if not settings.vision_client.enabled and settings.media.workspace.receive_enabled:
         workspace_frame_source = WebRtcFrameSource(
             name="workspace",
             whep_url=settings.media.workspace.receive_url,
@@ -249,67 +308,10 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=52,
             )
         )
-    # Vision은 user(상단)와 posture(하단)만 소비한다. workspace 영상은 AI 작업공간
-    # 역할이므로 편의상 자세 입력으로 대체하지 않는다.
-    face_detector = NoopVisionDetector()
-    upper_presence_detector = NoopVisionDetector()
-    lower_detector = NoopVisionDetector()
-    if settings.face.detector_model_path is not None:
-        try:
-            face_detector = OpenCvYuNetUpperDetector(
-                settings.face.detector_model_path,
-                score_threshold=settings.face.detector_score_threshold,
-                nms_threshold=settings.face.detector_nms_threshold,
-                min_face_size=settings.face.min_face_size,
-            )
-        except Exception:
-            LOGGER.exception("Failed to load YuNet face model; face identification is unavailable")
-    if settings.vision.lower_pose_model_path is not None:
-        try:
-            # 상단 재실과 하단 자세는 서로 다른 frame에서 실행되므로 model file은
-            # 재사용하되 DNN net 인스턴스는 분리한다.
-            upper_presence = OpenCvYoloPoseLowerDetector(
-                settings.vision.lower_pose_model_path,
-                input_size=settings.vision.lower_pose_input_size,
-                min_person_confidence=settings.vision.lower_pose_min_person_confidence,
-                min_hip_confidence=settings.vision.lower_pose_min_hip_confidence,
-                min_knee_ankle_confidence=settings.vision.lower_pose_min_knee_ankle_confidence,
-                decision_threshold=settings.vision.lower_pose_decision_threshold,
-            )
-            lower = OpenCvYoloPoseLowerDetector(
-                settings.vision.lower_pose_model_path,
-                input_size=settings.vision.lower_pose_input_size,
-                min_person_confidence=settings.vision.lower_pose_min_person_confidence,
-                min_hip_confidence=settings.vision.lower_pose_min_hip_confidence,
-                min_knee_ankle_confidence=settings.vision.lower_pose_min_knee_ankle_confidence,
-                decision_threshold=settings.vision.lower_pose_decision_threshold,
-            )
-            upper_presence_detector, lower_detector = upper_presence, lower
-        except Exception:
-            LOGGER.exception(
-                "Failed to load YOLO pose model; presence and posture detection are unavailable"
-            )
-    if not isinstance(upper_presence_detector, NoopVisionDetector) and not isinstance(face_detector, NoopVisionDetector):
-        upper_detector = PresenceAndFaceUpperDetector(upper_presence_detector, face_detector)
-    elif not isinstance(upper_presence_detector, NoopVisionDetector):
-        upper_detector = upper_presence_detector
+    if settings.vision_client.enabled:
+        vision = RemoteVisionService(settings.vision_client)
     else:
-        # 얼굴 검출은 재실 detector가 없어도 얼굴 등록/식별을 계속 지원한다.
-        upper_detector = face_detector
-    if not isinstance(upper_detector, NoopVisionDetector) and not isinstance(lower_detector, NoopVisionDetector):
-        detector = CompositeVisionDetector(upper_detector, lower_detector)
-    elif not isinstance(upper_detector, NoopVisionDetector):
-        detector = upper_detector
-    elif not isinstance(lower_detector, NoopVisionDetector):
-        detector = lower_detector
-    else:
-        detector = NoopVisionDetector()
-    vision = VisionService(
-        upper_source=container.user_frame_source,
-        lower_source=container.posture_frame_source,
-        detector=detector,
-        settings=settings.vision,
-    )
+        vision = _build_local_vision(settings, container)
     container.vision = vision
     container.register(
         ResourceRegistration(
@@ -358,7 +360,9 @@ def build_container(settings: Settings) -> AppContainer:
     )
     container.assistant_turns = AssistantTurnStore(current_user)
     extractor = UnavailableFaceEmbeddingExtractor()
-    if settings.face.embedding_model_path is not None:
+    if settings.vision_client.enabled:
+        extractor = RemoteFaceEmbeddingExtractor()
+    elif settings.face.embedding_model_path is not None:
         try:
             extractor = OpenCvSFaceEmbeddingExtractor(
                 settings.face.embedding_model_path, min_face_size=settings.face.min_face_size,
@@ -481,6 +485,7 @@ def build_container(settings: Settings) -> AppContainer:
                         voice=voice,
                         wakeword=wakeword,
                         audio_input=audio_input,
+                        assistant_turns=container.assistant_turns,
                     ),
                     settings.voice_debug,
                     task_manager,

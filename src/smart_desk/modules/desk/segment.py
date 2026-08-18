@@ -29,6 +29,7 @@ REQUIRED_FIELDS = frozenset(
         *(f"p{number}" for number in DIGIT_NUMBERS),
     )
 )
+RESET_DISPLAY = {"m8": 0x05, "p8": 0, "m9": 0x53, "p9": 0, "m10": 0x0F, "p10": 0}
 
 
 class SegmentDecoder:
@@ -83,6 +84,19 @@ class SegmentDecoder:
         ):
             return None
         return height
+
+    def is_reset_display(self, raw_message: bytes | str) -> bool:
+        """Return whether a fully fresh ``rSt`` panel-reset frame was observed."""
+
+        text = self._decode_text(raw_message)
+        if text is None:
+            return False
+        try:
+            packet = json.loads(text)
+        except json.JSONDecodeError:
+            return False
+        return (isinstance(packet, dict) and packet.get("fresh") == 7
+                and all(packet.get(key) == value for key, value in RESET_DISPLAY.items()))
 
     @staticmethod
     def _decode_text(raw_message: bytes | str) -> str | None:

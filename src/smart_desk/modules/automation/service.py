@@ -15,8 +15,7 @@ from smart_desk.modules.automation.models import (
 )
 from smart_desk.modules.identity.models import CurrentUserSnapshot, SessionKind
 from smart_desk.modules.desk.models import (
-    DeskSnapshot, DeskState, Direction, HeightProvenance, HeightStatus,
-    RelayEvent, RelayState,
+    DeskSnapshot, DeskState, Direction, RelayEvent, RelayState,
 )
 from smart_desk.modules.profiles.activity_modes import (
     ActivityModeNotFoundError, ActivityModeOwnershipError, effective_mode_from_activity,
@@ -104,11 +103,12 @@ class AutomationService:
         self._candidate_started_mono: float | None = None
         self._candidate_pair: tuple[float, float] | None = None
         self._last_pair: tuple[float, float] | None = None
-        self._first_auto = True
         self._park_started_mono: float | None = None
         self._park_pair: tuple[float, float] | None = None
         self._startup_pair: tuple[float, float] | None = None
         self._live_automatic = False
+        self._auto_completed_target_cm: float | None = None
+        self._auto_rearm_started_mono: float | None = None
         self._vision_recovery_baseline_required = False
         # Session kind is transition state, not a derived profile property: an
         # anonymous-to-registered confirmation has a deliberately different
@@ -234,7 +234,6 @@ class AutomationService:
                                      posture_candidate=None, candidate_since=None,
                                      initial_move_due_at=None, park_due_at=None,
                                      blocked_reason_codes=blocked)
-                self._first_auto = False
                 if mode is ControlMode.AUTO:
                     self._last_pair = self._pair(self._vision.get_snapshot())
             # Re-AUTO must STOP even shadow intent: it is a command contract.
@@ -267,7 +266,6 @@ class AutomationService:
                                      initial_move_due_at=None,
                                      blocked_reason_codes=self._with_stop_failure(()))
                 if control is ControlMode.AUTO:
-                    self._first_auto = False
                     self._last_pair = self._pair(self._vision.get_snapshot())
             # Mode selection and its LED are committed independently of the
             # Desk preemption outcome; a failed STOP must not roll either back.
@@ -436,7 +434,6 @@ class AutomationService:
                                                       self._utc_now() + timedelta(seconds=2)),
                                  park_due_at=None)
             self._session_kind = current.kind
-            self._first_auto = not anonymous_upgrade
             self._last_pair = self._pair(vision)
             self._vision_recovery_baseline_required = unusable_upgrade
             expected_generation = self._snapshot.generation
@@ -528,6 +525,11 @@ class AutomationService:
         if "DESK_STOP_FAILED" in snapshot.blocked_reason_codes:
             return
         await self._finish_automatic_if_idle(current.session_id)
+        # _finish_automatic_if_idle can fail-close a live intent when the Desk
+        # reports ERROR. Do not let this same fresh vision frame overwrite that
+        # terminal state with OBSERVING or schedule another target.
+        if "DESK_ERROR" in self._snapshot.blocked_reason_codes:
+            return
         if not self._auto_usable(vision):
             await self._block_auto(vision)
             return
@@ -559,25 +561,27 @@ class AutomationService:
             if self._candidate_pair is None or self._snapshot.posture_candidate is not posture:
                 self._candidate_pair = pair
                 self._candidate_started_mono = now_mono
-                due = 2.0 if self._first_auto else 5.0
                 self._replace_locked(state=AutomationState.OBSERVING, posture_candidate=posture,
                                      candidate_since=self._utc_now(),
-                                     initial_move_due_at=self._utc_now() + timedelta(seconds=due),
+                                     initial_move_due_at=self._utc_now() + timedelta(
+                                         seconds=self._settings.posture_confirmation_seconds
+                                     ),
                                      blocked_reason_codes=self._with_stop_failure(()))
                 return
             assert self._candidate_started_mono is not None
-            due = 2.0 if self._first_auto else 5.0
-            if now_mono - self._candidate_started_mono < due:
+            if now_mono - self._candidate_started_mono < self._settings.posture_confirmation_seconds:
                 return
             target = self._target_for(self._snapshot, posture)
             if target is None:
                 self._replace_locked(state=AutomationState.BLOCKED, blocked_reason_codes=("ACTIVITY_MODE_UNAVAILABLE",))
                 return
             if desk_height is not None and abs(desk_height - target) <= self._target_tolerance_cm:
+                self._mark_auto_target_complete_locked(target)
                 self._replace_locked(state=AutomationState.READY, target_height_cm=target,
                                      intent_source=IntentSource.AUTO, initial_move_due_at=None,
                                      blocked_reason_codes=self._with_stop_failure(()))
-                self._first_auto = False
+                return
+            if self._auto_rearm_pending_locked(target, desk_height, now_mono):
                 return
             if (
                 self._live_automatic
@@ -586,7 +590,6 @@ class AutomationService:
             ):
                 return
             self._schedule_locked(target, IntentSource.AUTO, current.session_id)
-            self._first_auto = False
 
     def _auto_usable(self, vision: VisionSnapshot) -> bool:
         return (vision.usable and vision.stable_presence is PresenceStatus.PRESENT_SINGLE
@@ -595,31 +598,41 @@ class AutomationService:
 
     async def _block_auto(self, vision: VisionSnapshot) -> None:
         codes = self._vision_codes(vision)
-        async with self._state_lock:
-            snapshot = self._snapshot
-            merged_codes = self._with_stop_failure(codes)
-            if (snapshot.control_mode is not ControlMode.AUTO
-                    or snapshot.state is AutomationState.BLOCKED
-                    and snapshot.blocked_reason_codes == merged_codes):
-                return
-            live = self._invalidate_locked("VISION_BLOCKED")
-            self._reset_candidate_locked()
-            self._vision_recovery_baseline_required = True
-            # Recovery is a re-entry boundary, never the initial 2-second
-            # session delay, even when uncertainty interrupted that delay.
-            self._first_auto = False
-            self._replace_locked(
-                state=AutomationState.BLOCKED,
-                blocked_reason_codes=merged_codes,
-            )
-        if live:
-            await self._safe_stop("Vision 불확실성 안전 정지")
+        # 자동 dispatch와 같은 command lock을 사용한다. vision이 불확실해진 뒤에는
+        # 이미 생성된 dispatch가 STOP 뒤에 set_target()을 실행할 수 없어야 한다.
+        async with self._command_lock:
+            async with self._state_lock:
+                snapshot = self._snapshot
+                merged_codes = self._with_stop_failure(codes)
+                if (snapshot.control_mode is not ControlMode.AUTO
+                        or snapshot.state is AutomationState.BLOCKED
+                        and snapshot.blocked_reason_codes == merged_codes):
+                    return
+                live = self._invalidate_locked("VISION_BLOCKED")
+                self._reset_candidate_locked()
+                self._vision_recovery_baseline_required = True
+                self._replace_locked(
+                    state=AutomationState.BLOCKED,
+                    blocked_reason_codes=merged_codes,
+                )
+            if live:
+                await self._safe_stop("Vision 불확실성 안전 정지")
 
     async def _finish_automatic_if_idle(self, session_id: str | None) -> None:
         """Keep an accepted AUTO/PARK command as intent after the desk settles."""
         try:
             desk_state = self._desk.get_snapshot().state
         except Exception:
+            return
+        if desk_state is DeskState.ERROR:
+            async with self._state_lock:
+                if not self._live_automatic:
+                    return
+                self._invalidate_locked("DESK_ERROR")
+                self._replace_locked(
+                    state=AutomationState.BLOCKED,
+                    blocked_reason_codes=self._with_stop_failure(("DESK_ERROR",)),
+                )
             return
         if desk_state not in {DeskState.IDLE, DeskState.STOPPED}:
             return
@@ -629,6 +642,8 @@ class AutomationService:
                     or snapshot.intent_source not in {IntentSource.AUTO, IntentSource.PARK}):
                 return
             self._live_automatic = False
+            if snapshot.intent_source is IntentSource.AUTO and snapshot.target_height_cm is not None:
+                self._mark_auto_target_complete_locked(snapshot.target_height_cm)
             self._replace_locked(
                 state=AutomationState.READY,
                 blocked_reason_codes=self._with_stop_failure(()),
@@ -667,7 +682,11 @@ class AutomationService:
         safe, desk_code = self._park_desk_safe()
         if not self._park_eligible(vision, pair) or not safe or self._manual_desk_intent():
             await self._cancel_park_if_needed()
-            if desk_code is not None:
+            # PARK is a session-less convenience action.  At startup its
+            # first vacant frame can precede relay readiness, which
+            # only means that PARK cannot begin yet—not that a user command
+            # or an in-progress desk movement must be safety-blocked.
+            if desk_code not in {"PARK_HEIGHT_UNAVAILABLE", "PARK_RELAY_UNAVAILABLE"} and desk_code is not None:
                 await self._mark_blocked(desk_code)
             return
         assert pair is not None
@@ -698,7 +717,14 @@ class AutomationService:
                 and {str(code) for code in vision.reason_codes}.issubset(allowed))
 
     def _park_desk_safe(self) -> tuple[bool, str | None]:
-        """PARK is intentionally stricter than ordinary AUTO dispatch."""
+        """Keep PARK policy checks out of DeskController's motion admission.
+
+        Height freshness and cached-height WAKE belong to
+        ``DeskController.set_target()``.  Repeating those checks here used to
+        reject a sleeping display before the controller could issue WAKE.
+        PARK owns policy-level cancellation and live relay-failure detection,
+        but must not pre-empt the common target admission path.
+        """
         try:
             desk = self._desk.get_snapshot()
         except Exception:
@@ -708,12 +734,12 @@ class AutomationService:
             return True, None
         if desk.state is DeskState.ERROR:
             return False, "DESK_ERROR"
-        height = desk.height
-        relay = desk.relay
-        if (height.status is not HeightStatus.ONLINE
-                or height.provenance is not HeightProvenance.LIVE
-                or height.height_cm is None):
+        # A WAKE needs a last measurement to choose a bounded direction.  This
+        # is not a freshness check: STALE and SENSOR_SLEEPING values continue
+        # to DeskController, while a true cold start simply waits for a basis.
+        if desk.height.height_cm is None or desk.height.observed_at is None:
             return False, "PARK_HEIGHT_UNAVAILABLE"
+        relay = desk.relay
         if (relay.last_error is not None or relay.event in {None, RelayEvent.OFFLINE, RelayEvent.REJECTED}
                 or relay.state is not RelayState.STOP):
             return False, "PARK_RELAY_UNAVAILABLE"
@@ -758,6 +784,9 @@ class AutomationService:
                              height_policy=HeightPolicy.PARK if source is IntentSource.PARK else self._snapshot.height_policy,
                              initial_move_due_at=None,
                              blocked_reason_codes=self._with_stop_failure(()))
+        if source is IntentSource.AUTO:
+            self._auto_completed_target_cm = None
+            self._auto_rearm_started_mono = None
         self._live_automatic = True
         self._dispatch_task = asyncio.create_task(
             self._dispatch_target(target, source, generation, session_id), name="desk-automation-dispatch"
@@ -765,18 +794,20 @@ class AutomationService:
 
     async def _dispatch_target(self, target: float, source: IntentSource,
                                generation: int, session_id: str | None) -> None:
-        if not await self._dispatch_valid(generation, session_id, source):
-            return
-        try:
-            await self._desk.set_target(target)
-            await self._finish_automatic_if_idle(session_id)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            async with self._state_lock:
-                if generation == self._snapshot.generation:
-                    self._live_automatic = False
-                    self._replace_locked(state=AutomationState.BLOCKED, blocked_reason_codes=("DESK_COMMAND_REJECTED",))
+        # vision/session invalidation과 desk side effect의 선형화 지점이다.
+        async with self._command_lock:
+            if not await self._dispatch_valid(generation, session_id, source):
+                return
+            try:
+                await self._desk.set_target(target)
+                await self._finish_automatic_if_idle(session_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                async with self._state_lock:
+                    if generation == self._snapshot.generation:
+                        self._live_automatic = False
+                        self._replace_locked(state=AutomationState.BLOCKED, blocked_reason_codes=("DESK_COMMAND_REJECTED",))
 
     async def _dispatch_valid(self, generation: int, session_id: str | None, source: IntentSource) -> bool:
         async with self._state_lock:
@@ -831,6 +862,8 @@ class AutomationService:
     def _invalidate_locked(self, reason: str) -> bool:
         live = self._live_automatic
         self._live_automatic = False
+        self._auto_completed_target_cm = None
+        self._auto_rearm_started_mono = None
         self._vision_recovery_baseline_required = False
         self._snapshot = replace(self._snapshot, generation=self._snapshot.generation + 1,
                                  revision=self._snapshot.revision + 1,
@@ -842,6 +875,29 @@ class AutomationService:
             task.cancel()
         self._reset_candidate_locked()
         return live
+
+    def _mark_auto_target_complete_locked(self, target: float) -> None:
+        self._auto_completed_target_cm = target
+        self._auto_rearm_started_mono = None
+
+    def _auto_rearm_pending_locked(
+        self,
+        target: float,
+        desk_height: float | None,
+        now_mono: float,
+    ) -> bool:
+        """Require a sustained, meaningful drift before AUTO repeats a target."""
+
+        if self._auto_completed_target_cm != target:
+            return False
+        if (desk_height is None
+                or abs(desk_height - target) < self._settings.auto_rearm_distance_cm):
+            self._auto_rearm_started_mono = None
+            return True
+        if self._auto_rearm_started_mono is None:
+            self._auto_rearm_started_mono = now_mono
+            return True
+        return now_mono - self._auto_rearm_started_mono < self._settings.auto_rearm_seconds
 
     def _reset_candidate_locked(self) -> None:
         self._candidate_started_mono = None

@@ -137,3 +137,11 @@ def test_partial_frames_are_not_combined_between_calls() -> None:
 
     assert decoder.decode(json.dumps(first)) is None
     assert decoder.decode(json.dumps(second)) is None
+
+
+def test_reset_display_is_detected_but_never_decoded_as_height() -> None:
+    packet = {"m8": 0x05, "p8": 0, "m9": 0x53, "p9": 0, "m10": 0x0F, "p10": 0, "fresh": 7}
+    decoder = SegmentDecoder(DeskSettings())
+
+    assert decoder.is_reset_display(json.dumps(packet)) is True
+    assert decoder.decode(json.dumps(packet)) is None
