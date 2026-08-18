@@ -266,6 +266,9 @@ TTS 중 사용자의 끼어들기, AEC와 barge-in은 범위에서 제외한다.
 
 ## 8. Mem0 저장과 배포
 
+이 절의 결정을 구현·활성화하는 상세 정책과 Docker·백업·검증 기준은
+[Mem0 사용자 장기 기억 상세 설계](mem0-profile-memory.md)를 따른다.
+
 ### 저장 정책
 
 Mem0는 `explicit_only`로 시작한다.
