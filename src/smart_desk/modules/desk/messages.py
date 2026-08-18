@@ -62,7 +62,7 @@ class RelayWakeMessage(BaseModel):
     command: Literal["WAKE"] = "WAKE"
     source: Literal["desk_service"] = "desk_service"
     direction: Direction
-    hold_ms: int = Field(default=100, strict=True)
+    hold_ms: int = Field(default=400, strict=True)
     basis_height_cm: float = Field(
         strict=True,
         allow_inf_nan=False,
@@ -73,8 +73,8 @@ class RelayWakeMessage(BaseModel):
     @field_validator("hold_ms")
     @classmethod
     def require_exact_wake_hold(cls, value: int) -> int:
-        if value != 100:
-            raise ValueError("WAKE hold_ms는 정확히 100ms여야 합니다.")
+        if value != 400:
+            raise ValueError("WAKE hold_ms는 정확히 400ms여야 합니다.")
         return value
 
 

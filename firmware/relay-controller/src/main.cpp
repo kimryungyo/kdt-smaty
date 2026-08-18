@@ -6,6 +6,10 @@
 #include "control_handler.h"
 #include "relay_controller.h"
 
+#if !ARDUINO_USB_CDC_ON_BOOT
+#error "Production relay firmware requires USB CDC serial output."
+#endif
+
 using namespace SmartDeskConfig;
 
 namespace {
@@ -19,6 +23,7 @@ uint32_t lastHeartbeat = 0;
 bool wifiWasConnected = false;
 bool mqttWasConnected = false;
 int lastWifiStatus = -1;
+uint8_t consecutiveMqttSocketFailures = 0;
 
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   control.handleMessage(topic, payload, length);
@@ -104,11 +109,14 @@ void connectMqtt(uint32_t now) {
       sizeof(clientId),
       "smartdesk-fin-relay-%012llx",
       ESP.getEfuseMac());
-  constexpr char WILL[] =
+  char will[192];
+  snprintf(
+      will,
+      sizeof(will),
       "{\"event\":\"offline\",\"state\":\"STOP\","
-      "\"firmware\":\"smartdesk-fin-relay-1.0.0\","
-      "\"code\":\"mqtt_disconnected\","
-      "\"detail\":\"ESP32 MQTT 연결이 끊겼습니다.\"}";
+      "\"firmware\":\"%s\",\"code\":\"mqtt_disconnected\","
+      "\"detail\":\"ESP32 MQTT 연결이 끊겼습니다.\"}",
+      FIRMWARE_VERSION);
   if (!mqtt.connect(
           clientId,
           nullptr,
@@ -116,11 +124,25 @@ void connectMqtt(uint32_t now) {
           MQTT_STATUS_TOPIC,
           0,
           false,
-          WILL,
+          will,
           true)) {
-    Serial.printf("MQTT 연결 실패 (state=%d)\n", mqtt.state());
+    const int mqttState = mqtt.state();
+    Serial.printf("MQTT 연결 실패 (state=%d)\n", mqttState);
+    // Broker restart or a lossy Wi-Fi link can leave a half-open TCP socket
+    // behind.  PubSubClient will retry later, but only after the underlying
+    // WiFiClient is explicitly closed can the next attempt start cleanly.
+    network.stop();
+    if (mqttState == MQTT_CONNECT_FAILED &&
+        ++consecutiveMqttSocketFailures >= MQTT_SOCKET_RECOVERY_FAILURES) {
+      // A full ESP restart recovered the observed C3 Wi-Fi stack wedge after
+      // an EMQX restart.  This branch runs only while relay.direction() is
+      // Stop (the guard at the beginning of connectMqtt), so it is fail-safe.
+      Serial.println("MQTT TCP 재연결 실패 누적으로 ESP32를 안전 재기동합니다.");
+      ESP.restart();
+    }
     return;
   }
+  consecutiveMqttSocketFailures = 0;
   Serial.printf("MQTT 연결 성공 (%s:%u)\n", MQTT_HOST, MQTT_PORT);
 
   control.beginSession(now);
@@ -158,8 +180,10 @@ void setup() {
 #endif
 
   WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
   WiFi.setSleep(false);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.onEvent(onWifiEvent);
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMqttMessage);

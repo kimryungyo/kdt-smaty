@@ -27,6 +27,7 @@ from smart_desk.modules.voice.models import (
 LOGGER = logging.getLogger(__name__)
 OUTPUT_DEVICE_SAMPLE_RATE = 48_000
 INPUT_CALLBACK_STALE_SECONDS = 1.0
+FALLBACK_INPUT_SAMPLE_RATE = 48_000
 SIGNAL_DBFS_FLOOR = -120.0
 SIGNAL_CLIPPING_SAMPLE = 32_760
 SIGNAL_NOISE_WINDOW_SECONDS = 30.0
@@ -174,6 +175,7 @@ class LocalAudioInput:
         self._callback_errors = 0
         self._last_drop_log_at = 0.0
         self._last_callback_at: float | None = None
+        self._capture_sample_rate = INPUT_SAMPLE_RATE
         self._reset_signal_state()
 
     async def start(self) -> None:
@@ -190,15 +192,7 @@ class LocalAudioInput:
                 name=self._device_name,
                 input_device=True,
             )
-            stream = await asyncio.to_thread(
-                sounddevice.RawInputStream,
-                samplerate=INPUT_SAMPLE_RATE,
-                blocksize=INPUT_FRAME_SAMPLES,
-                device=device,
-                channels=1,
-                dtype="int16",
-                callback=self._callback,
-            )
+            stream = await self._open_input_stream(sounddevice, device)
             await asyncio.to_thread(stream.start)
         except asyncio.CancelledError:
             raise
@@ -216,6 +210,35 @@ class LocalAudioInput:
         self.discard_pending()
         self._reset_signal_state()
         self._accepting = True
+
+    async def _open_input_stream(self, sounddevice: object, device: int | None) -> object:
+        """Prefer the pipeline rate and fall back to 48 kHz USB capture.
+
+        Several USB microphones, including the deployed AKG device, reject a
+        24 kHz ALSA stream even though they work at 48 kHz.  The callback
+        downsamples the latter by two before handing data to the fixed 24 kHz
+        wake-word/voice pipeline.
+        """
+
+        last_error: Exception | None = None
+        for sample_rate in (INPUT_SAMPLE_RATE, FALLBACK_INPUT_SAMPLE_RATE):
+            try:
+                stream = await asyncio.to_thread(
+                    sounddevice.RawInputStream,
+                    samplerate=sample_rate,
+                    blocksize=INPUT_FRAME_SAMPLES * sample_rate // INPUT_SAMPLE_RATE,
+                    device=device,
+                    channels=1,
+                    dtype="int16",
+                    callback=self._callback,
+                )
+            except Exception as error:
+                last_error = error
+                continue
+            self._capture_sample_rate = sample_rate
+            return stream
+        assert last_error is not None
+        raise last_error
 
     async def stop(self) -> None:
         self._accepting = False
@@ -274,6 +297,8 @@ class LocalAudioInput:
     ) -> None:
         try:
             pcm = bytes(indata)
+            if self._capture_sample_rate == FALLBACK_INPUT_SAMPLE_RATE:
+                pcm = np.frombuffer(pcm, dtype="<i2")[::2].tobytes()
             captured_at = time.monotonic()
             self._last_callback_at = captured_at
             input_overflow = bool(getattr(status, "input_overflow", False))

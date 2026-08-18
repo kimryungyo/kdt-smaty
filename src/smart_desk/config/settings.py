@@ -111,11 +111,12 @@ class DeskSettings(BaseModel):
         le=30,
         allow_inf_nan=False,
     )
-    # 아래 제어값은 relay 분리 검증을 위한 보수적인 초기 후보다. 실제 책상에서
-    # 수신 간격과 관성을 측정한 뒤 문서와 함께 다시 확정한다.
+    # 실제 책상 relay의 접점 수명과 관성을 고려한 제어값이다. 목표 근처의
+    # 짧은 ON/OFF 반복보다 한 번의 충분한 pulse와 재측정을 우선한다.
     continuous_hold_ms: int = Field(default=500, ge=50, le=500)
     manual_hold_ms: int = Field(default=500, ge=50, le=500)
-    fine_hold_ms: int = Field(default=100, ge=50, le=500)
+    fine_hold_ms: int = Field(default=350, ge=50, le=500)
+    max_fine_pulses: int = Field(default=2, ge=1, le=5)
     pulse_refresh_interval_seconds: float = Field(
         default=0.1,
         gt=0,
@@ -141,7 +142,7 @@ class DeskSettings(BaseModel):
         allow_inf_nan=False,
     )
     target_tolerance_cm: float = Field(
-        default=0.2,
+        default=1.0,
         gt=0,
         le=2,
         allow_inf_nan=False,
@@ -153,7 +154,7 @@ class DeskSettings(BaseModel):
         allow_inf_nan=False,
     )
     fine_settle_seconds: float = Field(
-        default=1.0,
+        default=1.2,
         gt=0,
         le=10,
         allow_inf_nan=False,
@@ -171,7 +172,7 @@ class DeskSettings(BaseModel):
         allow_inf_nan=False,
     )
     wake_timeout_seconds: float = Field(
-        default=3.0,
+        default=8.0,
         gt=0,
         le=30,
         allow_inf_nan=False,
@@ -372,6 +373,18 @@ class VisionSettings(BaseModel):
         default=0.7, gt=0.5, le=1.0, allow_inf_nan=False
     )
     stability_min_samples: int = Field(default=3, ge=2, le=100)
+    # 하단 추론 간격은 장비 부하에 따라 변하므로 자세 안정화는 시간 대신 최근 distinct
+    # sample 수를 쓴다. camera stale/연결 단절은 이 유예와 무관하게 즉시 차단한다.
+    posture_transition_samples: int = Field(default=3, ge=2, le=30)
+    posture_transition_required_samples: int = Field(default=2, ge=2, le=30)
+    posture_unknown_samples: int = Field(default=6, ge=2, le=100)
+    posture_recovery_samples: int = Field(default=2, ge=2, le=30)
+
+    @model_validator(mode="after")
+    def validate_posture_samples(self) -> VisionSettings:
+        if self.posture_transition_required_samples > self.posture_transition_samples:
+            raise ValueError("자세 전이 필요 sample 수는 전이 window보다 클 수 없습니다.")
+        return self
     # 독립 WHEP receiver의 최신 frame 도착은 동일 15fps stream이라도 최대 약 0.5초
     # 어긋날 수 있다. result freshness(1초) 안에서만 결합하되 정상 scheduler jitter가
     # 안정화 timer를 계속 초기화하지 않도록 약간의 여유를 둔다.
@@ -387,6 +400,9 @@ class VisionSettings(BaseModel):
         default=0.5, ge=0.5, le=10, allow_inf_nan=False
     )
     lower_pose_input_size: int = Field(default=640, ge=64, le=2048)
+    # 상단 user-cam의 재실/다중 인원 판정은 오검출이 AUTO를 막지 않도록 하단 자세보다
+    # 더 높은 사람 신뢰도를 요구한다.
+    upper_presence_min_person_confidence: float = Field(default=0.60, ge=0, le=1)
     lower_pose_min_person_confidence: float = Field(default=0.30, ge=0, le=1)
     lower_pose_min_hip_confidence: float = Field(default=0.08, ge=0, le=1)
     lower_pose_min_knee_ankle_confidence: float = Field(default=0.45, ge=0, le=1)
@@ -404,6 +420,35 @@ class VisionSettings(BaseModel):
         if self.result_stale_after_seconds < self.poll_interval_seconds:
             raise ValueError("Vision result 만료 시간은 poll 주기보다 짧을 수 없습니다.")
         return self
+
+
+class VisionClientSettings(BaseModel):
+    """Main이 별도 Vision HTTP service를 사용할 때의 연결 설정이다."""
+
+    enabled: bool = False
+    base_url: str = "http://127.0.0.1:9091"
+    api_token: SecretStr | None = None
+    poll_interval_seconds: float = Field(default=0.5, gt=0, le=10, allow_inf_nan=False)
+    request_timeout_seconds: float = Field(default=2.5, gt=0, le=30, allow_inf_nan=False)
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: str) -> str:
+        normalized = value.strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Vision service URL은 http:// 또는 https:// 주소여야 합니다.")
+        if parsed.path or parsed.query or parsed.fragment:
+            raise ValueError("Vision service URL에는 path, query, fragment를 사용할 수 없습니다.")
+        return normalized
+
+
+class VisionServerSettings(BaseModel):
+    """Stateless Vision HTTP process가 읽는 API 설정이다."""
+
+    host: str = "0.0.0.0"
+    port: int = Field(default=9091, ge=1, le=65535)
+    api_token: SecretStr | None = None
 
 
 class FaceSettings(BaseModel):
@@ -436,12 +481,12 @@ class FaceSettings(BaseModel):
 
 
 class AutomationSettings(BaseModel):
-    """자동 목표의 실제 Desk 실행 여부만 제어한다.
-
-    시간과 높이는 제품 안전 계약의 고정값이라 환경 설정으로 노출하지 않는다.
-    """
+    """자동 목표 실행과 완료 뒤 재보정 deadband를 제어한다."""
 
     execute_automatic_movements: bool = False
+    posture_confirmation_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
+    auto_rearm_distance_cm: float = Field(default=1.5, gt=1.0, le=5.0, allow_inf_nan=False)
+    auto_rearm_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
 
 
 class StorageSettings(BaseModel):
@@ -621,6 +666,8 @@ class Settings(BaseSettings):
     desk: DeskSettings = DeskSettings()
     media: MediaSettings = MediaSettings()
     vision: VisionSettings = VisionSettings()
+    vision_client: VisionClientSettings = VisionClientSettings()
+    vision_server: VisionServerSettings = VisionServerSettings()
     face: FaceSettings = FaceSettings()
     automation: AutomationSettings = AutomationSettings()
     storage: StorageSettings = StorageSettings()
@@ -639,6 +686,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "relay ack timeout은 MQTT publish timeout보다 길어야 합니다."
             )
+        if self.automation.auto_rearm_distance_cm <= self.desk.target_tolerance_cm:
+            raise ValueError("AUTO 재보정 거리는 목표 허용 오차보다 커야 합니다.")
         if (self.voice.enabled or self.profile_memory.enabled) and self.openai.api_key is None:
             raise ValueError("Voice 또는 profile memory가 활성화되면 OpenAI API key가 필요합니다.")
         if self.voice_debug.enabled and not self.voice.enabled:

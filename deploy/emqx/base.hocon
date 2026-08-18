@@ -1,0 +1,22 @@
+node {
+  name = "emqx@emqx"
+}
+
+listeners.tcp.default {
+  bind = "0.0.0.0:1883"
+}
+
+dashboard.listeners.http {
+  bind = "0.0.0.0:18083"
+}
+
+log.console {
+  enable = true
+  level = warning
+}
+
+# Desk commands and height are real-time signals.  Never retain QoS 0 frames
+# for an offline ESP32 session; a reconnect must receive only new input.
+mqtt {
+  mqueue_store_qos0 = false
+}

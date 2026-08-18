@@ -144,7 +144,7 @@ Vision debug `/debug/vision`
 - 설정 버튼으로 profile 설정을 열고 메인으로 돌아와도 session과 두 mode가 유지된다.
 - 서버 current user가 A→B로 바뀌어도 열려 있는 A 설정 form과 draft가 자동 변경되지 않는다.
 - 오래된 A session 명령이 B에게 적용되지 않고 `409` 후 화면이 새 상태를 표시한다.
-- session 없음·다중·count 불일치에서 개인 작업 모드 실행이 비활성 또는 거절된다.
+- session 없음·상단 다중에서 개인 작업 모드 실행이 비활성 또는 거절된다.
 - stale session activity mode는 `409` 후 current user·automation snapshot을 다시 읽는다.
 - 얼굴 등록 성공 후에도 화면이 profile을 현재 사용자로 강제 지정하지 않는다.
 - HOLD release, blur, page hide와 unmount에서 STOP 요청이 유지된다.

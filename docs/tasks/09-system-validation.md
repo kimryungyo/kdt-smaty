@@ -131,16 +131,16 @@
 - [ ] MANUAL에서 작업 모드를 바꾸면 LED만 적용하고 책상은 움직이지 않는다.
 - [ ] 직접 목표 후 MANUAL로 유지되고 자세 변화가 목표를 덮어쓰지 않으며 active mode는 남는다.
 - [ ] 수동 LED 변경은 현재 session에만 남고 다음 작업 모드 전환에서 저장 색상으로 복원된다.
-- [ ] 같은 session에서 사용자가 AUTO를 다시 선택하면 STOP과 fresh 자세 5초 확인 뒤 동작한다.
+- [ ] 같은 session에서 사용자가 AUTO를 다시 선택하면 STOP과 fresh 자세 2초 확인 뒤 동작한다.
 - [ ] HOLD release·page hide·network 단절에서 제한 시간 안에 정지한다.
 
 ### 사용자·Vision 경계
 
 - [ ] 얼굴 일시 누락은 단일 재실에서 session을 유지하고, 고품질 미등록 얼굴 3초는 익명으로 전환한다.
-- [ ] 다중·count 불일치는 AUTO만 STOP하고 Dashboard 수동 제어는 계속 동작한다.
+- [ ] 상단 다중은 AUTO를 즉시 STOP하고 Dashboard 수동 제어는 계속 동작한다.
 - [ ] fresh VACANT 30초 뒤 75cm park하며 사람 후보·수동 명령에서 즉시 취소한다.
 - [ ] A→B 교대와 A Dashboard의 오래된 명령이 B에게 적용되지 않는다.
-- [ ] 다중 사용자, 카메라 count 불일치와 주변 통행에서 새 자동 목표가 차단된다.
+- [ ] 상단 다중 사용자·주변 통행에서 새 자동 목표가 차단되고, 하단 다중 pose에서는 최고 score 자세만 사용한다.
 - [ ] 이탈, frame stale, sensor·MQTT·relay 오류에서 진행 이동이 정지한다.
 - [ ] 서버 재시작 후 fresh 재실 session 또는 fresh VACANT 30초 전에는 자동 이동하지 않는다.
 

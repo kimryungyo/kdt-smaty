@@ -7,7 +7,7 @@ Agents SDK 교체의 model, VoicePipeline, session adapter와 Mem0 배포 기준
 
 Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을 사용한다. 익명 session은
 일반 대화와 session 범위의 짧은 history만 사용하고 장기 기억을 읽거나 저장하지 않는다.
-다중·count 불일치에서는 이전 사람의 개인화를 일시 차단한다. 음성 답변과 함께 필요한 상세
+상단 다중에서는 이전 사람의 개인화를 일시 차단한다. 음성 답변과 함께 필요한 상세
 정보는 같은 Assistant turn으로 Dashboard에 표시된다.
 
 ## 현재 상태
@@ -27,7 +27,7 @@ Voice는 등록 session에서만 해당 사용자의 기억과 profile 설정을
 - 익명 session은 profile memory 없이 `sessionId` 범위의 짧은 history만 유지한다.
 - Agents SDK session 객체는 사용자 session service가 소유하지 않는다. Voice memory adapter가
   책상 `sessionId`를 key로 생성·재사용·폐기한다.
-- session 없음과 다중·count 불일치 중 일반 질문은 해당 Wake Word/follow-up 묶음에만 유효한
+- session 없음과 상단 다중 중 일반 질문은 해당 Wake Word/follow-up 묶음에만 유효한
   임시 비개인화 session으로 처리한다.
 - Assistant turn 시작 시 `sessionId`와 profile ID를 캡처한다.
 - session 변경 event를 받으면 이전 Agent run, 실행되지 않은 부작용 tool, TTS와 follow-up을

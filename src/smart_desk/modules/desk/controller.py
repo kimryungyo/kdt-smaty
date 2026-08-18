@@ -30,7 +30,16 @@ from smart_desk.modules.desk.relay import RelayClient
 
 LOGGER = logging.getLogger(__name__)
 DESK_CONTROLLER_TASK_NAME = "desk-controller"
-SUPPORTED_RELAY_FIRMWARES = frozenset({"smartdesk-fin-relay-1.0.0"})
+SUPPORTED_RELAY_FIRMWARES = frozenset(
+    {
+        "smartdesk-fin-relay-1.0.0",
+        "smartdesk-fin-relay-1.0.1",
+        "smartdesk-fin-relay-1.0.2",
+        "smartdesk-fin-relay-1.0.3",
+        "smartdesk-fin-relay-1.0.4",
+        "smartdesk-fin-relay-1.0.5",
+    }
+)
 
 Now: TypeAlias = Callable[[], datetime]
 Monotonic: TypeAlias = Callable[[], float]
@@ -64,6 +73,7 @@ class _MotionMode(StrEnum):
     WAKE = "WAKE"
     TARGET = "TARGET"
     MANUAL = "MANUAL"
+    PANEL_RESET = "PANEL_RESET"
 
 
 class _TargetPhase(StrEnum):
@@ -86,6 +96,7 @@ class _ControlState:
     awaiting_fresh_height: bool = False
     wake_observed_at: datetime | None = None
     wake_started_at: float | None = None
+    fine_pulse_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -710,7 +721,15 @@ class DeskController:
             return
 
         relay = self._require_relay_available_for_wake()
-        if relay.state is not RelayState.STOP or relay.code != "ready":
+        expected = RelayState(control.direction.value) if control.direction is not None else None
+        # WAKE 중 새 height lease가 준비되면 firmware는 아직 400ms deadline이 남아
+        # 있어도 UP/DOWN + ready를 발행한다. 같은 방향이면 즉시 일반 pulse로
+        # deadline을 연장한다. STOP만 기다리면 timeout event(code=timeout) 뒤 다음
+        # 5초 heartbeat까지 불필요하게 대기하게 된다.
+        allowed_states = {RelayState.STOP}
+        if control.mode is not _MotionMode.WAKE:
+            allowed_states.add(expected)
+        if relay.code != "ready" or relay.state not in allowed_states:
             return
         assert snapshot.height_cm is not None
         await self._activate_after_wake(control, snapshot, relay, now_mono)
@@ -820,6 +839,13 @@ class DeskController:
             if not self._running or self._closing or self._stop_in_progress:
                 return
 
+        if self._height_monitor.panel_reset_active():
+            await self._run_panel_reset_cycle()
+            return
+        if control.mode is _MotionMode.PANEL_RESET:
+            await self._stop_motion("패널 초기화가 완료되어 릴레이를 정지했습니다.", error_detail=None)
+            return
+
         if control.mode is _MotionMode.NONE:
             if await self._run_startup_wake_cycle():
                 return
@@ -871,6 +897,44 @@ class DeskController:
                 error_detail=str(error),
             )
 
+    async def _run_panel_reset_cycle(self) -> None:
+        """Hold DOWN only while the Arduino observes the non-numeric rSt panel screen."""
+
+        async with self._command_lock:
+            control = self._control
+            if control.mode is not _MotionMode.PANEL_RESET:
+                self._invalidate_motion_locked("PANEL_RESET")
+                control = replace(
+                    self._control,
+                    public_state=DeskState.WAKING,
+                    mode=_MotionMode.PANEL_RESET,
+                    target_phase=None,
+                    target_height_cm=None,
+                    direction=Direction.DOWN,
+                    detail="패널 rSt 초기화를 위해 DOWN을 유지하고 있습니다.",
+                    last_error=None,
+                    generation=self._control.generation + 1,
+                    updated_at=self._require_utc(self._now()),
+                )
+                self._control = control
+                self._next_refresh_at = self._monotonic()
+            if self._next_refresh_at is not None and self._monotonic() < self._next_refresh_at:
+                return
+
+        # rSt has no trustworthy numeric height.  The firmware still bounds
+        # every command to 400ms; QoS 0 ensures missed refreshes fail closed
+        # instead of accumulating stale DOWN commands at the broker.
+        basis = max(self._settings.operation_min_cm + 0.1, 75.1)
+        try:
+            async with self._relay_io_lock:
+                await self._relay.wake(Direction.DOWN, basis)
+        except Exception as error:
+            await self._stop_motion("패널 초기화 DOWN 명령 발행에 실패했습니다.", error_detail=str(error))
+            return
+        async with self._command_lock:
+            if self._control.generation == control.generation:
+                self._next_refresh_at = self._monotonic() + self._settings.pulse_refresh_interval_seconds
+
     async def _run_target_cycle(
         self,
         control: _ControlState,
@@ -891,6 +955,12 @@ class DeskController:
         self._require_direction_allowed(height.height_cm, needed)
         if control.target_phase is _TargetPhase.SETTLING:
             if self._settle_until is not None and now_mono < self._settle_until:
+                return
+            if control.fine_pulse_count >= self._settings.max_fine_pulses:
+                await self._stop_motion(
+                    "미세 보정 횟수 제한에 도달해 현재 높이에서 정지했습니다.",
+                    error_detail=None,
+                )
                 return
             relay = self._relay.get_snapshot()
             if relay.state is not RelayState.STOP:
@@ -1004,6 +1074,7 @@ class DeskController:
                     self._control,
                     target_phase=_TargetPhase.SETTLING,
                     direction=None,
+                    fine_pulse_count=self._control.fine_pulse_count + 1,
                     detail="미세 보정 뒤 새 높이를 기다립니다.",
                     updated_at=self._require_utc(self._now()),
                 )

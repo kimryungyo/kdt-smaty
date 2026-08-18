@@ -84,6 +84,30 @@ void test_control_protocol_is_strict() {
       static_cast<int>(parseControl(
           "{\"command\":\"UP\",\"source\":\"desk_service\",\"hold_ms\":50.0}",
           command)));
+
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SmartDeskProtocol::Error::None),
+      static_cast<int>(parseControl(
+          "{\"command\":\"WAKE\",\"source\":\"desk_service\","
+          "\"direction\":\"DOWN\",\"hold_ms\":400,\"basis_height_cm\":80.5}",
+          command)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SmartDeskProtocol::CommandType::WakeDown),
+      static_cast<int>(command.type));
+  TEST_ASSERT_EQUAL_UINT16(400, command.holdMs);
+  TEST_ASSERT_FLOAT_WITHIN(0.001F, 80.5F, command.basisHeightCm);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SmartDeskProtocol::Error::InvalidHold),
+      static_cast<int>(parseControl(
+          "{\"command\":\"WAKE\",\"source\":\"desk_service\","
+          "\"direction\":\"DOWN\",\"hold_ms\":100,\"basis_height_cm\":80}",
+          command)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(SmartDeskProtocol::Error::InvalidHeight),
+      static_cast<int>(parseControl(
+          "{\"command\":\"WAKE\",\"source\":\"desk_service\","
+          "\"direction\":\"DOWN\",\"hold_ms\":400,\"basis_height_cm\":118.1}",
+          command)));
 }
 
 void test_height_protocol_schema_and_range() {

@@ -47,7 +47,18 @@ async def get_vision_debug_frame(camera: str) -> Response:
 
     if camera not in {"upper", "lower"}:
         raise HTTPException(status_code=404, detail="unknown vision camera")
-    frame = get_vision().get_debug_frame(camera)
+    vision = get_vision()
+    get_remote_frame = getattr(vision, "get_debug_frame_bytes", None)
+    if callable(get_remote_frame):
+        payload = await get_remote_frame(camera)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="no inferred frame available")
+        return Response(
+            content=payload,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+    frame = vision.get_debug_frame(camera)
     if frame is None:
         raise HTTPException(status_code=404, detail="no inferred frame available")
     encoded, payload = cv2.imencode(".jpg", frame, (cv2.IMWRITE_JPEG_QUALITY, 85))

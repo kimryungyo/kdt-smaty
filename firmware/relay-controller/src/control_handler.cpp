@@ -114,7 +114,10 @@ void ControlHandler::handleControl(const byte* payload, unsigned int length) {
       detail = "Desk 서비스의 명령만 실행할 수 있습니다.";
     } else if (parseError == SmartDeskProtocol::Error::InvalidHold) {
       code = "hold_ms_out_of_range";
-      detail = "hold_ms는 50~500 정수여야 합니다.";
+      detail = "UP/DOWN hold_ms는 50~500 정수이고 WAKE는 정확히 400이어야 합니다.";
+    } else if (parseError == SmartDeskProtocol::Error::InvalidHeight) {
+      code = "invalid_height";
+      detail = "WAKE basis_height_cm는 유효한 실제 높이여야 합니다.";
     }
     reject(code, detail);
     return;
@@ -123,6 +126,33 @@ void ControlHandler::handleControl(const byte* payload, unsigned int length) {
   if (command.type == SmartDeskProtocol::CommandType::Stop) {
     relay_.stop();
     if (!publishStatus("stopped", "command", "명시적 정지 명령을 실행했습니다.")) {
+      failClosed();
+    }
+    return;
+  }
+
+  if (command.type == SmartDeskProtocol::CommandType::WakeUp ||
+      command.type == SmartDeskProtocol::CommandType::WakeDown) {
+    const RelayDirection requested =
+        command.type == SmartDeskProtocol::CommandType::WakeUp
+            ? RelayDirection::Up
+            : RelayDirection::Down;
+    // WAKE는 현재 MQTT height lease가 없어도, 서버가 전달한 마지막 실제 높이의
+    // 안전 경계 안에서만 400ms pulse를 허용한다. 이후 fresh height/arming 없이는
+    // 일반 UP/DOWN을 계속 거부한다.
+    if (!SmartDeskPolicy::directionAllowed(
+            command.basisHeightCm, requested == RelayDirection::Up)) {
+      reject(
+          requested == RelayDirection::Up ? "upper_limit" : "lower_limit",
+          "WAKE 기준 높이에서 해당 방향 pulse를 허용할 수 없습니다.");
+      return;
+    }
+    const RelayStartResult result = relay_.start(requested, command.holdMs);
+    const char* code = result == RelayStartResult::Extended
+                           ? "wake_extended"
+                           : "wake_started";
+    if (!publishStatus(
+            "moving", code, "높이 표시기를 깨우는 400ms pulse를 적용했습니다.")) {
       failClosed();
     }
     return;
@@ -201,11 +231,14 @@ bool ControlHandler::publishHeartbeat(uint32_t now) {
 }
 
 void ControlHandler::handleTimeoutEvent() {
+  const bool ready = isReady(millis());
   if (mqtt_.connected() &&
       !publishStatus(
           "stopped",
-          "timeout",
-          "이동 deadline이 끝나 hardware timer가 정지했습니다.")) {
+          ready ? "ready" : "timeout",
+          ready
+              ? "이동 deadline이 끝났지만 신선한 높이 lease는 준비되었습니다."
+              : "이동 deadline이 끝나 hardware timer가 정지했습니다.")) {
     failClosed();
   }
 }

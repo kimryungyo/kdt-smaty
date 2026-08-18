@@ -123,6 +123,10 @@ class RelayClient:
 자동 종료 시각만 연장한다. 갱신 주기와 연속 이동 여부는 `RelayClient`가 아니라
 `DeskController`가 결정한다.
 
+목표 오차 1.0cm 이내는 도달로 처리한다. 목표 근처의 미세 보정은 350ms pulse와 1.2초
+재측정 대기로 제한하고, 한 목표당 최대 두 번만 시도한다. AUTO가 완료된 목표를 다시
+실행하려면 1.5cm 이상 이탈이 3초 지속되어야 한다.
+
 ### `DeskController`
 
 목표 이동·수동 HOLD·정지의 상태전이를 단독으로 관리한다. `DeskHeightMonitor`와
@@ -166,8 +170,11 @@ class DeskController:
 `SegmentDecoder`는 73~118cm 측정 범위만 유효한 높이로 해석하고,
 `DeskController`는 75~115cm 제어 범위를 벗어난 목표와 이동을 허용하지 않는다.
 활성 목표가 없는 증감 요청은 거부하며, 진행 중 잘못된 대체 목표는 기존 이동을
-먼저 STOP한 뒤 입력 오류를 반환한다. 첫 FIN 구현은
-`smartdesk-fin-relay-1.0.0` firmware 상태만 이동 admission에 사용한다.
+먼저 STOP한 뒤 입력 오류를 반환한다. 현재 배포는
+`smartdesk-fin-relay-1.0.0` 및 WAKE 명령을 지원하는
+`smartdesk-fin-relay-1.0.1` 및 WAKE 완료 직후 deadline 연장을 지원하는
+`smartdesk-fin-relay-1.0.2` 및 400ms WAKE를 사용하는
+`smartdesk-fin-relay-1.0.5` firmware 상태만 이동 admission에 사용한다.
 
 ## 영상 컴포넌트
 
