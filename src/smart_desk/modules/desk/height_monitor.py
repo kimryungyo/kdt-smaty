@@ -59,6 +59,7 @@ class DeskHeightMonitor:
         self._height_cm: float | None = None
         self._observed_at: datetime | None = None
         self._provenance: HeightProvenance | None = None
+        self._panel_reset_active = False
         self._running = False
         self._source_started = False
 
@@ -73,6 +74,7 @@ class DeskHeightMonitor:
         self._height_cm = None
         self._observed_at = None
         self._provenance = None
+        self._panel_reset_active = False
         if self._cache is not None:
             try:
                 cached = await self._cache.load()
@@ -160,11 +162,24 @@ class DeskHeightMonitor:
             provenance=self._provenance,
         )
 
+    def panel_reset_active(self) -> bool:
+        """Whether the latest complete panel frame is the non-numeric ``rSt`` reset signal."""
+
+        return self._panel_reset_active
+
     async def _run(self) -> None:
         while self._running:
             raw_message = await self._source.read_line()
             if raw_message == b"":
                 await asyncio.sleep(0)
+                continue
+
+            if self._decoder.is_reset_display(raw_message):
+                self._panel_reset_active = True
+                LOGGER.warning(
+                    "책상 표시기가 rSt 초기화 상태를 보고했습니다.",
+                    extra={"component": "desk_height", "event": "panel_reset_detected"},
+                )
                 continue
 
             height = self._decoder.decode(raw_message)
@@ -177,6 +192,7 @@ class DeskHeightMonitor:
 
             observed_at = self._require_utc(self._now())
             self._height_cm = height
+            self._panel_reset_active = False
             self._observed_at = observed_at
             self._provenance = HeightProvenance.LIVE
             LOGGER.debug(
@@ -206,7 +222,9 @@ class DeskHeightMonitor:
             await self._mqtt.publish(
                 HEIGHT_TOPIC,
                 message.model_dump_json(),
-                qos=1,
+                # Height is a real-time control input.  A delayed value after an
+                # ESP32 reconnect is worse than a dropped one.
+                qos=0,
                 retain=True,
             )
         except MqttUnavailableError:

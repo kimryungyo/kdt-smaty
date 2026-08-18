@@ -157,7 +157,9 @@ def test_default_desk_ranges_match_physical_and_control_limits() -> None:
     assert settings.desk.operation_max_cm == 115.0
     assert settings.desk.continuous_hold_ms == 500
     assert settings.desk.manual_hold_ms == 500
-    assert settings.desk.fine_hold_ms == 100
+    assert settings.desk.fine_hold_ms == 350
+    assert settings.desk.max_fine_pulses == 2
+    assert settings.desk.target_tolerance_cm == 1.0
     assert settings.desk.pulse_refresh_interval_seconds == 0.1
     assert settings.desk.relay_ack_timeout_seconds == 6.0
 
@@ -208,6 +210,7 @@ def test_lower_pose_settings_default_disabled_and_normalize_blank_path(monkeypat
     assert VisionSettings().result_stale_after_seconds == 3.0
     assert VisionSettings().stability_majority_ratio == 0.7
     assert VisionSettings().stability_min_samples == 3
+    assert VisionSettings().upper_presence_min_person_confidence == 0.60
     monkeypatch.setenv("SMART_DESK_VISION__LOWER_POSE_MODEL_PATH", "   ")
     monkeypatch.setenv("SMART_DESK_VISION__UPPER_INFERENCE_INTERVAL_SECONDS", "0.5")
     monkeypatch.setenv("SMART_DESK_VISION__LOWER_INFERENCE_INTERVAL_SECONDS", "0.5")

@@ -4,6 +4,11 @@ GPIO 3 UP, GPIO 4 DOWN의 active-high relay를 MQTT 명령으로 실행하는 FI
 firmware다. 한 번의 UP/DOWN은 최대 500ms hardware timer deadline을 가지며, 같은
 방향 갱신은 GPIO를 재접점하지 않고 timer만 다시 설정한다.
 
+`WAKE`는 절전된 책상 표시기에서 새 Arduino 높이 관측을 얻기 위한 정확히 한 번의 400ms
+방향 pulse다. cached 높이를 기준으로 경계만 검사하며 height lease를 우회하지 않는다.
+WAKE deadline 안에 새 height lease가 준비되면 같은 방향의 일반 pulse가 deadline을 즉시
+연장해 불필요한 STOP 없이 목표 이동으로 이어진다.
+
 ## Build
 
 실제 네트워크 연결 전 `include/secrets.h.example`을 `include/secrets.h`로 복사해 값을

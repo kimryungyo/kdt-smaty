@@ -111,11 +111,12 @@ class DeskSettings(BaseModel):
         le=30,
         allow_inf_nan=False,
     )
-    # 아래 제어값은 relay 분리 검증을 위한 보수적인 초기 후보다. 실제 책상에서
-    # 수신 간격과 관성을 측정한 뒤 문서와 함께 다시 확정한다.
+    # 실제 책상 relay의 접점 수명과 관성을 고려한 제어값이다. 목표 근처의
+    # 짧은 ON/OFF 반복보다 한 번의 충분한 pulse와 재측정을 우선한다.
     continuous_hold_ms: int = Field(default=500, ge=50, le=500)
     manual_hold_ms: int = Field(default=500, ge=50, le=500)
-    fine_hold_ms: int = Field(default=100, ge=50, le=500)
+    fine_hold_ms: int = Field(default=350, ge=50, le=500)
+    max_fine_pulses: int = Field(default=2, ge=1, le=5)
     pulse_refresh_interval_seconds: float = Field(
         default=0.1,
         gt=0,
@@ -141,7 +142,7 @@ class DeskSettings(BaseModel):
         allow_inf_nan=False,
     )
     target_tolerance_cm: float = Field(
-        default=0.2,
+        default=1.0,
         gt=0,
         le=2,
         allow_inf_nan=False,
@@ -153,7 +154,7 @@ class DeskSettings(BaseModel):
         allow_inf_nan=False,
     )
     fine_settle_seconds: float = Field(
-        default=1.0,
+        default=1.2,
         gt=0,
         le=10,
         allow_inf_nan=False,
@@ -171,7 +172,7 @@ class DeskSettings(BaseModel):
         allow_inf_nan=False,
     )
     wake_timeout_seconds: float = Field(
-        default=3.0,
+        default=8.0,
         gt=0,
         le=30,
         allow_inf_nan=False,
@@ -387,6 +388,9 @@ class VisionSettings(BaseModel):
         default=0.5, ge=0.5, le=10, allow_inf_nan=False
     )
     lower_pose_input_size: int = Field(default=640, ge=64, le=2048)
+    # 상단 user-cam의 재실/다중 인원 판정은 오검출이 AUTO를 막지 않도록 하단 자세보다
+    # 더 높은 사람 신뢰도를 요구한다.
+    upper_presence_min_person_confidence: float = Field(default=0.60, ge=0, le=1)
     lower_pose_min_person_confidence: float = Field(default=0.30, ge=0, le=1)
     lower_pose_min_hip_confidence: float = Field(default=0.08, ge=0, le=1)
     lower_pose_min_knee_ankle_confidence: float = Field(default=0.45, ge=0, le=1)
@@ -465,12 +469,11 @@ class FaceSettings(BaseModel):
 
 
 class AutomationSettings(BaseModel):
-    """자동 목표의 실제 Desk 실행 여부만 제어한다.
-
-    시간과 높이는 제품 안전 계약의 고정값이라 환경 설정으로 노출하지 않는다.
-    """
+    """자동 목표 실행과 완료 뒤 재보정 deadband를 제어한다."""
 
     execute_automatic_movements: bool = False
+    auto_rearm_distance_cm: float = Field(default=1.5, gt=1.0, le=5.0, allow_inf_nan=False)
+    auto_rearm_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
 
 
 class StorageSettings(BaseModel):
@@ -670,6 +673,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "relay ack timeout은 MQTT publish timeout보다 길어야 합니다."
             )
+        if self.automation.auto_rearm_distance_cm <= self.desk.target_tolerance_cm:
+            raise ValueError("AUTO 재보정 거리는 목표 허용 오차보다 커야 합니다.")
         if (self.voice.enabled or self.profile_memory.enabled) and self.openai.api_key is None:
             raise ValueError("Voice 또는 profile memory가 활성화되면 OpenAI API key가 필요합니다.")
         if self.voice_debug.enabled and not self.voice.enabled:

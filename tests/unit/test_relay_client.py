@@ -212,7 +212,7 @@ async def test_pulse_publishes_exact_contract(
     assert len(mqtt.publications) == 1
     publication = mqtt.publications[0]
     assert publication["topic"] == ESP32_COMMAND_TOPIC
-    assert publication["qos"] == 1
+    assert publication["qos"] == 0
     assert publication["retain"] is False
     assert json.loads(str(publication["payload"])) == {
         "command": direction.value,
@@ -262,7 +262,7 @@ async def test_send_stop_uses_exact_json_and_does_not_change_snapshot() -> None:
         {
             "topic": ESP32_COMMAND_TOPIC,
             "payload": '{"command":"STOP"}',
-            "qos": 1,
+            "qos": 0,
             "retain": False,
         }
     ]
@@ -280,9 +280,9 @@ async def test_wake_publishes_exact_contract() -> None:
             "topic": ESP32_COMMAND_TOPIC,
             "payload": (
                 '{"command":"WAKE","source":"desk_service","direction":"DOWN",'
-                '"hold_ms":100,"basis_height_cm":80.2}'
+                '"hold_ms":400,"basis_height_cm":80.2}'
             ),
-            "qos": 1,
+            "qos": 0,
             "retain": False,
         }
     ]
@@ -301,9 +301,9 @@ async def test_wake_rejects_invalid_basis_height(basis: object) -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"command": "WAKE", "source": "desk_service", "direction": "UP", "hold_ms": 99, "basis_height_cm": 80.0},
-        {"command": "WAKE", "source": "desk_service", "direction": "SIDEWAYS", "hold_ms": 100, "basis_height_cm": 80.0},
-        {"command": "WAKE", "source": "desk_service", "direction": "UP", "hold_ms": 100, "basis_height_cm": 80.0, "extra": True},
+        {"command": "WAKE", "source": "desk_service", "direction": "UP", "hold_ms": 100, "basis_height_cm": 80.0},
+        {"command": "WAKE", "source": "desk_service", "direction": "SIDEWAYS", "hold_ms": 400, "basis_height_cm": 80.0},
+        {"command": "WAKE", "source": "desk_service", "direction": "UP", "hold_ms": 400, "basis_height_cm": 80.0, "extra": True},
     ],
 )
 def test_wake_wire_model_rejects_non_exact_contract(payload: dict[str, object]) -> None:

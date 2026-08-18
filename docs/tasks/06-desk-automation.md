@@ -67,7 +67,8 @@ control mode, activity mode와 자동화 상태는 같은 enum으로 합치지 �
 - [x] 최초 목표 이후 자세 전환과 명시적 AUTO 재활성화에는 등록·익명 구분 없이 설정의 고정
   5초를 적용한다.
 - [x] 익명 자세 목표는 앉음 75cm·섬 110cm로 선택한다.
-- [x] 현재 높이가 목표 허용 오차 안이면 새 이동을 만들지 않는다.
+- [x] 현재 높이가 목표 1.0cm 허용 오차 안이면 새 이동을 만들지 않으며, 완료 뒤 1.5cm
+  이상 이탈이 3초 지속될 때만 AUTO 재보정한다.
 - [x] 같은 자세·같은 목표를 frame마다 반복 설정하지 않는다.
 - [x] fake-driven 사용자 교대, 이탈, 미등록 얼굴 전환, 상단 다중 사용자와 freshness 만료를
   결정표대로 STOP 또는 BLOCK 처리한다. 실제 Vision·hardware 입력 검증은 남아 있다.
@@ -82,7 +83,7 @@ control mode, activity mode와 자동화 상태는 같은 enum으로 합치지 �
   모드는 보존한다.
 - [x] 사용자 STOP과 안전 STOP의 control mode 결과를 구분하고 session 검증보다 먼저 처리한다.
 - [x] 같은 session의 명시적 AUTO 재활성화는 진행 이동 STOP → 후보 초기화 → AUTO 전환 →
-  fresh 자세 5초 확인 순서로 처리한다.
+  fresh 자세 2초 확인 순서로 처리한다.
 - [x] control/activity mode의 `expectedSessionId`를 command lock 안에서 비교한다.
 - [x] HOLD·직접 목표는 Dashboard 호환을 위해 sessionless 호출을 허용하되, Voice 같은
   사용자 종속 호출은 선택적 `expectedSessionId`를 command lock 안에서 current-user와
@@ -144,7 +145,7 @@ Vision 불확실성 STOP을 확인했다. 기본값과 배포 예시는 안전�
 - WLED 적용 실패가 active mode, control mode와 Desk generation을 되돌리지 않는다.
 - 사용자 교대와 경합한 Desk function tool은 실제 목표를 만들기 전에 session 불일치로
   거절하고, STOP은 session 불일치와 무관하게 처리한다.
-- 사용자가 AUTO를 다시 선택하면 기존 이동과 후보를 버리고 fresh 자세 5초를 다시 요구한다.
+- 사용자가 AUTO를 다시 선택하면 기존 이동과 후보를 버리고 fresh 자세 2초를 다시 요구한다.
 - Vision·높이·MQTT·relay 오류 및 명령 경합에서 STOP이 우선한다.
 - session 없는 HOLD·직접 목표와 STOP이 허용되고 사용자 종속 stale 명령만 거절된다.
 - fresh VACANT 30초 전에는 park하지 않고 사람 후보·수동 명령·오류가 PARK를 STOP한다.

@@ -14,3 +14,9 @@ log.console {
   enable = true
   level = warning
 }
+
+# Desk commands and height are real-time signals.  Never retain QoS 0 frames
+# for an offline ESP32 session; a reconnect must receive only new input.
+mqtt {
+  mqueue_store_qos0 = false
+}
