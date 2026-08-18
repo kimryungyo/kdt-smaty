@@ -213,7 +213,8 @@ def vision(pair: tuple[float, float], *, posture: PostureStatus = PostureStatus.
 def service_for(*, users: FakeUsers, camera: FakeVision, desk: FakeDesk, clock: Clock,
                 execute: bool = False, modes: FakeModes | None = None, wled: FakeWled | None = None) -> AutomationService:
     return AutomationService(current_user=users, vision=camera, activity_modes=modes or FakeModes(), desk=desk,
-                             wled=wled, settings=AutomationSettings(execute_automatic_movements=execute),
+                             wled=wled, settings=AutomationSettings(execute_automatic_movements=execute,
+                                                         posture_confirmation_seconds=1.0),
                              utc_now=lambda: NOW, monotonic=clock)
 
 
@@ -662,6 +663,33 @@ async def test_user_stop_preserves_manual_intent_and_propagates_error() -> None:
     with pytest.raises(RuntimeError, match="stop failed"):
         await service.stop_motion()
     assert service.get_snapshot().control_mode is ControlMode.MANUAL
+
+
+class FakeAnnouncer:
+    def __init__(self) -> None:
+        self.said: list[str] = []
+
+    def say_soon(self, text: str) -> None:
+        self.said.append(text)
+
+
+async def test_height_change_is_announced_once_per_target() -> None:
+    """움직일 때만, 그리고 같은 목표를 두 번 말하지 않는다."""
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera, announcer = FakeVision(vision((1, 1))), FakeAnnouncer()
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock)
+    service.set_announcer(announcer)
+
+    await service.set_target(104)
+    await service.set_target(104)   # 같은 목표는 다시 말하지 않는다
+    await service.set_target(88)
+
+    # 지금 높이를 아는 상태이므로 오르내림까지 정확히 말한다.
+    assert announcer.said == [
+        "책상을 104센티미터로 올릴게요.",
+        "책상을 88센티미터로 내릴게요.",
+    ]
 
 
 async def test_mode_brightness_is_applied_before_its_colour() -> None:

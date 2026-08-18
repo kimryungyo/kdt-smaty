@@ -545,7 +545,9 @@ class AutomationSettings(BaseModel):
     """자동 목표 실행과 완료 뒤 재보정 deadband를 제어한다."""
 
     execute_automatic_movements: bool = False
-    posture_confirmation_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
+    # 앉고 서기를 이만큼 유지해야 책상이 따라 움직인다. 짧으면 잠깐 몸을 일으킬
+    # 때마다 책상이 오르내려 오히려 방해가 된다.
+    posture_confirmation_seconds: float = Field(default=5.0, gt=0, le=30, allow_inf_nan=False)
     auto_rearm_distance_cm: float = Field(default=1.5, gt=1.0, le=5.0, allow_inf_nan=False)
     auto_rearm_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
 
@@ -678,6 +680,8 @@ class VoiceSettings(BaseModel):
     greeting_location: str = "서울"
     # 같은 사람에게 다시 인사하기까지 두는 시간(초).
     greeting_cooldown_seconds: float = 1800.0
+    # 책상이 움직일 때 어디로 가는지 말해 준다.
+    height_announcement_enabled: bool = True
 
     @field_validator("input_device_name", "output_device_name", mode="before")
     @classmethod

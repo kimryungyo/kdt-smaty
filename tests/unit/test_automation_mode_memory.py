@@ -135,7 +135,8 @@ def parts():
     users, modes, usage = FakeUsers(), FakeModes(), RecordingUsage()
     service = AutomationService(
         current_user=users, vision=FakeVision(), activity_modes=modes, desk=FakeDesk(),
-        settings=AutomationSettings(execute_automatic_movements=False),
+        settings=AutomationSettings(execute_automatic_movements=False,
+                                    posture_confirmation_seconds=1.0),
         usage=usage, mode_memory_seconds=1800.0,
         utc_now=lambda: NOW, monotonic=clock,
     )
