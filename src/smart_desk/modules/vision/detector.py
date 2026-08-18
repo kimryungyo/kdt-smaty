@@ -95,7 +95,10 @@ class OpenCvYuNetUpperDetector:
                 or any(point_x < 0 or point_y < 0 or point_x >= frame.shape[1] or point_y >= frame.shape[0]
                        for point_x, point_y in landmarks)
             ):
-                raise ValueError("Malformed YuNet row")
+                # YuNet은 화면 경계에 걸린 얼굴에서 box/landmark 일부를 frame 밖으로
+                # 낼 수 있다. 이는 신원용 얼굴 후보로는 불가하지만 상단 YOLO의 재실
+                # 인원 판정까지 실패시킬 detector 오류는 아니다.
+                continue
             if width < self._min_face_size or height < self._min_face_size:
                 continue
             boxes.append(FaceBox(int(x), int(y), int(width), int(height), landmarks, float(row[14])))

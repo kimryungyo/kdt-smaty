@@ -47,14 +47,43 @@ def test_yunet_zero_rows_leaves_presence_unavailable(tmp_path, monkeypatch, rows
     assert detector.detect_upper(np.zeros((10, 10, 3), dtype=np.uint8)).body_count is None
 
 
-@pytest.mark.parametrize("rows", [np.ones((1, 14)), np.full((1, 15), np.nan), np.array([[0] * 15])])
-def test_yunet_bad_rows_fail_closed(tmp_path, monkeypatch, rows) -> None:
+@pytest.mark.parametrize("rows", [np.ones((1, 14)), np.full((1, 15), np.nan)])
+def test_yunet_structurally_bad_output_fails_closed(tmp_path, monkeypatch, rows) -> None:
     model = tmp_path / "yunet.onnx"
     model.touch()
     monkeypatch.setattr(yunet_module.cv2, "FaceDetectorYN", type("Factory", (), {"create": staticmethod(lambda *_args: YuNet(rows))}))
     detector = OpenCvYuNetUpperDetector(model, score_threshold=.85, nms_threshold=.3, min_face_size=64)
     with pytest.raises(ValueError):
         detector.detect_upper(np.zeros((10, 10, 3), dtype=np.uint8))
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        [-1, 0, 8, 8, 1, 1, 2, 1, 3, 3, 1, 5, 5, 5, .9],
+        [1, 0, 12, 8, 1, 1, 2, 1, 3, 3, 1, 5, 5, 5, .9],
+        [1, 1, 8, 8, 1, 1, 2, 1, 3, 3, 1, 5, 11, 5, .9],
+    ],
+)
+def test_yunet_out_of_frame_face_is_ignored_not_detector_error(
+    tmp_path, monkeypatch, row
+) -> None:
+    model = tmp_path / "yunet.onnx"
+    model.touch()
+    fake = YuNet(np.array([row]))
+    monkeypatch.setattr(
+        yunet_module.cv2,
+        "FaceDetectorYN",
+        type("Factory", (), {"create": staticmethod(lambda *_args: fake)}),
+    )
+    detector = OpenCvYuNetUpperDetector(
+        model, score_threshold=.85, nms_threshold=.3, min_face_size=1
+    )
+
+    result = detector.detect_upper(np.zeros((10, 10, 3), dtype=np.uint8))
+
+    assert result.body_count is None
+    assert result.face_boxes == ()
 
 
 class SFace:
