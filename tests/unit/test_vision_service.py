@@ -185,7 +185,7 @@ async def test_lower_count_is_not_an_association_input_and_detector_errors_fail_
     assert service.get_fresh_face_observation() is None
 
 
-async def test_initial_window_without_seventy_percent_majority_stays_unknown() -> None:
+async def test_unknown_recovers_to_a_consistent_posture_after_one_second() -> None:
     clock, upper, lower = Clock(), FakeSource(), FakeSource()
     detector = FakeDetector(UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING))
     service = make_service(clock, detector, upper, lower)
@@ -201,8 +201,8 @@ async def test_initial_window_without_seventy_percent_majority_stays_unknown() -
 
     snapshot = service.get_snapshot()
     assert snapshot.raw_posture is PostureStatus.STANDING
-    assert snapshot.stable_posture is PostureStatus.UNKNOWN
-    assert snapshot.posture_candidate_since is None
+    assert snapshot.stable_posture is PostureStatus.SITTING
+    assert snapshot.posture_candidate_since is not None
 
 
 async def test_stable_values_ignore_brief_multiple_and_unknown_observations() -> None:
@@ -268,15 +268,15 @@ async def test_persistent_unknown_posture_blocks_only_after_stability_window() -
     assert service.get_snapshot().usable is True
 
     detector.lower = LowerDetection(0, PostureStatus.UNKNOWN)
-    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0):
+    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0):
         clock.value = value
         upper.frame = lower.frame = (np.zeros((1, 1)), value)
         await service.process_once()
         assert service.get_snapshot().usable is True
 
-    # 안정화 창 전체가 UNKNOWN이 된 시점부터만 차단한다.
-    clock.value = 6.5
-    upper.frame = lower.frame = (np.zeros((1, 1)), 6.5)
+    # raw UNKNOWN이 끊기지 않고 5초를 채운 시점부터만 차단한다.
+    clock.value = 8.5
+    upper.frame = lower.frame = (np.zeros((1, 1)), 8.5)
     await service.process_once()
     snapshot = service.get_snapshot()
     assert snapshot.stable_posture is PostureStatus.UNKNOWN
@@ -284,7 +284,7 @@ async def test_persistent_unknown_posture_blocks_only_after_stability_window() -
     assert snapshot.reason_codes == (BlockCode.POSTURE_UNKNOWN,)
 
 
-async def test_posture_changes_after_three_second_majority_window() -> None:
+async def test_posture_changes_after_two_second_rolling_window() -> None:
     clock, upper, lower = Clock(), FakeSource(), FakeSource()
     detector = FakeDetector(
         UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING)
@@ -307,7 +307,7 @@ async def test_posture_changes_after_three_second_majority_window() -> None:
     upper.frame = lower.frame = (np.zeros((1, 1)), 5.0)
     await service.process_once()
     detector.lower = LowerDetection(1, PostureStatus.STANDING)
-    for value in (5.5, 6.0, 6.5):
+    for value in (5.5, 6.0, 6.5, 7.0, 7.5):
         clock.value = value
         upper.frame = lower.frame = (np.zeros((1, 1)), value)
         await service.process_once()
@@ -331,7 +331,7 @@ async def test_persistent_multiple_wins_window_and_blocks_vision() -> None:
         await service.process_once()
     detector.upper = UpperDetection(body_count=2)
     detector.lower = LowerDetection(2, PostureStatus.UNKNOWN)
-    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5):
+    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5):
         clock.value = value
         upper.frame = lower.frame = (np.zeros((1, 1)), value)
         await service.process_once()

@@ -87,6 +87,8 @@ class VisionService:
         )
         self._stable_presence = PresenceStatus.UNKNOWN
         self._stable_posture = PostureStatus.UNKNOWN
+        self._posture_unknown_since: float | None = None
+        self._posture_transition_since: float | None = None
         self._snapshot = self._compose_snapshot()
 
     async def start(self) -> None:
@@ -106,6 +108,8 @@ class VisionService:
                 pass
         self._stable_presence = PresenceStatus.UNKNOWN
         self._stable_posture = PostureStatus.UNKNOWN
+        self._posture_unknown_since = None
+        self._posture_transition_since = None
         self._presence_window.clear()
         self._posture_window.clear()
         self._snapshot = self._compose_snapshot(force_stale=True)
@@ -125,6 +129,8 @@ class VisionService:
             # the last PRESENT result usable.
             self._stable_presence = PresenceStatus.UNKNOWN
             self._stable_posture = PostureStatus.UNKNOWN
+            self._posture_unknown_since = None
+            self._posture_transition_since = None
             self._snapshot = self._compose_snapshot(force_stale=True)
 
     async def process_once(self) -> None:
@@ -346,6 +352,8 @@ class VisionService:
         if force_stale or lower_immediate:
             self._posture_window.clear()
             self._stable_posture = PostureStatus.UNKNOWN
+            self._posture_unknown_since = None
+            self._posture_transition_since = None
         if not (force_stale or upper_immediate) and advance_presence:
             self._stable_presence = self._stabilize_presence(raw_presence)
         if not (force_stale or lower_immediate) and advance_posture:
@@ -458,12 +466,68 @@ class VisionService:
         )
 
     def _stabilize_posture(self, value: PostureStatus) -> PostureStatus:
-        return self._stabilize_value(
-            self._posture_window,
-            value,
-            self._stable_posture,
-            PostureStatus.UNKNOWN,
+        """Use rolling, asymmetric posture stabilization for demo UX.
+
+        A brief missing pose does not discard the last stable posture.  A
+        genuine posture recovery is fast, while an UNKNOWN transition requires
+        a continuous five-second loss.  Camera freshness failures are handled
+        before this method and remain immediate fail-closed events.
+        """
+
+        now = self._monotonic()
+        self._posture_window.append((now, self._utc_now(), value))
+        retention = max(
+            self._settings.posture_unknown_after_seconds,
+            self._settings.posture_transition_window_seconds,
+            self._settings.posture_recovery_window_seconds,
         )
+        while self._posture_window and now - self._posture_window[0][0] > retention:
+            self._posture_window.popleft()
+
+        stable = self._stable_posture
+        if stable is PostureStatus.UNKNOWN:
+            return self._recover_posture_from_unknown(now)
+
+        if value is PostureStatus.UNKNOWN:
+            if self._posture_unknown_since is None:
+                self._posture_unknown_since = now
+            self._posture_transition_since = None
+            if now - self._posture_unknown_since >= self._settings.posture_unknown_after_seconds:
+                self._stable_posture = PostureStatus.UNKNOWN
+                self._posture_unknown_since = None
+            return self._stable_posture
+
+        self._posture_unknown_since = None
+        if value is stable:
+            self._posture_transition_since = None
+            return stable
+        if self._posture_transition_since is None:
+            self._posture_transition_since = now
+            return stable
+        if now - self._posture_transition_since < self._settings.posture_transition_window_seconds:
+            return stable
+
+        samples = self._recent_posture_samples(now, self._settings.posture_transition_window_seconds)
+        winner, votes = Counter(item[2] for item in samples).most_common(1)[0]
+        if (winner is value and winner is not PostureStatus.UNKNOWN
+                and votes / len(samples) >= self._settings.stability_majority_ratio):
+            self._stable_posture = winner
+        self._posture_transition_since = None
+        return self._stable_posture
+
+    def _recover_posture_from_unknown(self, now: float) -> PostureStatus:
+        samples = self._recent_posture_samples(now, self._settings.posture_recovery_window_seconds)
+        if len(samples) < 2 or now - samples[0][0] < self._settings.posture_recovery_window_seconds:
+            return PostureStatus.UNKNOWN
+        winner, votes = Counter(item[2] for item in samples).most_common(1)[0]
+        if (winner is not PostureStatus.UNKNOWN
+                and votes / len(samples) >= self._settings.stability_majority_ratio):
+            self._stable_posture = winner
+            self._posture_transition_since = None
+        return self._stable_posture
+
+    def _recent_posture_samples(self, now: float, seconds: float):
+        return [item for item in self._posture_window if now - item[0] <= seconds]
 
     def _stabilize_value(self, window, value, stable, unknown):  # type: ignore[no-untyped-def]
         """3초 관측 묶음의 다수결로 전이하고 그동안 기존 stable 값을 유지한다."""

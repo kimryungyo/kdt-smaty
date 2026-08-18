@@ -45,17 +45,19 @@ camera 검증이 필요하다.
 
 ### 재실·자세 안정화
 
-재실과 자세는 같은 값이 3초 내내 한 번도 끊기지 않아야 하는 연속 판정이 아니다. 현재
-stable 값과 다른 관측이 시작되면 3초 관측 묶음을 열고, 서로 다른 결합 frame 최소 3개 중
-70% 이상을 차지한 값을 다음 stable 값으로 채택한다. 표결 중에는 기존 stable 값을 유지한다.
-따라서 단발 `UNKNOWN`, 자세 오탐은 raw 상태에만 보이고 session과
-AUTO를 흔들지 않는다. 같은 이상이 관측 묶음의 다수를 차지하면 stable `UNKNOWN` 또는
-`MULTIPLE`로 전환해 AUTO를 차단한다.
+재실은 현재 stable 값과 다른 관측이 시작되면 3초 관측 묶음을 열고, 서로 다른 결합 frame
+최소 3개 중 70% 이상을 차지한 값을 다음 stable 값으로 채택한다. 표결 중에는 기존 stable
+값을 유지한다. 상단 `MULTIPLE`도 이 규칙을 따른다.
+
+하단 자세는 시연 UX를 위해 별도 슬라이딩 규칙을 쓴다. `SITTING↔STANDING`은 최근 2초
+frame의 70% 다수결로 전이하고, stable 자세에서 raw `UNKNOWN`은 연속 5초여야 stable
+`UNKNOWN`이 된다. `UNKNOWN`에서 정상 자세로 돌아올 때는 최근 1초의 70% 다수결로 복구한다.
+따라서 단발 `UNKNOWN`, 자세 오탐은 raw 상태에만 보이고 session과 AUTO를 흔들지 않는다.
 
 카메라 단절과 frame/result stale은 실제 입력이 멈춘 파이프라인 장애이므로 다수결을 기다리지
 않고 즉시 stable 값을 `UNKNOWN`으로 만들고 AUTO를 차단한다. 단일 detector 예외나 모델
-결과 누락은 해당 결합 frame의 `UNKNOWN` 표로 처리해 순간 오류를 흡수하고, 3초 관측창의
-다수를 차지할 때만 stable 값을 `UNKNOWN`으로 바꾼다. 새 distinct 상·하단 frame이 다시
+결과 누락은 해당 결합 frame의 `UNKNOWN` 표로 처리해 순간 오류를 흡수하고, 하단 자세에서는
+연속 5초일 때만 stable 값을 `UNKNOWN`으로 바꾼다. 새 distinct 상·하단 frame이 다시
 들어온 뒤에는 처음부터 3초를 재확인한다.
 운영 장비의 상·하단 직렬 추론 한 묶음은 약 0.8초이므로 frame/result 만료값은 3초로 둔다.
 이는 정상 처리 지연을 stale로 오판하지 않으면서 실제 입력 정지는 3초 안에 차단한다.

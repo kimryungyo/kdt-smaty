@@ -373,6 +373,12 @@ class VisionSettings(BaseModel):
         default=0.7, gt=0.5, le=1.0, allow_inf_nan=False
     )
     stability_min_samples: int = Field(default=3, ge=2, le=100)
+    # 자세는 시연 중 관절 누락이 잦으므로 일반 재실 안정화와 분리한다. 정상 자세 전이는
+    # 2초 rolling majority, UNKNOWN은 연속 5초 뒤에만 확정하고 정상 자세 복구는 1초부터
+    # 허용한다. camera stale/연결 단절은 이 유예와 무관하게 즉시 차단한다.
+    posture_transition_window_seconds: float = Field(default=2.0, gt=0, le=30, allow_inf_nan=False)
+    posture_unknown_after_seconds: float = Field(default=5.0, gt=0, le=60, allow_inf_nan=False)
+    posture_recovery_window_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
     # 독립 WHEP receiver의 최신 frame 도착은 동일 15fps stream이라도 최대 약 0.5초
     # 어긋날 수 있다. result freshness(1초) 안에서만 결합하되 정상 scheduler jitter가
     # 안정화 timer를 계속 초기화하지 않도록 약간의 여유를 둔다.
