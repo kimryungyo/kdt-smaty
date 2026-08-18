@@ -122,6 +122,13 @@ function SmatyDashboard() {
   const close = () => setPanel(null);
   const currentHeight = desk.value?.height.heightCm ?? targetHeight;
   const deskOnline = desk.value?.height.status === "ONLINE" && Boolean(desk.value?.relay.receivedAt) && !desk.value?.relay.lastError;
+  // 책상이 실제로 움직이는 중인지. WAKING은 이동 직전 센서 확인 단계다.
+  const deskBusy = desk.value?.state === "MOVING" || desk.value?.state === "WAKING";
+  const deskBusyLabel = !deskBusy ? null
+    : desk.value?.state === "WAKING" ? "센서 확인 중"
+    : desk.value?.direction === "UP" ? "올라가는 중"
+    : desk.value?.direction === "DOWN" ? "내려가는 중" : "이동 중";
+  const tiltBusyLabel = tilt.value?.status === "MOVING" ? "틸팅 중" : null;
 
   const applyHeight = async () => {
     try {
@@ -171,16 +178,16 @@ function SmatyDashboard() {
 
   const cards = useMemo(() => [
     { id: "profile" as const, label: "사용자 프로필", value: profile?.name ?? (session?.kind === "ANONYMOUS" ? "게스트" : "프로필 설정"), sub: profile ? "프로필 수정하기" : "새 프로필 등록하기" },
-    { id: "height" as const, label: "책상 높이", value: `${currentHeight.toFixed(1)} cm`, sub: `${automationMode === "AUTO" ? "자동" : "수동"} 제어 · 설정 변경` },
+    { id: "height" as const, label: "책상 높이", value: `${currentHeight.toFixed(1)} cm`, sub: `${automationMode === "AUTO" ? "자동" : "수동"} 제어 · 설정 변경`, busy: deskBusyLabel },
     { id: "led" as const, label: "LED 조명", value: ledOn ? "켜짐" : "꺼짐", sub: `#${color}` },
     { id: "mode" as const, label: "현재 모드", value: selectedMode?.name ?? "기본 모드", sub: "작업 환경 변경" },
-    { id: "tilt" as const, label: "데스크 틸팅", value: tilt.value?.status === "MOVING" && tilt.value?.targetLevel !== null ? `${tilt.value?.targetLevel}단계 이동 중` : tilt.value?.level !== null ? `${tilt.value?.level}단계` : "준비 중", sub: tilt.value?.detail ?? "기울기 단계 변경" },
+    { id: "tilt" as const, label: "데스크 틸팅", value: tilt.value?.status === "MOVING" && tilt.value?.targetLevel !== null ? `${tilt.value?.targetLevel}단계 이동 중` : tilt.value?.level !== null ? `${tilt.value?.level}단계` : "준비 중", sub: tilt.value?.detail ?? "기울기 단계 변경", busy: tiltBusyLabel },
   ], [automationMode, color, currentHeight, ledOn, profile, selectedMode?.name, session?.kind, tilt.value]);
 
   return <div className="smaty-page">
     <header><a className="brand" href="/">▰ <b>SMATY</b></a><div className="head"><span className={deskOnline ? "online" : "online offline"}>● {deskOnline ? "책상 연결됨" : "연결 확인 중"}</span><button className="theme" type="button" onClick={() => setDark((value) => !value)}>☀ <i>{dark ? "●" : "○"}</i> ☾</button></div></header>
     <main><section className="hero"><div><small>MY WORKSPACE</small><h1>안녕하세요, {profile?.name ?? (session?.kind === "ANONYMOUS" ? "게스트" : "사용자")}님.</h1><p>{session ? "오늘도 편안한 환경에서 집중해 보세요." : "카메라가 사용자를 인식하면 개인 설정을 불러옵니다."}</p></div><aside><span>현재 책상 높이</span><b>{currentHeight.toFixed(1)} <small>cm</small></b></aside></section>
-      <section className="grid">{cards.map((card, index) => <button key={card.id} type="button" className={`card c${index}`} onClick={() => { if (card.id === "profile") navigate(profile ? `/settings/profiles/${encodeURIComponent(profile.id)}` : "/settings/profiles/new"); else setPanel(card.id); }}><div className="cardtop"><Icon name={card.id} /><span>↗</span></div><small>{card.label}</small><h2>{card.value}</h2>{card.id === "led" && <span className="dot" style={{ background: `#${color}` }} />}{card.id === "tilt" && <div className="steps">{tiltLevels.map((level) => <i key={level} />)}</div>}<p>{card.sub}<b>›</b></p></button>)}<WorkRhythmCard className="c5" /></section>
+      <section className="grid">{cards.map((card, index) => <button key={card.id} type="button" className={`card c${index}`} onClick={() => { if (card.id === "profile") navigate(profile ? `/settings/profiles/${encodeURIComponent(profile.id)}` : "/settings/profiles/new"); else setPanel(card.id); }}><div className="cardtop"><Icon name={card.id} /><span>↗</span></div><small>{card.label}</small><h2>{card.value}</h2>{"busy" in card && card.busy && <em className="busy">{card.busy}</em>}{card.id === "led" && <span className="dot" style={{ background: `#${color}` }} />}{card.id === "tilt" && <div className="steps">{tiltLevels.map((level) => <i key={level} />)}</div>}<p>{card.sub}<b>›</b></p></button>)}<WorkRhythmCard className="c5" /></section>
     </main><footer>SMATY <span>나에게 맞춰지는 더 나은 작업 환경</span></footer>
     {notice && <div className="toast" role="status">✓ {notice}</div>}
     {panel && <div className="shade" onMouseDown={close}><section className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="x" type="button" onClick={close} aria-label="닫기">×</button>
