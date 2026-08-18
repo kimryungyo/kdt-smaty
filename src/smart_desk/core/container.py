@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from smart_desk.modules.mqtt.client import MqttClient
     from smart_desk.modules.profiles.repository import ProfileRepository
     from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
+    from smart_desk.modules.profiles.usage import ActivityModeUsageRepository
     from smart_desk.modules.tilt.controller import TiltController
     from smart_desk.modules.voice.service import VoiceService
     from smart_desk.modules.voice.debug import VoiceDebugServer
@@ -71,6 +72,7 @@ class AppContainer:
     height_monitor: DeskHeightMonitor
     relay: RelayClient
     desk: DeskController
+    mode_usage: ActivityModeUsageRepository | None = None
     tilt: TiltController | None = None
     voice: VoiceService | None = None
     voice_debug: VoiceDebugServer | None = None

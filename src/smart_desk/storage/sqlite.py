@@ -13,7 +13,7 @@ from typing import TypeVar
 
 
 LOGGER = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 SQLITE_TIMEOUT_SECONDS = 5.0
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -155,7 +155,11 @@ class SQLiteDatabase:
             if version == 5:
                 _verify_version_5_schema(connection)
                 _migrate_to_version_6(connection)
-            _verify_version_6_schema(connection)
+                version = 6
+            if version == 6:
+                _verify_version_6_schema(connection)
+                _migrate_to_version_7(connection)
+            _verify_version_7_schema(connection)
         finally:
             connection.close()
 
@@ -634,6 +638,164 @@ def _verify_version_5_schema(connection: Connection) -> None:
     _verify_profile_modes_schema_v5(connection)
     _verify_face_embeddings_table_schema(connection)
     _verify_face_embedding_constraints(connection)
+
+
+def _migrate_to_version_7(connection: Connection) -> None:
+    """작업 모드를 실제로 쓴 구간을 기록하는 table을 추가한다.
+
+    구간은 (started_at, ended_at) 반열린 구간이고, ended_at이 NULL이면 지금
+    진행 중이다. mode_name은 당시 이름을 그대로 남긴다. 모드 이름이 바뀌거나
+    모드를 지워도 지난 기록은 그때 이름으로 읽혀야 하기 때문이다.
+    """
+
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            """
+            CREATE TABLE activity_mode_usage (
+                id          INTEGER PRIMARY KEY,
+                profile_id  TEXT NOT NULL
+                            REFERENCES profiles(id) ON DELETE CASCADE,
+                mode_key    TEXT NOT NULL
+                            CHECK (
+                                typeof(mode_key) = 'text'
+                                AND length(trim(mode_key)) > 0
+                            ),
+                mode_name   TEXT NOT NULL
+                            CHECK (
+                                typeof(mode_name) = 'text'
+                                AND length(trim(mode_name)) > 0
+                            ),
+                started_at  TEXT NOT NULL
+                            CHECK (
+                                typeof(started_at) = 'text'
+                                AND length(trim(started_at)) > 0
+                            ),
+                ended_at    TEXT
+                            CHECK (
+                                ended_at IS NULL
+                                OR (
+                                    typeof(ended_at) = 'text'
+                                    AND length(trim(ended_at)) > 0
+                                    AND ended_at >= started_at
+                                )
+                            )
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX activity_mode_usage_started_at_idx "
+            "ON activity_mode_usage(started_at)"
+        )
+        connection.execute(
+            "CREATE INDEX activity_mode_usage_profile_id_idx "
+            "ON activity_mode_usage(profile_id)"
+        )
+        connection.execute("PRAGMA user_version = 7")
+        connection.execute("COMMIT")
+    except BaseException:
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            LOGGER.exception(
+                "SQLite migration rollback에 실패했습니다.",
+                extra={"component": "sqlite", "event": "migration_rollback_failed"},
+            )
+        raise
+
+
+def _verify_version_7_schema(connection: Connection) -> None:
+    """version 7은 v6에 작업 모드 사용 기록 table을 더한다."""
+
+    if _read_user_version(connection) != 7:
+        raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if tables != {
+        "profiles", "desk_height_cache", "profile_modes", "face_embeddings",
+        "activity_mode_usage",
+    }:
+        raise StorageVersionError("SQLite version 7 table 구성이 올바르지 않습니다.")
+    _verify_profile_schema_v6(connection)
+    _verify_height_cache_schema(connection)
+    _verify_profile_modes_schema_v5(connection)
+    _verify_face_embeddings_table_schema(connection)
+    _verify_face_embedding_constraints(connection)
+    _verify_activity_mode_usage_schema(connection)
+
+
+def _verify_activity_mode_usage_schema(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(activity_mode_usage)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "INTEGER", 0, 1),
+        ("profile_id", "TEXT", 1, 0),
+        ("mode_key", "TEXT", 1, 0),
+        ("mode_name", "TEXT", 1, 0),
+        ("started_at", "TEXT", 1, 0),
+        ("ended_at", "TEXT", 0, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 7 usage schema가 올바르지 않습니다.")
+
+    foreign_keys = connection.execute(
+        "PRAGMA foreign_key_list(activity_mode_usage)"
+    ).fetchall()
+    if [
+        (row["table"], row["from"], row["to"], row["on_delete"])
+        for row in foreign_keys
+    ] != [("profiles", "profile_id", "id", "CASCADE")]:
+        raise StorageVersionError("SQLite version 7 usage foreign key가 올바르지 않습니다.")
+
+    _verify_activity_mode_usage_constraints(connection)
+
+
+def _verify_activity_mode_usage_constraints(connection: Connection) -> None:
+    profile_id = "__usage_schema__"
+    insert_profile = (
+        "INSERT INTO profiles "
+        "(id, name, sitting_height_cm, standing_height_cm, led_color) "
+        "VALUES (?, ?, ?, ?, ?)"
+    )
+    insert_usage = (
+        "INSERT INTO activity_mode_usage "
+        "(profile_id, mode_key, mode_name, started_at, ended_at) VALUES (?, ?, ?, ?, ?)"
+    )
+    invalid_rows = [
+        (profile_id, "", "공부", "2026-01-01T00:00:00Z", None),
+        (profile_id, "default", "   ", "2026-01-01T00:00:00Z", None),
+        (profile_id, "default", "공부", "", None),
+        # 끝이 시작보다 빠른 구간은 남기지 않는다.
+        (profile_id, "default", "공부", "2026-01-02T00:00:00Z", "2026-01-01T00:00:00Z"),
+        ("missing-profile", "default", "공부", "2026-01-01T00:00:00Z", None),
+    ]
+
+    connection.execute("SAVEPOINT validate_usage_schema")
+    try:
+        connection.execute(insert_profile, (profile_id, "usage schema", 80.0, 100.0, None))
+        try:
+            connection.execute(
+                insert_usage,
+                (profile_id, "default", "기본", "2026-01-01T00:00:00Z", None),
+            )
+        except sqlite3.Error as error:
+            raise StorageVersionError(
+                "SQLite version 7 usage 제약이 호환되지 않습니다."
+            ) from error
+        for row in invalid_rows:
+            try:
+                connection.execute(insert_usage, row)
+            except sqlite3.IntegrityError:
+                continue
+            raise StorageVersionError("SQLite version 7 usage 제약이 누락되었습니다.")
+    finally:
+        connection.execute("ROLLBACK TO validate_usage_schema")
+        connection.execute("RELEASE validate_usage_schema")
 
 
 def _verify_version_6_schema(connection: Connection) -> None:

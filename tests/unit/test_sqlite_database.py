@@ -22,7 +22,7 @@ from smart_desk.storage.sqlite import (
 )
 
 
-async def test_new_database_migrates_to_version_six(tmp_path: Path) -> None:
+async def test_new_database_migrates_to_version_seven(tmp_path: Path) -> None:
     database = SQLiteDatabase(tmp_path / "nested" / "smart-desk.db")
 
     await database.start()
@@ -42,8 +42,8 @@ async def test_new_database_migrates_to_version_six(tmp_path: Path) -> None:
     )
 
     assert database.path == (tmp_path / "nested" / "smart-desk.db").resolve()
-    assert version == 6
-    assert tables == ["profiles", "desk_height_cache", "profile_modes", "face_embeddings"]
+    assert version == 7
+    assert tables == ["profiles", "desk_height_cache", "profile_modes", "face_embeddings", "activity_mode_usage"]
     assert columns == [
         "id",
         "name",
@@ -82,7 +82,7 @@ async def test_interrupted_new_database_migration_resumes_from_version_one(
         )
     )
 
-    assert version == 6
+    assert version == 7
     assert cache_table_count == 1
     await database.stop()
 
@@ -267,7 +267,7 @@ async def test_version_two_data_migrates_once_to_profile_modes_without_loss(
         )
     )
 
-    assert version == 6
+    assert version == 7
     assert restored_profile == profile + (None, None, None)
     assert restored_cache == cache
     assert mode_count == 0
@@ -322,7 +322,7 @@ async def test_profile_mode_foreign_key_cascades_on_profile_delete(tmp_path: Pat
     await database.stop()
 
 
-async def test_version_four_data_migrates_to_version_six_with_nullable_new_columns(
+async def test_version_four_data_migrates_to_version_seven_with_nullable_new_columns(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "smart-desk.db"
@@ -348,13 +348,13 @@ async def test_version_four_data_migrates_to_version_six_with_nullable_new_colum
         )
     )
 
-    assert version == 6
+    assert version == 7
     assert restored_profile == profile + (None, None, None)
     assert restored_mode == mode + (None, None)
     await database.stop()
 
 
-async def test_version_five_data_migrates_to_version_six_with_nullable_pin_hash(
+async def test_version_five_data_migrates_to_version_seven_with_nullable_pin_hash(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "smart-desk.db"
@@ -380,7 +380,7 @@ async def test_version_five_data_migrates_to_version_six_with_nullable_pin_hash(
         )
     )
 
-    assert version == 6
+    assert version == 7
     assert restored == profile + (4, "기존 틸트 설정", None)
     await database.stop()
 

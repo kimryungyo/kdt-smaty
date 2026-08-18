@@ -61,6 +61,11 @@ class WledPort(Protocol):
     async def turn_off(self) -> None: ...
 
 
+class ActivityModeUsagePort(Protocol):
+    async def start_interval(self, profile_id: str, mode_key: str, mode_name: str) -> None: ...
+    async def close_open_intervals(self, profile_id: str | None = None) -> None: ...
+
+
 class AutomationService:
     """Serializes commands separately from short snapshot mutations.
 
@@ -72,6 +77,8 @@ class AutomationService:
         self, *, current_user: CurrentUserPort, vision: VisionPort,
         activity_modes: ActivityModePort, desk: DeskPort, settings: AutomationSettings,
         wled: WledPort | None = None, target_tolerance_cm: float = 0.5,
+        usage: ActivityModeUsagePort | None = None,
+        mode_memory_seconds: float = 1800.0,
         utc_now: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -103,6 +110,11 @@ class AutomationService:
         self._candidate_started_mono: float | None = None
         self._candidate_pair: tuple[float, float] | None = None
         self._last_pair: tuple[float, float] | None = None
+        self._usage = usage
+        # 자리를 비워도 잠깐이면 쓰던 모드로 돌아오게 profile별로 기억한다.
+        # 기억하는 동안 사용 시간은 늘지 않는다(구간을 닫아 두기 때문이다).
+        self._mode_memory_seconds = mode_memory_seconds
+        self._remembered_mode: dict[str, tuple[str, float]] = {}
         self._park_started_mono: float | None = None
         self._park_pair: tuple[float, float] | None = None
         self._startup_pair: tuple[float, float] | None = None
@@ -114,6 +126,7 @@ class AutomationService:
         # anonymous-to-registered confirmation has a deliberately different
         # AUTO contract from every other session replacement.
         self._session_kind: SessionKind | None = None
+        self._session_profile_id: str | None = None
 
     def get_snapshot(self) -> AutomationSnapshot:
         return self._snapshot
@@ -270,6 +283,8 @@ class AutomationService:
             # Mode selection and its LED are committed independently of the
             # Desk preemption outcome; a failed STOP must not roll either back.
             self._queue_led(selected.led_color)
+            self._remember_mode(current.profile_id, selected.key)
+            await self._begin_usage(current.profile_id, selected)
             if live:
                 await self._stop_or_block("작업 모드 변경 전 정지")
 
@@ -384,10 +399,16 @@ class AutomationService:
             activity: EffectiveActivityMode | None = None
             failure: str | None = None
             if current.kind is SessionKind.REGISTERED:
-                try:
-                    activity = await self._read_mode(current.profile_id or "", "default")
-                except Exception:
-                    failure = "DEFAULT_ACTIVITY_MODE_UNAVAILABLE"
+                # 잠깐 자리를 비운 것이면 쓰던 모드로 돌아온다. 기억이 만료됐거나
+                # 그 모드가 사라졌으면 기본 모드로 되돌린다.
+                remembered = self._recall_mode(current.profile_id)
+                for key in ([remembered] if remembered else []) + ["default"]:
+                    try:
+                        activity = await self._read_mode(current.profile_id or "", key)
+                        failure = None
+                        break
+                    except Exception:
+                        failure = "DEFAULT_ACTIVITY_MODE_UNAVAILABLE"
             if not await self._users.is_current(current.session_id):
                 return
             installed = await self._install_session(
@@ -434,9 +455,14 @@ class AutomationService:
                                                       self._utc_now() + timedelta(seconds=2)),
                                  park_due_at=None)
             self._session_kind = current.kind
+            self._session_profile_id = current.profile_id
+            installed_profile_id, installed_mode = current.profile_id, activity
             self._last_pair = self._pair(vision)
             self._vision_recovery_baseline_required = unusable_upgrade
             expected_generation = self._snapshot.generation
+        # 새 session이 모드를 물고 들어온 시점부터 사용 시간을 다시 센다.
+        self._remember_mode(installed_profile_id, installed_mode.key if installed_mode else None)
+        await self._begin_usage(installed_profile_id, installed_mode)
         if live:
             if not await self._safe_stop("사용자 교대 안전 정지"):
                 await self._queue_install_led(
@@ -509,9 +535,16 @@ class AutomationService:
         async with self._state_lock:
             if self._snapshot.session_id != expected_session:
                 return
+            ended_profile = self._session_profile_id
+            ended_mode = self._snapshot.activity_mode
             live = self._invalidate_locked("SESSION_ENDED")
             self._set_waiting_locked("SESSION_ENDED")
             self._session_kind = None
+            self._session_profile_id = None
+        # 쓰던 모드는 기억하되 사용 시간은 여기서 멈춘다.
+        if ended_mode is not None:
+            self._remember_mode(ended_profile, ended_mode.key)
+        await self._end_usage(ended_profile)
         if live:
             await self._safe_stop("사용자 session 종료 안전 정지")
         self._queue_led(None)
@@ -922,6 +955,51 @@ class AutomationService:
         changes.setdefault("last_transition_at", now)
         changes.setdefault("last_transition_source", "AUTOMATION")
         self._snapshot = replace(self._snapshot, **changes)
+
+    async def _begin_usage(self, profile_id: str | None, mode: EffectiveActivityMode | None) -> None:
+        """모드가 실제로 걸린 순간부터 사용 시간을 세기 시작한다."""
+
+        if self._usage is None or profile_id is None or mode is None:
+            return
+        try:
+            await self._usage.start_interval(profile_id, mode.key, mode.name)
+        except Exception:
+            LOGGER.exception(
+                "작업 모드 사용 기록을 시작하지 못했습니다.",
+                extra={"component": "automation", "event": "usage_start_failed"},
+            )
+
+    async def _end_usage(self, profile_id: str | None) -> None:
+        """자리를 비우면 구간을 닫아 그동안 시간이 늘지 않게 한다."""
+
+        if self._usage is None:
+            return
+        try:
+            await self._usage.close_open_intervals(profile_id)
+        except Exception:
+            LOGGER.exception(
+                "작업 모드 사용 기록을 닫지 못했습니다.",
+                extra={"component": "automation", "event": "usage_close_failed"},
+            )
+
+    def _remember_mode(self, profile_id: str | None, mode_key: str | None) -> None:
+        if profile_id is None or mode_key is None:
+            return
+        self._remembered_mode[profile_id] = (mode_key, self._monotonic())
+
+    def _recall_mode(self, profile_id: str | None) -> str | None:
+        """기억 시간이 지나지 않았으면 마지막으로 쓰던 모드 key를 돌려준다."""
+
+        if profile_id is None:
+            return None
+        remembered = self._remembered_mode.get(profile_id)
+        if remembered is None:
+            return None
+        mode_key, stored_at = remembered
+        if self._monotonic() - stored_at > self._mode_memory_seconds:
+            self._remembered_mode.pop(profile_id, None)
+            return None
+        return mode_key
 
     def _queue_led(self, color: str | None) -> None:
         self._queue_led_values((color,))

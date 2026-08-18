@@ -7,6 +7,7 @@ from smart_desk.api.routes.activity_modes import (
     profiles_router as activity_mode_profiles_router,
 )
 from smart_desk.api.routes.dashboard import router as dashboard_router
+from smart_desk.api.routes.mode_usage import router as mode_usage_router
 from smart_desk.api.routes.health import router as health_router
 from smart_desk.api.routes.profiles import router as profiles_router
 from smart_desk.api.routes.wled import router as wled_router
@@ -24,6 +25,7 @@ api_router.include_router(dashboard_router)
 api_router.include_router(profiles_router)
 api_router.include_router(activity_mode_profiles_router)
 api_router.include_router(activity_modes_router)
+api_router.include_router(mode_usage_router)
 api_router.include_router(wled_router)
 api_router.include_router(vision_router)
 api_router.include_router(identity_router)
