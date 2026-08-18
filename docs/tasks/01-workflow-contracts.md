@@ -239,7 +239,9 @@ ESP32 안전 오류는 AUTO와 수동 이동을 모두 차단한다. STOP은 어
 session 종료를 rollback하지 않는다.
 
 session 종료 뒤 상단의 fresh한 `VACANT`가 30초 동안 계속되고 새 session·활성 수동
-의도가 없으며 장치가 준비된 경우에만 75cm `PARK` 목표를 만든다. 다음 사건은 park 대기 또는 진행
+의도가 없으면 75cm `PARK` 목표를 `DeskController.set_target()`에 요청한다. 높이 표시기가
+절전이면 이 공통 제어 경로가 마지막 유효 높이로 제한된 `WAKE`를 보내 새 live 높이를 얻은 뒤
+이동을 계속한다. 다음 사건은 park 대기 또는 진행
 이동을 즉시 취소하고 진행 PARK 이동을 STOP한다.
 
 - 어느 카메라에서든 사람 후보가 나타남

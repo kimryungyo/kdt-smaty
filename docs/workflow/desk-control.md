@@ -173,7 +173,8 @@ Vision의 다중 사용자, count·timestamp 불일치, 자세 귀속 불가와 
 STOP·차단한다. HOLD, 직접 목표와 STOP은 허용한다.
 
 height stale·invalid, MQTT/relay 미준비, ACK 오류, 범위 밖 목표와 ESP32 안전 상태는 AUTO,
-PARK와 수동 이동을 모두 차단한다. STOP은 항상 접수한다. 현재 운영 relay transport는
+PARK와 수동 이동을 모두 차단한다. 단, `STALE`/`SENSOR_SLEEPING`의 유효한 마지막 높이는
+`DeskController`가 새 live 높이를 얻기 위한 제한된 WAKE에만 쓸 수 있다. STOP은 항상 접수한다. 현재 운영 relay transport는
 Wi-Fi/MQTT이며 serial bridge fallback은 없다.
 
 ## 직접 수동 명령
@@ -193,7 +194,9 @@ Agents SDK Desk function tool은 Dashboard와 같은 `AutomationService` public 
 
 안정 `VACANT`로 session이 끝나면 먼저 active mode를 제거하고 WLED OFF를 요청한 뒤
 `PARK_WAITING`을 시작한다. 두 카메라의 fresh VACANT가 30초 계속되고 활성 수동 의도·새
-session이 없으며 장치가 준비된 경우에만 75cm PARK 목표를 만든다.
+session이 없으면 75cm PARK 목표를 만든다. 이 목표는 AUTO·Dashboard와 동일하게
+`DeskController`를 거치므로, 절전 표시기에는 유효한 마지막 높이를 근거로 WAKE를 요청하고
+fresh 높이 확인 뒤에만 실제 이동한다.
 
 사람 후보, 새 session 후보, 수동 명령, camera·height·MQTT·relay 오류와 서버 종료는 대기나
 진행 park를 취소하고 PARK 이동을 STOP한다. 서버 시작 직후 과거 VACANT나 retained height로

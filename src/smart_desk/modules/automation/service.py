@@ -15,8 +15,7 @@ from smart_desk.modules.automation.models import (
 )
 from smart_desk.modules.identity.models import CurrentUserSnapshot, SessionKind
 from smart_desk.modules.desk.models import (
-    DeskSnapshot, DeskState, Direction, HeightProvenance, HeightStatus,
-    RelayEvent, RelayState,
+    DeskSnapshot, DeskState, Direction, RelayEvent, RelayState,
 )
 from smart_desk.modules.profiles.activity_modes import (
     ActivityModeNotFoundError, ActivityModeOwnershipError, effective_mode_from_activity,
@@ -682,7 +681,7 @@ class AutomationService:
         if not self._park_eligible(vision, pair) or not safe or self._manual_desk_intent():
             await self._cancel_park_if_needed()
             # PARK is a session-less convenience action.  At startup its
-            # first vacant frame can precede height/relay readiness, which
+            # first vacant frame can precede relay readiness, which
             # only means that PARK cannot begin yet—not that a user command
             # or an in-progress desk movement must be safety-blocked.
             if desk_code not in {"PARK_HEIGHT_UNAVAILABLE", "PARK_RELAY_UNAVAILABLE"} and desk_code is not None:
@@ -716,7 +715,14 @@ class AutomationService:
                 and {str(code) for code in vision.reason_codes}.issubset(allowed))
 
     def _park_desk_safe(self) -> tuple[bool, str | None]:
-        """PARK is intentionally stricter than ordinary AUTO dispatch."""
+        """Keep PARK policy checks out of DeskController's motion admission.
+
+        Height freshness and cached-height WAKE belong to
+        ``DeskController.set_target()``.  Repeating those checks here used to
+        reject a sleeping display before the controller could issue WAKE.
+        PARK owns policy-level cancellation and live relay-failure detection,
+        but must not pre-empt the common target admission path.
+        """
         try:
             desk = self._desk.get_snapshot()
         except Exception:
@@ -726,12 +732,12 @@ class AutomationService:
             return True, None
         if desk.state is DeskState.ERROR:
             return False, "DESK_ERROR"
-        height = desk.height
-        relay = desk.relay
-        if (height.status is not HeightStatus.ONLINE
-                or height.provenance is not HeightProvenance.LIVE
-                or height.height_cm is None):
+        # A WAKE needs a last measurement to choose a bounded direction.  This
+        # is not a freshness check: STALE and SENSOR_SLEEPING values continue
+        # to DeskController, while a true cold start simply waits for a basis.
+        if desk.height.height_cm is None or desk.height.observed_at is None:
             return False, "PARK_HEIGHT_UNAVAILABLE"
+        relay = desk.relay
         if (relay.last_error is not None or relay.event in {None, RelayEvent.OFFLINE, RelayEvent.REJECTED}
                 or relay.state is not RelayState.STOP):
             return False, "PARK_RELAY_UNAVAILABLE"

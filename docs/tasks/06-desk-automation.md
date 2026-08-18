@@ -73,7 +73,8 @@ control mode, activity mode와 자동화 상태는 같은 enum으로 합치지 �
 - [x] fake-driven 사용자 교대, 이탈, 미등록 얼굴 전환, 상단 다중 사용자와 freshness 만료를
   결정표대로 STOP 또는 BLOCK 처리한다. 실제 Vision·hardware 입력 검증은 남아 있다.
 - [x] 익명 AUTO 중 등록 identity 확정은 현재 목표를 안전하게 profile 목표로 교체한다.
-- [x] fresh VACANT 30초 뒤 75cm PARK를 만들고 사람 후보·수동 명령에서 취소한다.
+- [x] fresh VACANT 30초 뒤 75cm PARK를 만들고 사람 후보·수동 명령에서 취소한다. 높이
+  신선도와 절전 표시기 WAKE는 AUTO와 같은 `DeskController.set_target()` 경로가 단독으로 판단한다.
 - [x] session 종료·교대에서 active mode와 LED override를 폐기하고 WLED OFF를 best-effort로
   요청한다. WLED 실패는 STOP·session 전이를 rollback하지 않는다.
 

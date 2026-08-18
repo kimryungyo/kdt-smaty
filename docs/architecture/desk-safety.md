@@ -45,11 +45,16 @@ ESP32 firmware
 `fresh=7`만 실측 높이로 인정하므로 기존 값은 기본 1초 뒤 `STALE`이 되고, 서버가
 절전 중 시작되면 높이가 `WAITING`에 머문다.
 
-`STALE` 또는 `WAITING` 높이에서는 ESP32의 height lease와 Dashboard 수동 제어가
-의도적으로 잠긴다. 마지막 유효 높이를 cached 상태로 보존하고 표시기가 다시 켜진 뒤
-live 측정으로 전환하는 계약은 아직 구현하지 않았다. cached 높이를 새 관측으로
-간주해 `observed_at`만 갱신해서는 안 된다. 그렇게 하면 이동 중 실제 높이 단절을
-감지하는 안전 규칙을 우회하게 된다.
+`STALE` 또는 `SENSOR_SLEEPING` 높이에서 일반 이동은 의도적으로 잠긴다. 다만 마지막
+유효 측정이 측정 범위 안에 남아 있으면 `DeskController.set_target()`만이 그 값을 방향·경계
+확인용 근거로 사용해 제한된 `WAKE`를 보낼 수 있다. WAKE 뒤에는 새 live 측정과 ESP32
+height lease가 확인되기 전까지 UP/DOWN 이동을 시작하지 않는다. `WAITING`, `ERROR`,
+범위 밖 또는 시각 없는 값에는 WAKE도 허용하지 않는다.
+
+상위 정책(AUTO, PARK, Dashboard)은 높이의 `ONLINE` 여부를 별도로 판정하지 않고 모두
+`DeskController.set_target()`을 호출한다. 따라서 어떤 목표 출처든 같은 WAKE·fresh-height
+안전 계약을 사용한다. cached 값을 새 관측처럼 `observed_at`만 갱신해서는 안 된다.
+그렇게 하면 이동 중 실제 높이 단절을 감지하는 안전 규칙을 우회하게 된다.
 
 ## DeskController 상태
 
@@ -68,6 +73,8 @@ live 측정으로 전환하는 계약은 아직 구현하지 않았다. cached �
 ## 필수 규칙
 
 - 유효하고 충분히 최근인 높이 측정 없이는 자동 목표 이동을 시작하거나 계속하지 않는다.
+  단, `STALE`/`SENSOR_SLEEPING`의 마지막 유효 측정은 fresh 측정을 얻기 위한 제한된
+  WAKE의 방향·경계 근거로만 쓸 수 있다.
 - 75~115cm 제어 범위를 벗어난 목표는 거부한다. 임의로 최대·최소값으로 보정하지 않는다.
 - 현재 높이가 115cm 이상이면 UP 펄스를 발행하지 않고 즉시 STOP한다.
 - 수동 HOLD는 watchdog 안에 갱신되지 않으면 STOP한다.

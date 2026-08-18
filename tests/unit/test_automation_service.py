@@ -822,6 +822,7 @@ async def test_sessionless_user_stop_recovers_stop_latch_to_waiting() -> None:
 
     snapshot = service.get_snapshot()
     assert snapshot.session_id is None
+    assert snapshot.blocked_reason_codes == ()
     assert snapshot.state is AutomationState.WAITING_USER
     assert snapshot.height_policy is None
     assert "DESK_STOP_FAILED" not in snapshot.blocked_reason_codes
@@ -874,6 +875,61 @@ async def test_park_needs_fresh_baseline_and_safe_desk() -> None:
     await observe(service, camera, (2, 2), clock, vacant=True)
     await observe(service, camera, (3, 3), clock, 30, vacant=True)
     assert service.get_snapshot().target_height_cm == 75
+    assert not [call for call in desk.calls if call[0] == "target"]
+    await service.stop()
+
+
+@pytest.mark.parametrize("status, provenance", [
+    (HeightStatus.STALE, HeightProvenance.LIVE),
+    (HeightStatus.SENSOR_SLEEPING, HeightProvenance.CACHED),
+])
+async def test_park_delegates_non_live_height_to_desk_controller(
+    status: HeightStatus, provenance: HeightProvenance,
+) -> None:
+    """PARK must reach the controller so its common WAKE path can run."""
+
+    clock, desk, users = Clock(), FakeDesk(height=110.0), FakeUsers(None)
+    camera = FakeVision(vision((1, 1), vacant=True))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    desk.snapshot = DeskSnapshot(
+        DeskState.IDLE,
+        HeightSnapshot(110.0, NOW, status, provenance),
+        desk.snapshot.relay,
+        None, None, "", None, NOW,
+    )
+
+    await service.start()
+    await observe(service, camera, (1, 1), clock, vacant=True)
+    await observe(service, camera, (2, 2), clock, vacant=True)
+    await observe(service, camera, (3, 3), clock, 30, vacant=True)
+    await flush_background_tasks()
+
+    assert ("target", 75.0) in desk.calls
+    assert service.get_snapshot().state is AutomationState.PARKING
+    await service.stop()
+
+
+async def test_park_without_any_height_basis_waits_without_false_block() -> None:
+    """A cold start cannot select a bounded WAKE direction yet."""
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(None)
+    camera = FakeVision(vision((1, 1), vacant=True))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    desk.snapshot = DeskSnapshot(
+        DeskState.IDLE,
+        HeightSnapshot(None, None, HeightStatus.WAITING, HeightProvenance.LIVE),
+        desk.snapshot.relay,
+        None, None, "", None, NOW,
+    )
+
+    await service.start()
+    await observe(service, camera, (1, 1), clock, vacant=True)
+    await observe(service, camera, (2, 2), clock, vacant=True)
+    await observe(service, camera, (3, 3), clock, 30, vacant=True)
+
+    snapshot = service.get_snapshot()
+    assert snapshot.blocked_reason_codes == ()
+    assert snapshot.state is AutomationState.WAITING_USER
     assert not [call for call in desk.calls if call[0] == "target"]
     await service.stop()
 
