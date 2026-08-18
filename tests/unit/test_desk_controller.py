@@ -278,9 +278,41 @@ async def test_target_refreshes_same_direction_and_stops_at_goal() -> None:
     )
 
     height.set_height(90.0)
+    await asyncio.sleep(control_settings().control_poll_interval_seconds * 2)
+    assert controller.get_snapshot().state is DeskState.MOVING
+    height.set_height(90.0)
     await wait_until(lambda: controller.get_snapshot().state is DeskState.STOPPED)
     assert relay.calls[-1] == ("stop", None)
     assert controller.get_snapshot().target_height_cm is None
+
+    await controller.stop()
+    await tasks.shutdown()
+
+
+async def test_target_requires_two_fresh_in_tolerance_height_frames() -> None:
+    height = FakeHeightMonitor(80.0)
+    relay = FakeRelayClient()
+    tasks = TaskManager()
+    controller = make_controller(height, relay, tasks)
+    await controller.start()
+
+    await controller.set_target(90.0)
+    await wait_until(lambda: any(call[0] == "pulse" for call in relay.calls))
+
+    height.set_height(90.0)
+    await asyncio.sleep(control_settings().control_poll_interval_seconds * 2)
+    assert controller.get_snapshot().state is DeskState.MOVING
+    assert controller.get_snapshot().detail == "목표 높이를 한 번 더 확인하고 있습니다."
+
+    height.set_height(80.0)
+    await asyncio.sleep(control_settings().control_poll_interval_seconds * 2)
+    assert controller.get_snapshot().state is DeskState.MOVING
+
+    height.set_height(90.0)
+    await asyncio.sleep(control_settings().control_poll_interval_seconds * 2)
+    assert controller.get_snapshot().state is DeskState.MOVING
+    height.set_height(90.0)
+    await wait_until(lambda: controller.get_snapshot().state is DeskState.STOPPED)
 
     await controller.stop()
     await tasks.shutdown()
@@ -309,6 +341,9 @@ async def test_near_target_uses_single_fine_pulse_after_settling() -> None:
         state=RelayState.STOP,
         code="timeout",
     )
+    height.set_height(81.0)
+    await asyncio.sleep(control_settings().control_poll_interval_seconds * 2)
+    assert controller.get_snapshot().state is DeskState.MOVING
     height.set_height(81.0)
     await wait_until(lambda: controller.get_snapshot().state is DeskState.STOPPED)
     await controller.stop()

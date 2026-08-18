@@ -97,6 +97,8 @@ class _ControlState:
     wake_observed_at: datetime | None = None
     wake_started_at: float | None = None
     fine_pulse_count: int = 0
+    target_confirmation_count: int = 0
+    target_confirmation_observed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -945,11 +947,41 @@ class DeskController:
         assert height.height_cm is not None
         delta = control.target_height_cm - height.height_cm
         if abs(delta) <= self._settings.target_tolerance_cm:
+            # 7-segment scanner가 이동 중 한 번 잘못 읽은, 그러나 범위상
+            # 유효한 숫자만으로 목표 도달을 확정하면 실제 책상은 중간에서
+            # 멈출 수 있다. 서로 다른 최신 관측 두 번을 요구한다.
+            if height.observed_at == control.target_confirmation_observed_at:
+                return
+            confirmations = control.target_confirmation_count + 1
+            if confirmations < 2:
+                async with self._command_lock:
+                    if self._control.generation != control.generation:
+                        return
+                    self._control = replace(
+                        self._control,
+                        target_confirmation_count=confirmations,
+                        target_confirmation_observed_at=height.observed_at,
+                        detail="목표 높이를 한 번 더 확인하고 있습니다.",
+                        updated_at=self._require_utc(self._now()),
+                    )
+                return
             await self._stop_motion(
                 f"목표 {control.target_height_cm:.1f}cm에 도달했습니다.",
                 error_detail=None,
             )
             return
+
+        if control.target_confirmation_count:
+            async with self._command_lock:
+                if self._control.generation == control.generation:
+                    self._control = replace(
+                        self._control,
+                        target_confirmation_count=0,
+                        target_confirmation_observed_at=None,
+                        detail=f"목표 {control.target_height_cm:.1f}cm로 이동합니다.",
+                        updated_at=self._require_utc(self._now()),
+                    )
+                    control = self._control
 
         needed = Direction.UP if delta > 0 else Direction.DOWN
         self._require_direction_allowed(height.height_cm, needed)
