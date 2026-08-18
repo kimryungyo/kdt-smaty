@@ -81,3 +81,8 @@
 .rhythm-mini i{flex:1;border-radius:3px 3px 0 0;min-height:4px}
 /* 6번째 카드는 격자에서 두 칸을 쓴다(.c0,.c1과 같은 규칙). */
 .card.c5{grid-column:span 2}
+
+/* 사용자 선택. 기록은 사람마다 따로 쌓이므로 누구 것을 보는지 드러낸다. */
+.rhythm-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rhythm-picker{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;font-weight:700}
+.rhythm-picker select{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--text);font:inherit;font-weight:700}

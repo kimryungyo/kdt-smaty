@@ -10,11 +10,16 @@ import { navigate } from "../../routes";
 import { SERIES_SLOTS, assignSlots, colorFor } from "./palette";
 import "./work-rhythm.css";
 
-/** 대시보드용 요약 카드. 합계와 최다 모드, 7일 막대만 남긴 단순형이다. */
-export function WorkRhythmCard({ className }: { className?: string }) {
+/** 대시보드용 요약 카드. 인식된 사용자 본인의 기록만 단순하게 보여준다. */
+export function WorkRhythmCard({ className, profileId, profileName }: {
+  className?: string;
+  profileId: string | null;
+  profileName: string | null;
+}) {
   const usage = useSnapshotPoll(
-    useCallback((signal: AbortSignal) => getModeUsage(7, signal), []),
+    useCallback((signal: AbortSignal) => getModeUsage(7, profileId, signal), [profileId]),
     60000,
+    Boolean(profileId),
   );
   const summary = usage.value;
 
@@ -31,8 +36,8 @@ export function WorkRhythmCard({ className }: { className?: string }) {
     onClick={() => navigate("/reports/work-rhythm")}
   >
     <div className="cardtop"><span className="ico" aria-hidden="true">◴</span><span>↗</span></div>
-    <small>워크 리듬</small>
-    <h2>{summary ? formatDuration(summary.totalSeconds) : "--"}</h2>
+    <small>워크 리듬{profileName ? ` · ${profileName}` : ""}</small>
+    <h2>{!profileId ? "인식 대기" : summary ? formatDuration(summary.totalSeconds) : "--"}</h2>
     {summary && view && <div className="rhythm-mini" aria-hidden="true">
       {summary.days.map((day) => <i
         key={day.date}
@@ -45,6 +50,8 @@ export function WorkRhythmCard({ className }: { className?: string }) {
         }}
       />)}
     </div>}
-    <p>{summary && view?.top ? `${view.top.name} ${formatDuration(view.top.seconds)}` : "최근 7일 사용 기록"}<b>›</b></p>
+    <p>{!profileId ? "얼굴이 인식되면 내 기록이 쌓여요"
+      : summary && view?.top ? `${view.top.name} ${formatDuration(view.top.seconds)}`
+      : "최근 7일 기록 없음"}<b>›</b></p>
   </button>;
 }

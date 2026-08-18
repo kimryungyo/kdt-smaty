@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   formatDuration,
@@ -6,6 +6,7 @@ import {
   weekdayOf,
   type ModeUsageSummary,
 } from "../../api/modeUsage";
+import { getCurrentUser, listProfiles, type Profile } from "../../api/dashboard";
 import { useSnapshotPoll } from "../../hooks/useSnapshotPoll";
 import { navigate } from "../../routes";
 import { OTHER_KEY, OTHER_NAME, SERIES_SLOTS, assignSlots, colorFor } from "./palette";
@@ -37,13 +38,41 @@ function foldSeries(summary: ModeUsageSummary) {
 }
 
 export function WorkRhythm() {
+  // 기록은 사람마다 따로 쌓인다. 기본은 지금 인식된 본인이고, 필요하면 다른
+  // 사용자를 골라 볼 수 있다.
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([listProfiles(), getCurrentUser()])
+      .then(([all, current]) => {
+        if (!alive) return;
+        setProfiles(all);
+        const recognized = current.session?.kind === "REGISTERED" ? current.session.profileId : null;
+        setSelected(recognized ?? all[0]?.id ?? null);
+      })
+      .catch(() => { if (alive) setProfiles([]); })
+      .finally(() => { if (alive) setReady(true); });
+    return () => { alive = false; };
+  }, []);
+
   const usage = useSnapshotPoll(
-    useCallback((signal: AbortSignal) => getModeUsage(7, signal), []),
+    useCallback((signal: AbortSignal) => getModeUsage(7, selected, signal), [selected]),
     30000,
+    ready && selected !== null,
   );
   const summary = usage.value;
   const view = useMemo(() => (summary ? foldSeries(summary) : null), [summary]);
 
+  const owner = profiles.find((profile) => profile.id === selected) ?? null;
+
+  if (ready && selected === null) {
+    return <div className="rhythm-page rhythm-root"><main className="rhythm-main">
+      <p className="rhythm-empty">아직 등록된 사용자가 없습니다. 프로필을 만들면 기록이 쌓입니다.</p>
+    </main></div>;
+  }
   if (!summary || !view) {
     return <div className="rhythm-page rhythm-root"><main className="rhythm-main">
       <p className="rhythm-empty">{usage.error ?? "워크 리듬을 불러오는 중입니다."}</p>
@@ -64,9 +93,16 @@ export function WorkRhythm() {
         <div>
           <p>WORK RHYTHM</p>
           <h1>워크 리듬</h1>
-          <span>최근 7일 동안 작업 모드를 얼마나 오래 썼는지 보여줍니다.</span>
+          <span>{owner ? `${owner.name}님이 ` : ""}최근 7일 동안 작업 모드를 얼마나 오래 썼는지 보여줍니다.</span>
         </div>
-        <button type="button" className="rhythm-back" onClick={() => navigate("/")}>대시보드로</button>
+        <div className="rhythm-head-actions">
+          {profiles.length > 1 && <label className="rhythm-picker">사용자
+            <select value={selected ?? ""} onChange={(event) => setSelected(event.target.value)}>
+              {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+            </select>
+          </label>}
+          <button type="button" className="rhythm-back" onClick={() => navigate("/")}>대시보드로</button>
+        </div>
       </header>
 
       <section className="rhythm-hero">

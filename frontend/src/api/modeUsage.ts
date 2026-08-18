@@ -10,8 +10,15 @@ export type ModeUsageSummary = {
   days: ModeUsageDay[];
 };
 
-export async function getModeUsage(days = 7, signal?: AbortSignal): Promise<ModeUsageSummary> {
-  const response = await fetch(`/api/activity-modes/usage?days=${days}`, {
+/** profileId를 주면 그 사용자 기록만, 없으면 책상 전체 기록을 가져온다. */
+export async function getModeUsage(
+  days = 7,
+  profileId?: string | null,
+  signal?: AbortSignal,
+): Promise<ModeUsageSummary> {
+  const query = new URLSearchParams({ days: String(days) });
+  if (profileId) query.set("profileId", profileId);
+  const response = await fetch(`/api/activity-modes/usage?${query}`, {
     signal,
     headers: { Accept: "application/json" },
   });
