@@ -76,6 +76,10 @@ services:
       SMART_DESK_SERIAL__PORT: /dev/desk-height
       SMART_DESK_TILT__SERIAL_PORT: /dev/tilt-controller
       SMART_DESK_DASHBOARD__FRONTEND_DIRECTORY: /app/frontend/dist
+      SMART_DESK_PROFILE_MEMORY__DATA_PATH: /app/data/mem0
+      SMART_DESK_PROFILE_MEMORY__HISTORY_DB_PATH: /app/data/mem0/history.db
+      MEM0_DIR: /app/data/mem0/runtime
+      MEM0_TELEMETRY: "false"
       SMART_DESK_VISION_CLIENT__ENABLED: "true"
       SMART_DESK_VISION_CLIENT__BASE_URL: ${SMART_DESK_VISION_CLIENT__BASE_URL:-http://kimryungyo-main:50001}
       SMART_DESK_MEDIA__USER__PUBLISH_ENABLED: "false"

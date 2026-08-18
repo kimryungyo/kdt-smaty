@@ -19,20 +19,15 @@ class Context:
     def __init__(self, *, personalized: bool = True, valid: list[bool] | None = None) -> None:
         self.turn_context = type("Turn", (), {"personalized": personalized, "profile_id": "profile-a", "session": "sdk-session"})()
         self.sessions = ContextSessions(valid or [True, True, True])
-        self.memory = type("Memory", (), {"search": self._search, "remember": self._remember})()
-        self.explicit_memories = ["explicit fact"]
+        self.memory = type("Memory", (), {"search": self._search})()
         self.phases: list[str] = []
         self.searches: list[tuple[str, str]] = []
-        self.remembered: list[tuple[str, str, bool]] = []
         self.followup_requested = False
         self.assistant_response = ""
 
     async def _search(self, profile_id: str, transcript: str) -> list[dict[str, str]]:
         self.searches.append((profile_id, transcript))
         return [{"memory": "likes tea"}]
-
-    async def _remember(self, profile_id: str, fact: str, *, explicit: bool) -> None:
-        self.remembered.append((profile_id, fact, explicit))
 
     async def processing_started(self) -> None: self.phases.append("PROCESSING")
     async def tool_started(self) -> None: self.phases.append("TOOL")
@@ -350,7 +345,7 @@ async def test_runtime_build_exposes_fixed_sdk_assembly() -> None:
         await runtime.stop()
 
 
-async def test_workflow_passes_sdk_context_and_session_searches_personalized_and_writes_explicit_only() -> None:
+async def test_workflow_passes_sdk_context_and_session_searches_personalized() -> None:
     context = Context()
     captured: dict[str, object] = {}
 
@@ -368,15 +363,13 @@ async def test_workflow_passes_sdk_context_and_session_searches_personalized_and
     assert context.assistant_response == "화면에 보일 답변"
     assert context.searches == [("profile-a", "raw transcript")]
     assert "likes tea" in captured["prompt"]
-    assert context.remembered == [("profile-a", "explicit fact", True)]
-    assert all("raw transcript" != fact for _, fact, _ in context.remembered)
 
 
 async def _context(value: Context) -> Context:
     return value
 
 
-async def test_workflow_search_failure_degrades_and_session_change_prevents_memory_write() -> None:
+async def test_workflow_search_failure_degrades_and_session_change_drops_recall() -> None:
     context = Context(valid=[True, False])
 
     async def broken_search(*_: object) -> list[object]: raise RuntimeError("backend secret")
@@ -389,10 +382,9 @@ async def test_workflow_search_failure_degrades_and_session_change_prevents_memo
     workflow = SmartDeskVoiceWorkflow("agent", lambda *_args, **_kwargs: object(), no_text, context_factory=lambda: _context(context))
     await workflow.prepare_run()
     assert [item async for item in workflow.run("raw transcript")] == []
-    assert context.remembered == []
 
 
-async def test_workflow_never_searches_or_writes_for_nonpersonalized_context() -> None:
+async def test_workflow_never_searches_for_nonpersonalized_context() -> None:
     context = Context(personalized=False)
     workflow = SmartDeskVoiceWorkflow(
         "agent", lambda *_args, **_kwargs: object(), _empty_text,
@@ -400,7 +392,7 @@ async def test_workflow_never_searches_or_writes_for_nonpersonalized_context() -
     )
     await workflow.prepare_run()
     assert [item async for item in workflow.run("general question")] == []
-    assert context.searches == [] and context.remembered == []
+    assert context.searches == []
 
 
 async def test_runtime_context_failure_is_safe_and_next_run_is_allowed() -> None:

@@ -28,7 +28,7 @@ smart-desk-vision = "smart_desk.vision_main:main"
 voice = [
     "openai-agents[voice]>=0.21,<0.22",
     "openai>=3,<4",
-    "mem0ai>=2,<3",
+    "mem0ai==2.0.18",
     "sounddevice>=0.5.5,<0.6",
     "livekit-wakeword==0.2.1",
     "soxr>=1.1,<2",

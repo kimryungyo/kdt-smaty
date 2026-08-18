@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from smart_desk.core.container import get_container
 from smart_desk.core.runtime import ApplicationStatus
+from smart_desk.modules.assistant.memory import ProfileMemorySnapshot, ProfileMemoryStatus
 
 
 router = APIRouter(prefix="/health", tags=["health"])
@@ -19,6 +20,12 @@ class HealthResponse(BaseModel):
     application_status: ApplicationStatus
     detail: str
     updated_at: datetime
+
+
+class ProfileMemoryHealthResponse(BaseModel):
+    enabled: bool
+    status: ProfileMemoryStatus
+    detail: str
 
 
 @router.get("/live", response_model=HealthResponse)
@@ -48,3 +55,21 @@ async def ready(response: Response) -> HealthResponse:
         updated_at=snapshot.updated_at,
     )
 
+
+@router.get("/profile-memory", response_model=ProfileMemoryHealthResponse)
+async def profile_memory() -> ProfileMemoryHealthResponse:
+    """Return optional Mem0 state without exposing memory content or provider details."""
+
+    memory = get_container().profile_memory
+    snapshot = (
+        memory.snapshot()
+        if memory is not None
+        else ProfileMemorySnapshot(
+            enabled=False,
+            status=ProfileMemoryStatus.DISABLED,
+            detail="profile memory가 구성되지 않았습니다.",
+        )
+    )
+    return ProfileMemoryHealthResponse(
+        enabled=snapshot.enabled, status=snapshot.status, detail=snapshot.detail
+    )

@@ -347,7 +347,13 @@ def test_profile_memory_is_disabled_by_default_and_requires_openai_key() -> None
     assert settings.profile_memory.enabled is False
     assert settings.profile_memory.data_path == Path("data/mem0")
     assert settings.profile_memory.history_db_path == Path("data/mem0/history.db")
+    assert settings.profile_memory.collection_name == "smart_desk_profile_memory_v1"
+    assert settings.profile_memory.embedding_model == "text-embedding-3-small"
+    assert settings.profile_memory.embedding_dimensions == 1536
     assert settings.profile_memory.search_limit == 5
+    assert settings.profile_memory.fact_limit == 500
+    assert settings.profile_memory.circuit_failure_threshold == 3
+    assert settings.profile_memory.circuit_open_seconds == 30
 
     with pytest.raises(ValidationError, match="OpenAI API key"):
         Settings(profile_memory={"enabled": True}, _env_file=None)

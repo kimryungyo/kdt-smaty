@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Annotated
 
 from agents import RunContextWrapper, function_tool
@@ -30,7 +30,6 @@ class SmartDeskAgentContext:
     automation: AutomationService
     wled: WledClient | None = None
     followup_requested: bool = False
-    explicit_memories: list[str] = field(default_factory=list)
     assistant_response: str = ""
 
     async def valid_mutation(self) -> bool:
@@ -243,13 +242,55 @@ def build_smart_desk_tools() -> list[Any]:
 
     @function_tool
     async def remember_fact(ctx: RunContextWrapper[SmartDeskAgentContext], fact: Annotated[str, Field(min_length=1, max_length=500)]) -> dict[str, object]:
-        """Queue a user-confirmed fact to remember. Never infer facts from conversation."""
+        """Persist one user-confirmed fact and report the actual result."""
         context = ctx.context
         if not context.turn_context.personalized or not await context.valid_mutation():
             return _error("memory_not_available")
         await context.tool_started()
-        context.explicit_memories.append(fact)
-        return _ok(queued=True)
+        try:
+            await context.memory.remember(
+                context.turn_context.profile_id,
+                fact,
+                explicit=True,
+                is_valid=context.valid_mutation,
+            )
+        except Exception as error:
+            code = getattr(error, "code", "profile_memory_add_failed")
+            return _error(str(code))
+        return _ok(saved=True)
+
+    @function_tool
+    async def forget_fact(
+        ctx: RunContextWrapper[SmartDeskAgentContext],
+        fact: Annotated[str, Field(min_length=1, max_length=500)],
+    ) -> dict[str, object]:
+        """Delete one clearly identified remembered fact for the current registered user."""
+
+        context = ctx.context
+        if not context.turn_context.personalized or not await context.valid_mutation():
+            return _error("memory_not_available")
+        await context.tool_started()
+        try:
+            values = await context.memory.search(context.turn_context.profile_id, fact)
+            normalized = fact.strip()
+            matches = [
+                value
+                for value in values
+                if isinstance(value.get("id"), str)
+                and isinstance(value.get("memory"), str)
+                and value["memory"].strip() == normalized
+            ]
+            if len(matches) != 1:
+                return _error("memory_disambiguation_required")
+            await context.memory.delete(
+                context.turn_context.profile_id,
+                matches[0]["id"],
+                is_valid=context.valid_mutation,
+            )
+        except Exception as error:
+            code = getattr(error, "code", "profile_memory_delete_failed")
+            return _error(str(code))
+        return _ok(deleted=True)
 
     @function_tool
     async def request_followup(ctx: RunContextWrapper[SmartDeskAgentContext]) -> dict[str, object]:
@@ -263,5 +304,5 @@ def build_smart_desk_tools() -> list[Any]:
 
     return [stop_desk, hold_desk, set_desk_target, set_control_mode, set_activity_mode,
             get_wled_state, get_wled_capabilities, turn_wled_off, turn_wled_on,
-            set_wled_brightness, set_wled_color, set_wled_effect, remember_fact,
+            set_wled_brightness, set_wled_color, set_wled_effect, remember_fact, forget_fact,
             request_followup]

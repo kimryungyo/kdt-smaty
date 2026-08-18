@@ -338,8 +338,9 @@ def build_container(settings: Settings) -> AppContainer:
         "vector_store": {
             "provider": "qdrant",
             "config": {
-                "collection_name": "smart_desk_profile_memory",
+                "collection_name": settings.profile_memory.collection_name,
                 "path": str(settings.profile_memory.data_path / "qdrant"),
+                "embedding_model_dims": settings.profile_memory.embedding_dimensions,
             },
         },
         "history_db_path": str(settings.profile_memory.history_db_path),
@@ -353,7 +354,8 @@ def build_container(settings: Settings) -> AppContainer:
         }
         embedder_config = {
             "api_key": api_key.get_secret_value(),
-            "model": "text-embedding-3-small",
+            "model": settings.profile_memory.embedding_model,
+            "embedding_dims": settings.profile_memory.embedding_dimensions,
         }
         memory_config["llm"] = {"provider": "openai", "config": llm_config}
         memory_config["embedder"] = {"provider": "openai", "config": embedder_config}
@@ -362,6 +364,9 @@ def build_container(settings: Settings) -> AppContainer:
         config=memory_config,
         search_limit=settings.profile_memory.search_limit,
         timeout_seconds=settings.profile_memory.timeout_seconds,
+        fact_limit=settings.profile_memory.fact_limit,
+        circuit_failure_threshold=settings.profile_memory.circuit_failure_threshold,
+        circuit_open_seconds=settings.profile_memory.circuit_open_seconds,
     )
     container.assistant_context = CurrentUserSessionManager(
         current_user, item_cap=settings.voice.session_history_item_cap
@@ -393,6 +398,8 @@ def build_container(settings: Settings) -> AppContainer:
     container.identity = identity
     container.register(ResourceRegistration(name="face-identity", resource=identity,
                                             startup_order=70, shutdown_order=70))
+    container.register(ResourceRegistration(name="profile-memory", resource=container.profile_memory,
+                                            startup_order=72, shutdown_order=72))
     container.register(ResourceRegistration(name="assistant-context", resource=container.assistant_context,
                                             startup_order=75, shutdown_order=75))
     container.register(ResourceRegistration(name="assistant-turns", resource=container.assistant_turns,

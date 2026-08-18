@@ -52,8 +52,9 @@ class _Wled:
 
 class _Memory:
     def __init__(self) -> None: self.saved: list[tuple[str, str, bool]] = []
-    async def remember(self, profile_id: str, fact: str, *, explicit: bool) -> None:
+    async def remember(self, profile_id: str, fact: str, *, explicit: bool, **_kwargs: object) -> bool:
         self.saved.append((profile_id, fact, explicit))
+        return True
 
 
 async def _context(*, personalized: bool = True) -> tuple[SmartDeskAgentContext, CurrentUserSessionService, _Automation, _Wled, _Memory, AssistantTurnStore]:
@@ -144,10 +145,9 @@ async def test_current_personalization_block_allows_manual_mutation_but_not_memo
     assert not memory.saved
 
 
-async def test_remember_queues_only_for_current_personalized_context_and_followup_is_current_only() -> None:
+async def test_remember_persists_only_for_current_personalized_context_and_followup_is_current_only() -> None:
     context, _users, _automation, _wled, memory, _turns = await _context()
-    assert (await _invoke(context, "remember_fact", fact="likes tea"))["result"] == {"queued": True}
-    assert context.explicit_memories == ["likes tea"]
-    assert not memory.saved
+    assert (await _invoke(context, "remember_fact", fact="likes tea"))["result"] == {"saved": True}
+    assert memory.saved == [("profile-a", "likes tea", True)]
     assert (await _invoke(context, "request_followup"))["result"] == {"followup_requested": True}
     assert context.followup_requested is True

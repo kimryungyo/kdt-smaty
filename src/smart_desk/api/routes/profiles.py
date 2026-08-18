@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
+from datetime import datetime
+from typing import Any
+
 from fastapi import APIRouter, Header, HTTPException, Response, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from smart_desk.core.container import get_container
 from smart_desk.modules.dashboard import get_dashboard
@@ -29,6 +33,47 @@ from smart_desk.modules.assistant.memory import ProfileMemoryError
 
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 Result = TypeVar("Result")
+
+
+class ProfileMemoryResponse(BaseModel):
+    """Profile-scoped, content-bearing memory management response."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    memory: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class ProfileMemoryUpdate(BaseModel):
+    memory: str = Field(min_length=1, max_length=500)
+
+
+def _memory_response(value: dict[str, Any]) -> ProfileMemoryResponse:
+    return ProfileMemoryResponse(
+        id=value["id"],
+        memory=value["memory"],
+        created_at=value.get("created_at"),
+        updated_at=value.get("updated_at"),
+        metadata=value.get("metadata") if isinstance(value.get("metadata"), dict) else None,
+    )
+
+
+async def _memory_service() -> Any:
+    memory = get_container().profile_memory
+    if memory is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "프로필 기억을 사용할 수 없습니다.")
+    return memory
+
+
+def _memory_failure(error: ProfileMemoryError) -> HTTPException:
+    if error.code == "profile_memory_not_found":
+        return HTTPException(status.HTTP_404_NOT_FOUND, "프로필 기억을 찾을 수 없습니다.")
+    if error.code == "profile_memory_policy_rejected":
+        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "저장할 수 없는 기억입니다.")
+    return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "프로필 기억을 현재 사용할 수 없습니다.")
 
 
 async def _run(operation: Callable[[], Awaitable[Result]]) -> Result:
@@ -144,6 +189,50 @@ async def update_profile(
     return await _run(lambda: get_dashboard().update_profile(profile_id, update))
 
 
+@router.get("/{profile_id}/memories", response_model=list[ProfileMemoryResponse])
+async def list_profile_memories(
+    profile_id: str, x_profile_pin: str | None = Header(default=None)
+) -> list[ProfileMemoryResponse]:
+    await _run(lambda: get_dashboard().get_profile(profile_id))
+    await _require_pin(profile_id, x_profile_pin)
+    try:
+        values = await (await _memory_service()).list_profile(profile_id)
+    except ProfileMemoryError as error:
+        raise _memory_failure(error) from error
+    return [_memory_response(value) for value in values]
+
+
+@router.patch("/{profile_id}/memories/{memory_id}", response_model=ProfileMemoryResponse)
+async def update_profile_memory(
+    profile_id: str,
+    memory_id: str,
+    body: ProfileMemoryUpdate,
+    x_profile_pin: str | None = Header(default=None),
+) -> ProfileMemoryResponse:
+    await _run(lambda: get_dashboard().get_profile(profile_id))
+    await _require_pin(profile_id, x_profile_pin)
+    try:
+        value = await (await _memory_service()).update(profile_id, memory_id, body.memory)
+    except ProfileMemoryError as error:
+        raise _memory_failure(error) from error
+    return _memory_response(value)
+
+
+@router.delete("/{profile_id}/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_profile_memory(
+    profile_id: str,
+    memory_id: str,
+    x_profile_pin: str | None = Header(default=None),
+) -> Response:
+    await _run(lambda: get_dashboard().get_profile(profile_id))
+    await _require_pin(profile_id, x_profile_pin)
+    try:
+        await (await _memory_service()).delete(profile_id, memory_id)
+    except ProfileMemoryError as error:
+        raise _memory_failure(error) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_profile(
     profile_id: str,
@@ -156,9 +245,15 @@ async def delete_profile(
     container = get_container()
     memory = container.profile_memory
     if memory is not None:
+        begin = getattr(memory, "begin_profile_deletion", None)
+        if callable(begin):
+            await begin(profile_id)
         try:
             await memory.delete_profile(profile_id)
         except ProfileMemoryError as error:
+            abort = getattr(memory, "abort_profile_deletion", None)
+            if callable(abort):
+                await abort(profile_id)
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "프로필 기억을 삭제할 수 없습니다.",
@@ -174,6 +269,10 @@ async def delete_profile(
     except BaseException:
         if identity is not None:
             await identity.abort_profile_delete(profile_id)
+        if memory is not None:
+            abort = getattr(memory, "abort_profile_deletion", None)
+            if callable(abort):
+                await abort(profile_id)
         raise
     if identity is not None:
         await identity.finalize_profile_delete(profile_id)

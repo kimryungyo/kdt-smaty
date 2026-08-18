@@ -604,8 +604,14 @@ class ProfileMemorySettings(BaseModel):
     enabled: bool = False
     data_path: Path = Path("data/mem0")
     history_db_path: Path = Path("data/mem0/history.db")
+    collection_name: str = "smart_desk_profile_memory_v1"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = Field(default=1536, ge=1, le=4096)
     search_limit: int = Field(default=5, ge=1, le=20)
     timeout_seconds: float = Field(default=2.0, gt=0, le=10, allow_inf_nan=False)
+    fact_limit: int = Field(default=500, ge=1, le=2000)
+    circuit_failure_threshold: int = Field(default=3, ge=1, le=20)
+    circuit_open_seconds: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)
 
 
 class VoiceSettings(BaseModel):

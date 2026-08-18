@@ -117,8 +117,10 @@ class _Backend:
         self.deleted: list[str] = []
         self.search_result = search_result if search_result is not None else {"results": []}
         self.search_calls: list[tuple[str, int, dict[str, str]]] = []
+        self.updated: list[tuple[str, str]] = []
+        self.deleted_ids: list[str] = []
 
-    async def add(self, content: str, *, user_id: str) -> None:
+    async def add(self, content: str, *, user_id: str, **_kwargs: object) -> None:
         self.added.append((content, user_id))
 
     async def search(
@@ -130,9 +132,32 @@ class _Backend:
     async def delete_all(self, *, user_id: str) -> None:
         self.deleted.append(user_id)
 
+    async def get_all(self, *, filters: dict[str, str], top_k: int = 20) -> object:
+        assert top_k > 0
+        assert "user_id" in filters
+        if not isinstance(self.search_result, dict) or not isinstance(self.search_result.get("results"), list):
+            return self.search_result
+        return {
+            "results": [
+                value
+                for value in self.search_result["results"]
+                if not isinstance(value, dict) or value.get("user_id") in (None, filters["user_id"])
+            ]
+        }
+
+    async def update(self, memory_id: str, *, text: str) -> object:
+        self.updated.append((memory_id, text))
+        return {"id": memory_id, "memory": text}
+
+    async def delete(self, memory_id: str) -> None:
+        self.deleted_ids.append(memory_id)
+
 
 async def test_memory_is_explicit_scoped_and_normalizes_search_shapes() -> None:
-    backend = _Backend(search_result={"results": [{"memory": "tea"}, {"memory": "desk"}]})
+    backend = _Backend(search_result={"results": [
+        {"id": "memory-a", "memory": "tea", "user_id": "profile:a"},
+        {"id": "memory-b", "memory": "desk", "user_id": "profile:a"},
+    ]})
     memory = ProfileMemoryService(enabled=False, search_limit=1)
     memory._enabled = True  # noqa: SLF001 - fake backend injection boundary
     memory._memory = backend  # noqa: SLF001 - fake backend injection boundary
@@ -140,11 +165,11 @@ async def test_memory_is_explicit_scoped_and_normalizes_search_shapes() -> None:
     await memory.remember("a", "raw transcript", explicit=False)
     await memory.remember("a", "likes tea", explicit=True)
     assert backend.added == [("likes tea", "profile:a")]
-    assert await memory.search("a", "query") == [{"memory": "tea"}]
+    assert (await memory.search("a", "query"))[0]["memory"] == "tea"
     assert backend.search_calls == [("query", 1, {"user_id": "profile:a"})]
 
-    backend.search_result = {"results": [{"memory": "other"}]}
-    assert await memory.search("b", "query") == [{"memory": "other"}]
+    backend.search_result = {"results": [{"id": "memory-c", "memory": "other", "user_id": "profile:b"}]}
+    assert (await memory.search("b", "query"))[0]["memory"] == "other"
     await memory.delete_profile("a")
     assert backend.deleted == ["profile:a"]
 
@@ -195,7 +220,8 @@ async def test_memory_timeout_and_enabled_delete_failure_are_degraded_errors() -
 
     disabled = ProfileMemoryService(enabled=False)
     assert await disabled.search("a", "query") == []
-    await disabled.remember("a", "ignored", explicit=True)
+    with pytest.raises(ProfileMemoryError, match="profile_memory_unavailable"):
+        await disabled.remember("a", "ignored", explicit=True)
     await disabled.delete_profile("a")
 
 
@@ -235,6 +261,46 @@ async def test_memory_wraps_sync_method_errors_and_initialization_timeout(
     memory = ProfileMemoryService(enabled=True, timeout_seconds=0.01)
     with pytest.raises(ProfileMemoryError, match="profile_memory_unavailable"):
         await memory.search("a", "query")
+
+
+async def test_memory_rejects_stale_or_oversized_writes_and_scopes_management() -> None:
+    backend = _Backend(
+        search_result={"results": [{"id": "memory-a", "memory": "likes tea", "user_id": "profile:a"}]}
+    )
+    memory = ProfileMemoryService(enabled=True, fact_limit=10)
+    memory._memory = backend  # noqa: SLF001 - fake backend injection boundary
+
+    with pytest.raises(ProfileMemoryError, match="profile_memory_policy_rejected"):
+        await memory.remember("a", "this is too long", explicit=True)
+    with pytest.raises(ProfileMemoryError, match="profile_memory_session_mismatch"):
+        await memory.remember("a", "tea", explicit=True, is_valid=lambda: _false())
+
+    assert (await memory.list_profile("a"))[0]["id"] == "memory-a"
+    updated = await memory.update("a", "memory-a", "coffee")
+    assert updated["memory"] == "coffee"
+    await memory.delete("a", "memory-a")
+    assert backend.updated == [("memory-a", "coffee")]
+    assert backend.deleted_ids == ["memory-a"]
+
+
+async def _false() -> bool:
+    return False
+
+
+async def test_memory_opens_circuit_after_repeated_backend_failure() -> None:
+    class BrokenBackend(_Backend):
+        async def search(self, *_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("unavailable")
+
+    memory = ProfileMemoryService(
+        enabled=True, circuit_failure_threshold=1, circuit_open_seconds=30
+    )
+    memory._memory = BrokenBackend()  # noqa: SLF001 - fake backend injection boundary
+    with pytest.raises(ProfileMemoryError, match="profile_memory_search_failed"):
+        await memory.search("a", "query")
+    with pytest.raises(ProfileMemoryError, match="profile_memory_unavailable"):
+        await memory.search("a", "query")
+    assert memory.snapshot().status.value == "DEGRADED"
 
 
 async def test_latest_turn_obeys_session_changes_and_terminal_ordering() -> None:
