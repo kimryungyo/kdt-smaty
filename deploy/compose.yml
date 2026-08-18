@@ -77,6 +77,7 @@ services:
       - "1001"
     ports:
       - "9090:9090"
+      - "10000:10000"
     depends_on:
       emqx:
         condition: service_healthy
