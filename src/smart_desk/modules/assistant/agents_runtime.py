@@ -302,6 +302,7 @@ class AgentsVoiceRuntime:
         saw_final_transcript = False
         consumer_cancelled = False
         stream_exhausted = False
+        turn_ended = False
 
         try:
             self._run_in_progress = True
@@ -419,6 +420,16 @@ class AgentsVoiceRuntime:
                                 error_code=mapped.error_code,
                                 followup_requested=followup_requested,
                             )
+                            if mapped.lifecycle is VoiceRuntimeLifecycle.TURN_ENDED:
+                                # StreamedAudioInput opens a multi-turn SDK session.  The SDK
+                                # deliberately keeps result.stream() open after a completed
+                                # turn for the next transcript, but VoiceService owns exactly
+                                # one turn and must now drain the already queued TTS audio.
+                                # Waiting for session exhaustion here leaves it SPEAKING until
+                                # the SDK's long session-idle timeout fires.
+                                turn_ended = True
+                                stream_exhausted = True
+                                return
                             if mapped.type is VoiceRuntimeEventType.ERROR:
                                 return
 
@@ -464,7 +475,7 @@ class AgentsVoiceRuntime:
             # Only normal SDK exhaustion without TURN_ENDED is a pipeline failure
             # after a final transcript. Consumer cancellation and generator close
             # are cancelled turns; no-transcript exhaustion is an empty turn.
-            if consumer_cancelled or not stream_exhausted:
+            if consumer_cancelled or (not stream_exhausted and not turn_ended):
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await self.finalize_turn("CANCELLED")
             elif not saw_turn_ended:

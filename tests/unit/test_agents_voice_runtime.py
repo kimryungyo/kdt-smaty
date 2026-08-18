@@ -11,6 +11,7 @@ from smart_desk.modules.assistant.agents_runtime import (
     AgentsVoiceRuntime,
     SmartDeskVoiceWorkflow,
     VoiceRuntimeEventType,
+    VoiceRuntimeLifecycle,
 )
 
 
@@ -61,9 +62,12 @@ class Input:
 
 
 class Result:
-    def __init__(self, events: list[object], *, wait: bool = False) -> None:
+    def __init__(
+        self, events: list[object], *, wait: bool = False, wait_after_events: bool = False
+    ) -> None:
         self.events = events
         self.wait = wait
+        self.wait_after_events = wait_after_events
         self.closed = False
 
     async def stream(self) -> AsyncIterator[object]:
@@ -72,6 +76,8 @@ class Result:
                 yield event
                 if self.wait:
                     await asyncio.sleep(10)
+            if self.wait_after_events:
+                await asyncio.sleep(10)
         finally:
             self.closed = True
 
@@ -140,6 +146,27 @@ async def test_runtime_streams_24khz_chunks_sentinel_and_sequenced_events() -> N
         [1], [-2], None,
     ]
     assert all(item is None or item.dtype == np.dtype("int16") for item in input_value.items)
+
+
+async def test_runtime_closes_multiturn_sdk_stream_after_turn_ended() -> None:
+    input_value = Input()
+    result = Result(
+        [
+            Event("voice_stream_event_lifecycle", event="turn_started"),
+            Event("voice_stream_event_audio", data=np.array([1], dtype=np.int16)),
+            Event("voice_stream_event_lifecycle", event="turn_ended"),
+        ],
+        wait_after_events=True,
+    )
+
+    async with asyncio.timeout(0.2):
+        events = [event async for event in AgentsVoiceRuntime(Pipeline(result), lambda: input_value).run_audio(chunks(b"\0\0"))]
+
+    assert [event.lifecycle for event in events if event.type is VoiceRuntimeEventType.LIFECYCLE] == [
+        VoiceRuntimeLifecycle.TURN_STARTED,
+        VoiceRuntimeLifecycle.TURN_ENDED,
+    ]
+    assert result.closed is True
 
 
 async def test_runtime_hides_provider_error_and_stops_late_events() -> None:
