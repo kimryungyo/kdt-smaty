@@ -13,11 +13,14 @@ from smart_desk.modules.desk.height_cache import HeightCacheRepository
 from smart_desk.modules.desk.relay import RelayClient
 from smart_desk.modules.desk.segment import SegmentDecoder
 from smart_desk.modules.mqtt.client import MqttClient
-from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
+from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC, TILT_COMMAND_TOPIC
 from smart_desk.modules.media import WebRtcCameraPublisher, WebRtcFrameSource
 from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
 from smart_desk.modules.serial.source import SerialLineSource
+from smart_desk.modules.tilt.controller import TiltController
+from smart_desk.modules.tilt.level_repository import TiltLevelRepository
+from smart_desk.modules.tilt.serial_link import TiltSerialLink
 from smart_desk.modules.wled.client import WledClient
 from smart_desk.modules.vision import (
     CompositeVisionDetector,
@@ -121,6 +124,26 @@ def build_container(settings: Settings) -> AppContainer:
             shutdown_order=30,
         )
     )
+    if settings.tilt.enabled:
+        tilt_levels = TiltLevelRepository(
+            settings.tilt.levels_file, settings.tilt.calibration_file
+        )
+        tilt_link = TiltSerialLink(settings.tilt)
+        tilt = TiltController(tilt_link, tilt_levels, mqtt, settings.tilt, task_manager)
+        container.tilt = tilt
+        mqtt.register_handler(
+            TILT_COMMAND_TOPIC,
+            tilt.handle_command,
+            qos=1,
+        )
+        container.register(
+            ResourceRegistration(
+                name="tilt",
+                resource=tilt,
+                startup_order=35,
+                shutdown_order=35,
+            )
+        )
     if settings.media.user.publish_enabled:
         user_camera_publisher = WebRtcCameraPublisher(
             name="user",
