@@ -28,11 +28,13 @@ export type Profile = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  /** PIN 잠금 여부. PIN 자체는 서버가 해시로만 보관해 노출하지 않는다. */
+  hasPin: boolean;
   tiltLevel: number | null;
   description: string | null;
 };
 
-export type ProfileInput = Omit<Profile, "id">;
+export type ProfileInput = Omit<Profile, "id" | "hasPin">;
 export type ActivityMode = {
   key: string;
   kind: "DEFAULT" | "CUSTOM";
@@ -96,13 +98,24 @@ export const cancelTarget = () => request<DeskStatus>("/api/target", json({ acti
 export const listProfiles = () => request<Profile[]>("/api/profiles");
 export const getProfile = (id: string, signal?: AbortSignal) => request<Profile>(`/api/profiles/${encodeURIComponent(id)}`, { signal });
 export const createProfile = (profile: ProfileInput) => request<Profile>("/api/profiles", json(profile));
-export const updateProfile = (id: string, profile: Partial<ProfileInput>) =>
+/** 이름 변경과 삭제는 PIN이 걸린 프로필이면 서버가 이 header를 요구한다. */
+const pinHeader = (pin?: string): Record<string, string> => (pin ? { "X-Profile-Pin": pin } : {});
+export const updateProfile = (id: string, profile: Partial<ProfileInput>, pin?: string) =>
   request<Profile>(`/api/profiles/${encodeURIComponent(id)}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...pinHeader(pin) },
     body: JSON.stringify(profile),
   });
-export const deleteProfile = (id: string) => request<void>(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const deleteProfile = (id: string, pin?: string) =>
+  request<void>(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE", headers: pinHeader(pin) });
+export const setProfilePin = (id: string, pin: string, currentPin?: string) =>
+  request<void>(`/api/profiles/${encodeURIComponent(id)}/pin`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...pinHeader(currentPin) },
+    body: JSON.stringify({ pin }),
+  });
+export const verifyProfilePin = (id: string, pin: string) =>
+  request<void>(`/api/profiles/${encodeURIComponent(id)}/pin/verify`, json({ pin }));
 export const listActivityModes = (profileId: string, signal?: AbortSignal) =>
   request<ActivityMode[]>(`/api/profiles/${encodeURIComponent(profileId)}/activity-modes`, { signal });
 export const createActivityMode = (profileId: string, mode: ActivityModeInput) =>

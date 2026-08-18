@@ -13,7 +13,7 @@ from typing import TypeVar
 
 
 LOGGER = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 SQLITE_TIMEOUT_SECONDS = 5.0
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -151,7 +151,11 @@ class SQLiteDatabase:
             if version == 4:
                 _verify_version_4_schema(connection)
                 _migrate_to_version_5(connection)
-            _verify_version_5_schema(connection)
+                version = 5
+            if version == 5:
+                _verify_version_5_schema(connection)
+                _migrate_to_version_6(connection)
+            _verify_version_6_schema(connection)
         finally:
             connection.close()
 
@@ -524,6 +528,74 @@ def _verify_version_3_schema(connection: Connection) -> None:
     _verify_profile_modes_schema(connection)
 
 
+def _migrate_to_version_6(connection: Connection) -> None:
+    """프로필 수정·삭제를 잠그는 PIN 해시 열을 추가한다.
+
+    기존 프로필은 PIN 없이 남으므로 NULL을 허용한다. 형식은 pin 모듈이
+    만드는 `pbkdf2_sha256$iterations$salt$digest` 한 줄 문자열이다.
+    """
+
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            """
+            ALTER TABLE profiles ADD COLUMN pin_hash TEXT
+                CHECK (
+                    pin_hash IS NULL
+                    OR (
+                        typeof(pin_hash) = 'text'
+                        AND length(trim(pin_hash)) > 0
+                        AND pin_hash LIKE 'pbkdf2_sha256$%'
+                    )
+                )
+            """
+        )
+        connection.execute("PRAGMA user_version = 6")
+        connection.execute("COMMIT")
+    except BaseException:
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            LOGGER.exception(
+                "SQLite migration rollback에 실패했습니다.",
+                extra={"component": "sqlite", "event": "migration_rollback_failed"},
+            )
+        raise
+
+
+def _verify_profile_pin_constraints(connection: Connection) -> None:
+    """pin_hash CHECK 제약이 살아 있는지 저장 변경 없이 확인한다."""
+
+    insert_sql = (
+        "INSERT INTO profiles "
+        "(id, name, sitting_height_cm, standing_height_cm, led_color, pin_hash) "
+        "VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    valid = ("__pin_check_1__", "pin check", 80.0, 100.0, None, "pbkdf2_sha256$1$00$00")
+    invalid_rows = [
+        ("__pin_check_2__", "pin check", 80.0, 100.0, None, ""),
+        ("__pin_check_3__", "pin check", 80.0, 100.0, None, "plaintext-1234"),
+    ]
+
+    connection.execute("SAVEPOINT validate_profile_pin_schema")
+    try:
+        try:
+            connection.execute(insert_sql, valid)
+        except sqlite3.Error as error:
+            raise StorageVersionError(
+                "SQLite version 6 profiles PIN 제약이 호환되지 않습니다."
+            ) from error
+        for row in invalid_rows:
+            try:
+                connection.execute(insert_sql, row)
+            except sqlite3.IntegrityError:
+                continue
+            raise StorageVersionError("SQLite version 6 profiles PIN 제약이 누락되었습니다.")
+    finally:
+        connection.execute("ROLLBACK TO validate_profile_pin_schema")
+        connection.execute("RELEASE validate_profile_pin_schema")
+
+
 def _verify_version_4_schema(connection: Connection) -> None:
     if _read_user_version(connection) != 4:
         raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
@@ -558,6 +630,27 @@ def _verify_version_5_schema(connection: Connection) -> None:
     if tables != {"profiles", "desk_height_cache", "profile_modes", "face_embeddings"}:
         raise StorageVersionError("SQLite version 5 table 구성이 올바르지 않습니다.")
     _verify_profile_schema_v5(connection)
+    _verify_height_cache_schema(connection)
+    _verify_profile_modes_schema_v5(connection)
+    _verify_face_embeddings_table_schema(connection)
+    _verify_face_embedding_constraints(connection)
+
+
+def _verify_version_6_schema(connection: Connection) -> None:
+    """version 6은 v5 틸트 설정에 프로필 PIN 해시를 더한다."""
+
+    if _read_user_version(connection) != 6:
+        raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if tables != {"profiles", "desk_height_cache", "profile_modes", "face_embeddings"}:
+        raise StorageVersionError("SQLite version 6 table 구성이 올바르지 않습니다.")
+    _verify_profile_schema_v6(connection)
     _verify_height_cache_schema(connection)
     _verify_profile_modes_schema_v5(connection)
     _verify_face_embeddings_table_schema(connection)
@@ -852,6 +945,26 @@ def _verify_profile_schema_v5(connection: Connection) -> None:
 
     _verify_profile_constraints(connection)
     _verify_profile_v5_constraints(connection)
+
+
+def _verify_profile_schema_v6(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(profiles)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "TEXT", 0, 1),
+        ("name", "TEXT", 1, 0),
+        ("sitting_height_cm", "REAL", 1, 0),
+        ("standing_height_cm", "REAL", 1, 0),
+        ("led_color", "TEXT", 0, 0),
+        ("tilt_level", "INTEGER", 0, 0),
+        ("description", "TEXT", 0, 0),
+        ("pin_hash", "TEXT", 0, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 6 profiles schema가 올바르지 않습니다.")
+    _verify_profile_constraints(connection)
+    _verify_profile_v5_constraints(connection)
+    _verify_profile_pin_constraints(connection)
 
 
 def _verify_profile_modes_schema_v5(connection: Connection) -> None:
