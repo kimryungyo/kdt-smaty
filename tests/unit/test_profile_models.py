@@ -22,6 +22,8 @@ def test_profile_accepts_snake_and_camel_case_and_serializes_aliases() -> None:
         sittingHeightCm=80,
         standing_height_cm=105.0,
         ledColor="ff30a0",
+        tiltLevel=None,
+        description=None,
     )
 
     assert profile.name == "홍길동"
@@ -32,6 +34,9 @@ def test_profile_accepts_snake_and_camel_case_and_serializes_aliases() -> None:
         "sittingHeightCm": 80.0,
         "standingHeightCm": 105.0,
         "ledColor": "FF30A0",
+        "hasPin": False,
+        "tiltLevel": None,
+        "description": None,
         "hasPin": False,
     }
 
@@ -69,6 +74,44 @@ def test_invalid_led_color_is_rejected(led_color: object) -> None:
         )
 
 
+@pytest.mark.parametrize("tilt_level", [0, 10])
+def test_tilt_level_boundaries_are_inclusive(tilt_level: int) -> None:
+    create = ProfileCreate(
+        name="test", sittingHeightCm=80, standingHeightCm=100, tiltLevel=tilt_level
+    )
+
+    assert create.tilt_level == tilt_level
+
+
+@pytest.mark.parametrize("tilt_level", [-1, 11, 1.5, True, "1"])
+def test_invalid_tilt_level_is_rejected(tilt_level: object) -> None:
+    with pytest.raises(ValidationError):
+        ProfileCreate(
+            name="test", sittingHeightCm=80, standingHeightCm=100, tiltLevel=tilt_level
+        )
+
+
+def test_description_is_trimmed_and_blank_becomes_none() -> None:
+    create = ProfileCreate(
+        name="test", sittingHeightCm=80, standingHeightCm=100, description="  집중 모드  "
+    )
+
+    assert create.description == "집중 모드"
+
+    blank = ProfileCreate(
+        name="test", sittingHeightCm=80, standingHeightCm=100, description="   "
+    )
+
+    assert blank.description is None
+
+
+def test_description_over_max_length_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        ProfileCreate(
+            name="test", sittingHeightCm=80, standingHeightCm=100, description="x" * 301
+        )
+
+
 def test_create_rejects_unknown_fields_and_client_id() -> None:
     with pytest.raises(ValidationError):
         ProfileCreate.model_validate(
@@ -95,6 +138,12 @@ def test_update_distinguishes_empty_unset_and_nullable_led() -> None:
     assert update.model_fields_set == {"led_color"}
     assert update.model_dump(exclude_unset=True) == {"ledColor": None}
 
+    mode_update = ProfileUpdate(tiltLevel=None, description=None)
+    assert mode_update.model_fields_set == {"tilt_level", "description"}
+    assert mode_update.model_dump(exclude_unset=True) == {
+        "tiltLevel": None, "description": None,
+    }
+
 
 def test_activity_mode_models_normalize_and_expose_effective_contract() -> None:
     create = ActivityModeCreate(
@@ -107,6 +156,8 @@ def test_activity_mode_models_normalize_and_expose_effective_contract() -> None:
         sittingHeightCm=80,
         standingHeightCm=105,
         ledColor=None,
+        tiltLevel=None,
+        description=None,
         editable=False,
     )
 
@@ -115,7 +166,7 @@ def test_activity_mode_models_normalize_and_expose_effective_contract() -> None:
     assert effective.model_dump() == {
         "key": "default", "kind": "DEFAULT", "name": "기본",
         "sittingHeightCm": 80.0, "standingHeightCm": 105.0,
-        "ledColor": None, "editable": False,
+        "ledColor": None, "tiltLevel": None, "description": None, "editable": False,
     }
 
 

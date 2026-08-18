@@ -86,6 +86,62 @@ class SerialSettings(BaseModel):
         return value
 
 
+class TiltSettings(BaseModel):
+    """틸팅 ESP32(모터드라이버)의 MQTT 단계 이동 모드 설정을 보관한다.
+
+    실측 보정은 duty=100(UP/DOWN)만 있다. 펌웨어는 보정 없는 duty를 가장
+    가까운 보정점(100)의 속도로 clamp하므로, move_duty_percent를 100이 아닌
+    값으로 바꾸면 에러 없이 "성공"하지만 실제 이동 거리가 어긋난다. 추가
+    보정 데이터를 확보하기 전에는 100을 유지한다.
+    """
+
+    enabled: bool = False
+    # 이 환경에는 ESP32-C3 native USB 장치가 relay-controller와 틸트 보드
+    # 두 개 있어 glob 자동탐색은 쓰지 않는다. 실측된 by-id 경로로 고정한다.
+    serial_port: str = (
+        "/dev/serial/by-id/"
+        "usb-Espressif_USB_JTAG_serial_debug_unit_B8:1F:3F:0C:F7:14-if00"
+    )
+    baudrate: int = Field(default=115200, ge=1)
+    read_timeout_seconds: float = Field(default=0.2, gt=0, le=5, allow_inf_nan=False)
+    write_timeout_seconds: float = Field(default=0.7, gt=0, le=5, allow_inf_nan=False)
+    reconnect_interval_seconds: float = Field(
+        default=1.0, gt=0, le=30, allow_inf_nan=False
+    )
+    min_level: int = Field(default=0, ge=0)
+    max_level: int = Field(default=4, ge=0)
+    move_duty_percent: int = Field(default=100, ge=1, le=100)
+    levels_file: Path = Path("data/tilt_levels.json")
+    calibration_file: Path = Path("data/tilt_calibration.json")
+
+    @field_validator("serial_port")
+    @classmethod
+    def normalize_serial_port(cls, value: str) -> str:
+        """장치 경로의 불필요한 공백을 제거하고 빈 값을 거부한다."""
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("틸팅 시리얼 포트는 비어 있을 수 없습니다.")
+        return normalized
+
+    @field_validator("baudrate", "move_duty_percent", mode="before")
+    @classmethod
+    def reject_boolean_ints(cls, value: object) -> object:
+        """bool이 정수 설정값으로 변환되는 것을 막는다."""
+
+        if isinstance(value, bool):
+            raise ValueError("틸팅 설정의 정수 값은 bool일 수 없습니다.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_levels(self) -> TiltSettings:
+        """단계 범위가 뒤집히지 않았는지 검증한다."""
+
+        if self.min_level >= self.max_level:
+            raise ValueError("틸팅 최소 단계는 최대 단계보다 작아야 합니다.")
+        return self
+
+
 class DeskSettings(BaseModel):
     """센서 측정 범위와 그 안에서 허용하는 제어 범위를 보관한다."""
 
@@ -665,6 +721,7 @@ class Settings(BaseSettings):
     mqtt: MqttSettings = MqttSettings()
     serial: SerialSettings = SerialSettings()
     desk: DeskSettings = DeskSettings()
+    tilt: TiltSettings = TiltSettings()
     media: MediaSettings = MediaSettings()
     vision: VisionSettings = VisionSettings()
     vision_client: VisionClientSettings = VisionClientSettings()

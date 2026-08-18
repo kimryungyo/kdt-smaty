@@ -1,0 +1,15 @@
+[Unit]
+Description=Smart Desk CSI camera WebRTC publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/smart-desk/rpi-camera-stream.env
+ExecStartPre=/bin/bash -o pipefail -c 'until /usr/bin/timeout 10 /usr/bin/rpicam-hello --list-cameras 2>/dev/null | /usr/bin/grep -qE "^0[[:space:]]*:"; do echo "camera unavailable; retrying in 5 seconds"; /usr/bin/sleep 5; done'
+ExecStart=/usr/local/sbin/rpi-camera-whip
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

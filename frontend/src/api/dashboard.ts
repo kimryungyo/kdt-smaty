@@ -30,6 +30,8 @@ export type Profile = {
   ledColor: string | null;
   /** PIN 잠금 여부. PIN 자체는 서버가 해시로만 보관해 노출하지 않는다. */
   hasPin: boolean;
+  tiltLevel: number | null;
+  description: string | null;
 };
 
 export type ProfileInput = Omit<Profile, "id" | "hasPin">;
@@ -40,6 +42,8 @@ export type ActivityMode = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  tiltLevel: number | null;
+  description: string | null;
   editable: boolean;
 };
 
@@ -48,6 +52,8 @@ export type ActivityModeInput = {
   sittingHeightCm: number;
   standingHeightCm: number;
   ledColor: string | null;
+  tiltLevel: number | null;
+  description: string | null;
 };
 export type WledMode = "OFF" | "SOLID" | "EFFECT" | "MIXED";
 export type WledStatus = "DISABLED" | "UNKNOWN" | "ONLINE" | "ERROR";

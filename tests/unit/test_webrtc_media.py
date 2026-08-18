@@ -113,7 +113,9 @@ async def test_whip_posts_offer_uses_location_delete_and_stops_player(monkeypatc
 
     await publisher.start()
     await wait_until(lambda: calls == [("http://media:8889/user/whip", "offer-sdp")])
-    assert peer.added_tracks == [player.video]
+    assert len(peer.added_tracks) == 1
+    assert peer.added_tracks[0] is not player.video
+    assert getattr(peer.added_tracks[0], "kind", None) == "video"
     assert publisher.is_running() is True
 
     await publisher.stop()

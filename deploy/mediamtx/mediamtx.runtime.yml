@@ -1,0 +1,38 @@
+# Anonymous publishing and playback for every path.
+# This service uses the host network; no Docker port mappings are needed.
+rtsp: false
+
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path:
+      - action: read
+        path:
+      - action: playback
+        path:
+
+# Keep administrative endpoints local to this host.
+  - user: any
+    pass:
+    ips: [127.0.0.1, ::1]
+    permissions:
+      - action: api
+        path:
+      - action: metrics
+        path:
+      - action: pprof
+        path:
+
+# Advertise the LAN address for local camera clients and the Tailscale address
+# for the remote Vision worker. Docker interface addresses stay excluded.
+webrtcIPsFromInterfaces: false
+webrtcAdditionalHosts:
+  - 192.168.0.10
+  - 100.92.158.26
+
+paths:
+  all:
