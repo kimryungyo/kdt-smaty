@@ -268,15 +268,15 @@ async def test_persistent_unknown_posture_blocks_only_after_stability_window() -
     assert service.get_snapshot().usable is True
 
     detector.lower = LowerDetection(0, PostureStatus.UNKNOWN)
-    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0):
+    for value in (3.5, 4.0, 4.5, 5.0, 5.5):
         clock.value = value
         upper.frame = lower.frame = (np.zeros((1, 1)), value)
         await service.process_once()
         assert service.get_snapshot().usable is True
 
-    # raw UNKNOWN이 끊기지 않고 4초를 채운 시점부터만 차단한다.
-    clock.value = 7.5
-    upper.frame = lower.frame = (np.zeros((1, 1)), 7.5)
+    # 최근 6개 sample이 모두 UNKNOWN인 시점부터만 차단한다.
+    clock.value = 6.0
+    upper.frame = lower.frame = (np.zeros((1, 1)), 6.0)
     await service.process_once()
     snapshot = service.get_snapshot()
     assert snapshot.stable_posture is PostureStatus.UNKNOWN

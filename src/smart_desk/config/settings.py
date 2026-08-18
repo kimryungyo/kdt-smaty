@@ -373,12 +373,18 @@ class VisionSettings(BaseModel):
         default=0.7, gt=0.5, le=1.0, allow_inf_nan=False
     )
     stability_min_samples: int = Field(default=3, ge=2, le=100)
-    # 자세는 시연 중 관절 누락이 잦으므로 일반 재실 안정화와 분리한다. 정상 자세 전이는
-    # 1.5초 rolling majority, UNKNOWN은 연속 4초 뒤에만 확정하고 정상 자세 복구는 1초부터
-    # 허용한다. camera stale/연결 단절은 이 유예와 무관하게 즉시 차단한다.
-    posture_transition_window_seconds: float = Field(default=1.5, gt=0, le=30, allow_inf_nan=False)
-    posture_unknown_after_seconds: float = Field(default=4.0, gt=0, le=60, allow_inf_nan=False)
-    posture_recovery_window_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
+    # 하단 추론 간격은 장비 부하에 따라 변하므로 자세 안정화는 시간 대신 최근 distinct
+    # sample 수를 쓴다. camera stale/연결 단절은 이 유예와 무관하게 즉시 차단한다.
+    posture_transition_samples: int = Field(default=3, ge=2, le=30)
+    posture_transition_required_samples: int = Field(default=2, ge=2, le=30)
+    posture_unknown_samples: int = Field(default=6, ge=2, le=100)
+    posture_recovery_samples: int = Field(default=2, ge=2, le=30)
+
+    @model_validator(mode="after")
+    def validate_posture_samples(self) -> VisionSettings:
+        if self.posture_transition_required_samples > self.posture_transition_samples:
+            raise ValueError("자세 전이 필요 sample 수는 전이 window보다 클 수 없습니다.")
+        return self
     # 독립 WHEP receiver의 최신 frame 도착은 동일 15fps stream이라도 최대 약 0.5초
     # 어긋날 수 있다. result freshness(1초) 안에서만 결합하되 정상 scheduler jitter가
     # 안정화 timer를 계속 초기화하지 않도록 약간의 여유를 둔다.
