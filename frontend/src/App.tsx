@@ -102,10 +102,11 @@ function SmatyDashboard() {
   }, [desk.value?.height.heightCm, panel]);
   useEffect(() => {
     const snapshot = wled.value;
-    if (!snapshot) return;
+    // 조명 패널을 여는 동안에는 고르는 중인 값을 장치 상태로 덮어쓰지 않는다.
+    if (!snapshot || panel === "led") return;
     setLedOn(snapshot.on === true && snapshot.mode !== "OFF");
     if (snapshot.color) setColor(snapshot.color);
-  }, [wled.value]);
+  }, [panel, wled.value]);
 
   const refresh = async () => { await Promise.allSettled([current.refresh(), desk.refresh(), wled.refresh(), automation.refresh()]); };
   const close = () => setPanel(null);
@@ -135,9 +136,10 @@ function SmatyDashboard() {
   const applyLed = async () => {
     try {
       const command = ledOn ? { action: "SOLID" as const, color, ...(expectedSessionId ? { expectedSessionId } : {}) } : { action: "OFF" as const, ...(expectedSessionId ? { expectedSessionId } : {}) };
+      // 여기서 고른 색은 장치에만 바로 적용하는 일회성 값이다. 프로필이나 작업
+      // 모드에 저장하지 않으므로, 다음 작업 모드 변경에서 모드 색으로 돌아간다.
       await controlWled(command);
-      if (profile) setProfile(await updateProfile(profile.id, { ledColor: color }));
-      await wled.refresh(); close(); toast("조명 설정을 적용했어요.");
+      await wled.refresh(); close(); toast("조명을 적용했어요. 작업 모드를 바꾸면 모드 색으로 돌아갑니다.");
     } catch (error) { await refresh(); toast(errorText(error)); }
   };
 
@@ -163,7 +165,7 @@ function SmatyDashboard() {
     {notice && <div className="toast" role="status">✓ {notice}</div>}
     {panel && <div className="shade" onMouseDown={close}><section className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="x" type="button" onClick={close} aria-label="닫기">×</button>
       {panel === "height" && <><Title icon="height" eyebrow="DESK HEIGHT" title="높이 및 제어 설정" /><div className="tabs"><button type="button" className={automationMode === "AUTO" ? "on" : ""} onClick={() => void changeControlMode("AUTO")}>자동 제어</button><button type="button" className={automationMode === "MANUAL" ? "on" : ""} onClick={() => void changeControlMode("MANUAL")}>수동 제어</button></div><div className="read"><span>목표 높이</span><b>{targetHeight.toFixed(1)} cm</b></div><input className="range" aria-label="목표 높이" type="range" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.5" value={targetHeight} onChange={(event) => setTargetHeight(Number(event.target.value))} /><div className="twocol"><Field title="앉은 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={sittingHeight} onChange={(event) => setSittingHeight(Number(event.target.value))} /></Field><Field title="서있는 높이"><input type="number" min={MIN_HEIGHT} max={MAX_HEIGHT} step="0.1" value={standingHeight} onChange={(event) => setStandingHeight(Number(event.target.value))} /></Field></div><Primary disabled={!deskOnline} onClick={() => void applyHeight()}>설정 적용하기</Primary></>}
-      {panel === "led" && <><Title icon="led" eyebrow="LED LIGHT" title="조명 설정" /><div className="power"><span><b>LED 전원</b><small>{ledOn ? "조명이 켜져 있어요" : "조명이 꺼져 있어요"}</small></span><button type="button" className={ledOn ? "on" : ""} onClick={() => setLedOn((value) => !value)} aria-label="LED 전원"><i /></button></div><Field title="모든 색상에서 선택"><div className="color"><input type="color" value={`#${color}`} onChange={(event) => setColor(event.target.value.slice(1).toUpperCase())} /><b>#{color}</b></div></Field><div className="swatches">{["765CF6", "50C59D", "F5B544", "F06C7E", "4D9CF0", "FFFFFF"].map((item) => <button type="button" key={item} aria-label={`#${item}`} style={{ background: `#${item}` }} onClick={() => setColor(item)} />)}</div><Primary onClick={() => void applyLed()}>조명에 적용하기</Primary></>}
+      {panel === "led" && <><Title icon="led" eyebrow="LED LIGHT" title="조명 설정" /><div className="power"><span><b>LED 전원</b><small>{ledOn ? "조명이 켜져 있어요" : "조명이 꺼져 있어요"}</small></span><button type="button" className={ledOn ? "on" : ""} onClick={() => setLedOn((value) => !value)} aria-label="LED 전원"><i /></button></div><Field title="모든 색상에서 선택"><div className="color"><input type="color" value={`#${color}`} onChange={(event) => setColor(event.target.value.slice(1).toUpperCase())} /><b>#{color}</b></div></Field><div className="swatches">{["765CF6", "50C59D", "F5B544", "F06C7E", "4D9CF0", "FFFFFF"].map((item) => <button type="button" key={item} aria-label={`#${item}`} style={{ background: `#${item}` }} onClick={() => setColor(item)} />)}</div><p className="modal-note">지금 조명에만 적용하는 일회성 설정이에요. 작업 모드를 바꾸면 그 모드에 저장된 색으로 돌아갑니다.</p><Primary onClick={() => void applyLed()}>조명에 적용하기</Primary></>}
       {panel === "mode" && <><Title icon="mode" eyebrow="WORK MODE" title="모드 선택" /><div className="options">{modes.length ? modes.map((mode) => <button type="button" key={mode.key} className={selectedMode?.key === mode.key ? "on" : ""} onClick={() => void chooseMode(mode)}><Icon name="mode" /><span><b>{mode.name}{mode.ledColor && <i className="swatch" style={{ background: `#${mode.ledColor}` }} />}</b><small>{modeSubtitle(mode)}</small></span>{selectedMode?.key === mode.key && "✓"}</button>) : <p className="modal-note">등록 사용자가 인식되면 저장한 작업 모드를 선택할 수 있어요.</p>}</div></>}
       {panel === "tilt" && <><Title icon="tilt" eyebrow="DESK TILTING" title="틸팅 단계 선택" /><p className="desc">{tilt.value?.detail ?? "틸팅 제어 장치를 확인하고 있습니다."} 단계 제어는 준비 후 이 화면에서 바로 사용할 수 있어요.</p><div className="tilts six">{["틸팅 없음 · 수평", "낮게", "약간 낮게", "편안하게", "높게", "아주 높게"].map((text, index) => <button type="button" key={text} disabled><span style={{ transform: `rotate(${-index * 4}deg)` }}>━</span><b>{index}단계</b><small>{text}</small></button>)}</div></>}
     </section></div>}
