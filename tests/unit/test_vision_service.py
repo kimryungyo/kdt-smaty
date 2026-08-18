@@ -180,7 +180,7 @@ async def test_count_mismatch_disconnect_and_detector_exception_are_fail_closed(
     assert service.get_fresh_face_observation() is None
 
 
-async def test_posture_candidate_resets_when_distinct_pair_changes() -> None:
+async def test_initial_window_without_seventy_percent_majority_stays_unknown() -> None:
     clock, upper, lower = Clock(), FakeSource(), FakeSource()
     detector = FakeDetector(UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING))
     service = make_service(clock, detector, upper, lower)
@@ -197,7 +197,109 @@ async def test_posture_candidate_resets_when_distinct_pair_changes() -> None:
     snapshot = service.get_snapshot()
     assert snapshot.raw_posture is PostureStatus.STANDING
     assert snapshot.stable_posture is PostureStatus.UNKNOWN
-    assert snapshot.posture_candidate_since == clock.utc_now()
+    assert snapshot.posture_candidate_since is None
+
+
+async def test_stable_values_ignore_brief_multiple_and_unknown_observations() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=1), LowerDetection(1, PostureStatus.STANDING)
+    )
+    service = make_service(clock, detector, upper, lower)
+
+    for value in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    assert service.get_snapshot().usable is True
+
+    clock.value = 3.5
+    detector.upper = UpperDetection(body_count=2)
+    upper.frame = lower.frame = (np.zeros((1, 1)), 3.5)
+    await service.process_once()
+    transient = service.get_snapshot()
+    assert transient.raw_presence is PresenceStatus.MULTIPLE
+    assert transient.stable_presence is PresenceStatus.PRESENT_SINGLE
+    assert transient.stable_posture is PostureStatus.STANDING
+    assert transient.usable is True
+    assert transient.reason_codes == ()
+
+    clock.value = 4.0
+    detector.upper = UpperDetection(body_count=1)
+    detector.lower = LowerDetection(0, PostureStatus.UNKNOWN)
+    upper.frame = lower.frame = (np.zeros((1, 1)), 4.0)
+    await service.process_once()
+    assert service.get_snapshot().raw_presence is PresenceStatus.UNKNOWN
+
+    detector.lower = LowerDetection(1, PostureStatus.STANDING)
+    for value in (4.5, 5.0, 5.5, 6.0, 6.5):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+
+    snapshot = service.get_snapshot()
+    assert snapshot.stable_presence is PresenceStatus.PRESENT_SINGLE
+    assert snapshot.stable_posture is PostureStatus.STANDING
+    assert snapshot.usable is True
+
+
+async def test_posture_changes_after_three_second_majority_window() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING)
+    )
+    service = make_service(clock, detector, upper, lower)
+
+    for value in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    assert service.get_snapshot().stable_posture is PostureStatus.SITTING
+
+    detector.lower = LowerDetection(1, PostureStatus.STANDING)
+    for value in (3.5, 4.0, 4.5):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    detector.lower = LowerDetection(1, PostureStatus.UNKNOWN)
+    clock.value = 5.0
+    upper.frame = lower.frame = (np.zeros((1, 1)), 5.0)
+    await service.process_once()
+    detector.lower = LowerDetection(1, PostureStatus.STANDING)
+    for value in (5.5, 6.0, 6.5):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+
+    snapshot = service.get_snapshot()
+    assert snapshot.raw_posture is PostureStatus.STANDING
+    assert snapshot.stable_posture is PostureStatus.STANDING
+    assert snapshot.usable is True
+
+
+async def test_persistent_multiple_wins_window_and_blocks_vision() -> None:
+    clock, upper, lower = Clock(), FakeSource(), FakeSource()
+    detector = FakeDetector(
+        UpperDetection(body_count=1), LowerDetection(1, PostureStatus.SITTING)
+    )
+    service = make_service(clock, detector, upper, lower)
+
+    for value in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+    detector.upper = UpperDetection(body_count=2)
+    detector.lower = LowerDetection(2, PostureStatus.UNKNOWN)
+    for value in (3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5):
+        clock.value = value
+        upper.frame = lower.frame = (np.zeros((1, 1)), value)
+        await service.process_once()
+
+    snapshot = service.get_snapshot()
+    assert snapshot.stable_presence is PresenceStatus.MULTIPLE
+    assert snapshot.stable_posture is PostureStatus.UNKNOWN
+    assert snapshot.usable is False
+    assert snapshot.reason_codes == (BlockCode.MULTIPLE_PEOPLE,)
 
 
 class SlowDetector(FakeDetector):

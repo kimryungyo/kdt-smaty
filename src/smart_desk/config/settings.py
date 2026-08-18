@@ -363,9 +363,15 @@ class VisionSettings(BaseModel):
     """
 
     poll_interval_seconds: float = Field(default=0.1, gt=0, le=2, allow_inf_nan=False)
-    frame_stale_after_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
-    result_stale_after_seconds: float = Field(default=1.0, gt=0, le=30, allow_inf_nan=False)
+    # 상·하단 YOLO 호출은 하나의 model lock에서 직렬화되어 운영 장비에서 결합 1회가
+    # 약 0.8초 걸린다. 정상 처리 지연을 stale로 오판하지 않도록 3초 여유를 둔다.
+    frame_stale_after_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
+    result_stale_after_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
     stable_after_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
+    stability_majority_ratio: float = Field(
+        default=0.7, gt=0.5, le=1.0, allow_inf_nan=False
+    )
+    stability_min_samples: int = Field(default=3, ge=2, le=100)
     # 독립 WHEP receiver의 최신 frame 도착은 동일 15fps stream이라도 최대 약 0.5초
     # 어긋날 수 있다. result freshness(1초) 안에서만 결합하되 정상 scheduler jitter가
     # 안정화 timer를 계속 초기화하지 않도록 약간의 여유를 둔다.

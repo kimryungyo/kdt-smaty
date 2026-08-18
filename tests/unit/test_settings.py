@@ -194,6 +194,10 @@ def test_default_storage_database_path() -> None:
 def test_lower_pose_settings_default_disabled_and_normalize_blank_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert VisionSettings().lower_pose_model_path is None
     assert VisionSettings().max_camera_skew_seconds == 0.75
+    assert VisionSettings().frame_stale_after_seconds == 3.0
+    assert VisionSettings().result_stale_after_seconds == 3.0
+    assert VisionSettings().stability_majority_ratio == 0.7
+    assert VisionSettings().stability_min_samples == 3
     monkeypatch.setenv("SMART_DESK_VISION__LOWER_POSE_MODEL_PATH", "   ")
     monkeypatch.setenv("SMART_DESK_VISION__UPPER_INFERENCE_INTERVAL_SECONDS", "0.5")
     monkeypatch.setenv("SMART_DESK_VISION__LOWER_INFERENCE_INTERVAL_SECONDS", "0.5")
@@ -213,6 +217,18 @@ def test_lower_pose_inference_interval_has_valid_range(value: float) -> None:
 def test_upper_presence_inference_interval_has_valid_range(value: float) -> None:
     with pytest.raises(ValidationError):
         VisionSettings(upper_inference_interval_seconds=value)
+
+
+@pytest.mark.parametrize("value", [0.5, 0.0, 1.1])
+def test_vision_stability_majority_ratio_has_valid_range(value: float) -> None:
+    with pytest.raises(ValidationError):
+        VisionSettings(stability_majority_ratio=value)
+
+
+@pytest.mark.parametrize("value", [0, 1, 101])
+def test_vision_stability_min_samples_has_valid_range(value: int) -> None:
+    with pytest.raises(ValidationError):
+        VisionSettings(stability_min_samples=value)
 
 
 def test_storage_database_path_is_loaded_from_environment(

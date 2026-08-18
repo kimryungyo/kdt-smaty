@@ -43,6 +43,21 @@ camera 검증이 필요하다.
 각 카메라 frame, 신원, 재실과 자세는 자체 `observedAt`과 `expiresAt` 또는 age를 가진다.
 내부 duration에는 monotonic clock, API 시각에는 UTC wall clock을 사용한다.
 
+### 재실·자세 안정화
+
+재실과 자세는 같은 값이 3초 내내 한 번도 끊기지 않아야 하는 연속 판정이 아니다. 현재
+stable 값과 다른 관측이 시작되면 3초 관측 묶음을 열고, 서로 다른 결합 frame 최소 3개 중
+70% 이상을 차지한 값을 다음 stable 값으로 채택한다. 표결 중에는 기존 stable 값을 유지한다.
+따라서 단발 `UNKNOWN`, `MULTIPLE`, count 불일치와 자세 오탐은 raw 상태에만 보이고 session과
+AUTO를 흔들지 않는다. 같은 이상이 관측 묶음의 다수를 차지하면 stable `UNKNOWN` 또는
+`MULTIPLE`로 전환해 AUTO를 차단한다.
+
+카메라 단절, frame/result stale, detector 예외와 모델 미구성은 추론값 오탐이 아니라 입력
+파이프라인 장애이므로 다수결을 기다리지 않고 즉시 stable 값을 `UNKNOWN`으로 만들고 AUTO를
+차단한다. 새 distinct 상·하단 frame이 다시 들어온 뒤에는 처음부터 3초를 재확인한다.
+운영 장비의 상·하단 직렬 추론 한 묶음은 약 0.8초이므로 frame/result 만료값은 3초로 둔다.
+이는 정상 처리 지연을 stale로 오판하지 않으면서 실제 입력 정지는 3초 안에 차단한다.
+
 ## 두 카메라 결합
 
 첫 구현은 Re-ID 없이 단일 책상 singleton만 결합한다.
@@ -106,7 +121,8 @@ false negative는 사용자 변경 근거가 아니다.
   session과 자세 안정화를 시작한다.
 - A 중 고품질 `UNKNOWN_FACE`가 3초 안정화되면 A AUTO와 session을 종료하고 새 익명 AUTO
   session을 시작한다. A와 미등록 얼굴이 동시에 보이면 `MULTIPLE`로 처리한다.
-- `MULTIPLE`, count 불일치와 관측 연속성 단절은 session을 유지하지만 AUTO를 STOP·차단한다.
+- 안정화된 `MULTIPLE`, count 불일치와 관측 불확실성은 session을 유지하지만 AUTO를
+  STOP·차단한다. 단발 추론 오탐은 위 3초 다수결에서 흡수한다.
   등록 session은 같은 얼굴 재확인, 익명 session은 단일 재실 3초 재안정화 뒤 AUTO 차단을
   해제한다.
 

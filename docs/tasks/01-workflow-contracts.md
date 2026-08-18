@@ -70,7 +70,8 @@ Voice에서 사용하는 session이라는 말은 다음 세 수명을 구분한�
 
 | 설정 | 초기값 | 의미 |
 | --- | ---: | --- |
-| `presenceConfirmationSeconds` | 3초 | session 시작 전 단일 재실 안정화 |
+| `presenceConfirmationSeconds` | 3초 | session 시작 전 단일 재실 다수결 관측창 |
+| `visionStabilityMajorityRatio` | 70% | 최소 3회 관측 중 stable 전이에 필요한 비율 |
 | `postureTransitionHoldSeconds` | 5초 | 최초 이동 이후 모든 사용자의 자세 전환·AUTO 재활성화 안정화 |
 | `initialAutoMoveDelaySeconds` | 2초 | 첫 session 생성 후 최초 자동 목표 지연 |
 | `unknownFaceTransitionSeconds` | 3초 | 등록 사용자에서 익명 사용자로 바꿀 고품질 미등록 얼굴 안정화 |
@@ -187,8 +188,10 @@ A 얼굴이 안 보이거나 품질이 낮다는 이유로 전환하지 않는�
 
 ### 다중 사용자와 count 불일치
 
-`MULTIPLE`, 카메라 count 불일치 또는 관측 연속성 단절에서는 현재 session과 두 mode를
-유지하되 AUTO generation과 진행 AUTO 이동을 즉시 STOP하고 자세 후보를 초기화한다.
+`MULTIPLE`, 카메라 count 불일치 또는 자세 불확실성이 3초 관측창에서 70% 이상이면 현재
+session과 두 mode를 유지하되 AUTO generation과 진행 AUTO 이동을 STOP하고 자세 후보를
+초기화한다. 한두 frame의 단발 오탐은 raw 상태에만 남기고 기존 stable 상태와 AUTO를 유지한다.
+카메라 단절, stale과 모델 장애는 관측 다수결 대상이 아니므로 즉시 STOP·차단한다.
 Dashboard HOLD, 직접 목표와 STOP은 계속 허용한다.
 
 - 등록 session은 같은 얼굴을 다시 안정적으로 확인한 뒤 AUTO 차단을 해제한다.

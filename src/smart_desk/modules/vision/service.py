@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter, deque
 from datetime import UTC, datetime, timedelta
 import threading
 import time
@@ -74,8 +75,12 @@ class VisionService:
         self._last_combined_pair: tuple[float, float] | None = None
         self._upper = self._empty_observation(upper_source)
         self._lower = self._empty_observation(lower_source)
-        self._presence_candidate: tuple[PresenceStatus, float, datetime] | None = None
-        self._posture_candidate: tuple[PostureStatus, float, datetime] | None = None
+        self._presence_window: deque[tuple[float, datetime, PresenceStatus]] = deque(
+            maxlen=1000
+        )
+        self._posture_window: deque[tuple[float, datetime, PostureStatus]] = deque(
+            maxlen=1000
+        )
         self._stable_presence = PresenceStatus.UNKNOWN
         self._stable_posture = PostureStatus.UNKNOWN
         self._snapshot = self._compose_snapshot()
@@ -97,8 +102,8 @@ class VisionService:
                 pass
         self._stable_presence = PresenceStatus.UNKNOWN
         self._stable_posture = PostureStatus.UNKNOWN
-        self._presence_candidate = None
-        self._posture_candidate = None
+        self._presence_window.clear()
+        self._posture_window.clear()
         self._last_combined_pair = None
         self._snapshot = self._compose_snapshot(force_stale=True)
 
@@ -264,9 +269,13 @@ class VisionService:
     def _compose_snapshot(self, *, force_stale: bool = False, advance: bool = False) -> VisionSnapshot:
         upper = self._current_camera(self._upper_source, self._upper)
         lower = self._current_camera(self._lower_source, self._lower)
-        reason_codes = self._reason_codes(upper, lower, force_stale)
-        hard_reasons = tuple(code for code in reason_codes if code is not BlockCode.POSTURE_UNASSOCIATED)
-        raw_presence = self._raw_presence(upper, lower, hard_reasons)
+        observed_reasons = self._reason_codes(upper, lower, force_stale)
+        presence_reasons = tuple(
+            code
+            for code in observed_reasons
+            if code is not BlockCode.POSTURE_UNASSOCIATED
+        )
+        raw_presence = self._raw_presence(upper, lower, presence_reasons)
         # 하단 raw 자세는 관측성용으로 독립 노출한다. 상단 detector가 아직 unavailable이어도
         # fresh singleton 하단 frame은 볼 수 있지만, usable/stable 결합 안전 조건은 완화하지 않는다.
         raw_posture = (
@@ -279,22 +288,52 @@ class VisionService:
             )
             else PostureStatus.UNKNOWN
         )
-        if force_stale or hard_reasons:
-            self._presence_candidate = None
-            self._posture_candidate = None
+        immediate_reasons = tuple(
+            code
+            for code in observed_reasons
+            if code
+            in {
+                BlockCode.UPPER_CAMERA_UNAVAILABLE,
+                BlockCode.LOWER_CAMERA_UNAVAILABLE,
+                BlockCode.UPPER_FRAME_STALE,
+                BlockCode.LOWER_FRAME_STALE,
+                BlockCode.MODEL_UNAVAILABLE,
+                BlockCode.MODEL_ERROR,
+            }
+        )
+        if force_stale or immediate_reasons:
+            self._presence_window.clear()
+            self._posture_window.clear()
             self._stable_presence = PresenceStatus.UNKNOWN
             self._stable_posture = PostureStatus.UNKNOWN
         elif advance:
             self._stable_presence = self._stabilize_presence(raw_presence)
-            if raw_posture is PostureStatus.UNKNOWN:
-                self._posture_candidate = None
-                self._stable_posture = PostureStatus.UNKNOWN
-            else:
-                self._stable_posture = self._stabilize_posture(raw_posture)
-        usable = not reason_codes and self._stable_presence is PresenceStatus.PRESENT_SINGLE and self._stable_posture is not PostureStatus.UNKNOWN
-        if not usable and not reason_codes:
-            reason_codes = (BlockCode.PRESENCE_NOT_SINGLE,) if self._stable_presence is not PresenceStatus.PRESENT_SINGLE else (BlockCode.POSTURE_UNKNOWN,)
-        return VisionSnapshot(upper, lower, raw_presence, self._stable_presence, raw_posture, self._stable_posture, self._candidate_wall(self._presence_candidate), self._candidate_wall(self._posture_candidate), usable, tuple(reason_codes))
+            associated_posture = (
+                raw_posture
+                if raw_presence is PresenceStatus.PRESENT_SINGLE
+                else PostureStatus.UNKNOWN
+            )
+            self._stable_posture = self._stabilize_posture(associated_posture)
+        usable = (
+            not immediate_reasons
+            and self._stable_presence is PresenceStatus.PRESENT_SINGLE
+            and self._stable_posture is not PostureStatus.UNKNOWN
+        )
+        reason_codes = self._effective_reason_codes(
+            observed_reasons, immediate_reasons, raw_presence
+        )
+        return VisionSnapshot(
+            upper,
+            lower,
+            raw_presence,
+            self._stable_presence,
+            raw_posture,
+            self._stable_posture,
+            self._candidate_wall(self._presence_window),
+            self._candidate_wall(self._posture_window),
+            usable,
+            reason_codes,
+        )
 
     def _current_camera(self, source: FrameSource | None, observation: CameraObservation) -> CameraObservation:
         if source is None:
@@ -342,27 +381,72 @@ class VisionService:
         return PresenceStatus.VACANT if upper.count == 0 else PresenceStatus.PRESENT_SINGLE
 
     def _stabilize_presence(self, value: PresenceStatus) -> PresenceStatus:
-        self._presence_candidate = self._advance_candidate(self._presence_candidate, value)
-        candidate = self._presence_candidate
-        if candidate and self._monotonic() - candidate[1] >= self._settings.stable_after_seconds:
-            return value
-        return PresenceStatus.UNKNOWN
+        return self._stabilize_value(
+            self._presence_window,
+            value,
+            self._stable_presence,
+            PresenceStatus.UNKNOWN,
+        )
 
     def _stabilize_posture(self, value: PostureStatus) -> PostureStatus:
-        self._posture_candidate = self._advance_candidate(self._posture_candidate, value)
-        candidate = self._posture_candidate
-        if candidate and self._monotonic() - candidate[1] >= self._settings.stable_after_seconds:
-            return value
-        return PostureStatus.UNKNOWN
+        return self._stabilize_value(
+            self._posture_window,
+            value,
+            self._stable_posture,
+            PostureStatus.UNKNOWN,
+        )
 
-    def _advance_candidate(self, candidate, value):  # type: ignore[no-untyped-def]
-        if candidate is not None and candidate[0] == value:
-            return candidate
-        return (value, self._monotonic(), self._utc_now())
+    def _stabilize_value(self, window, value, stable, unknown):  # type: ignore[no-untyped-def]
+        """3초 관측 묶음의 다수결로 전이하고 그동안 기존 stable 값을 유지한다."""
+
+        if not window and value is stable:
+            return stable
+        now = self._monotonic()
+        window.append((now, self._utc_now(), value))
+        if now - window[0][0] < self._settings.stable_after_seconds:
+            return stable
+        if len(window) < self._settings.stability_min_samples:
+            return stable
+        counts = Counter(item[2] for item in window)
+        winner, votes = counts.most_common(1)[0]
+        result = (
+            winner
+            if votes / len(window) >= self._settings.stability_majority_ratio
+            else unknown
+        )
+        window.clear()
+        return result
 
     @staticmethod
-    def _candidate_wall(candidate):  # type: ignore[no-untyped-def]
-        return candidate[2] if candidate else None
+    def _candidate_wall(window):  # type: ignore[no-untyped-def]
+        return window[0][1] if window else None
+
+    def _effective_reason_codes(
+        self,
+        observed: tuple[BlockCode, ...],
+        immediate: tuple[BlockCode, ...],
+        raw_presence: PresenceStatus,
+    ) -> tuple[BlockCode, ...]:
+        """순간 추론 이상은 raw에 남기고 안정화된 제어 차단 사유만 반환한다."""
+
+        if immediate:
+            return tuple(dict.fromkeys(immediate))
+        if self._stable_presence is PresenceStatus.MULTIPLE:
+            return (BlockCode.MULTIPLE_PEOPLE,)
+        if self._stable_presence is not PresenceStatus.PRESENT_SINGLE:
+            if raw_presence is PresenceStatus.MULTIPLE:
+                return tuple(
+                    code
+                    for code in (BlockCode.MULTIPLE_PEOPLE, BlockCode.COUNT_MISMATCH)
+                    if code in observed
+                )
+            for code in (BlockCode.COUNT_MISMATCH, BlockCode.CAMERA_TIMESTAMP_MISMATCH):
+                if code in observed:
+                    return (code,)
+            return (BlockCode.PRESENCE_NOT_SINGLE,)
+        if self._stable_posture is PostureStatus.UNKNOWN:
+            return (BlockCode.POSTURE_UNKNOWN,)
+        return ()
 
     def _is_fresh(self, observation: CameraObservation) -> bool:
         if observation.captured_monotonic is None or observation.observed_monotonic is None:
