@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -55,6 +56,20 @@ class _ProfileModel(BaseModel):
             raise ValueError("LED 색상은 6자리 hexadecimal 문자열이어야 합니다.")
         return value.upper()
 
+    @field_validator("led_schedule", check_fields=False)
+    @classmethod
+    def normalize_led_schedule(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """구간이 올바른지 확인하고 정렬된 표준 형태로 되돌린다."""
+
+        if value is None:
+            return None
+        from smart_desk.modules.profiles.led_schedule import parse_schedule, schedule_to_raw
+
+        try:
+            return schedule_to_raw(parse_schedule(value))
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"조명 스케줄이 올바르지 않습니다: {error}") from error
+
     @field_validator("description", check_fields=False)
     @classmethod
     def normalize_description(cls, value: str | None) -> str | None:
@@ -91,6 +106,7 @@ class Profile(_ProfileModel):
     led_brightness: int | None = Field(
         strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
     )
+    led_schedule: dict[str, Any] | None = Field(default=None)
     has_pin: bool = Field(default=False, strict=True)
     tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
@@ -117,6 +133,7 @@ class ProfileCreate(_ProfileModel):
     led_brightness: int | None = Field(
         default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
     )
+    led_schedule: dict[str, Any] | None = Field(default=None)
     tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -143,6 +160,7 @@ class ProfileUpdate(_ProfileModel):
     led_brightness: int | None = Field(
         default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
     )
+    led_schedule: dict[str, Any] | None = Field(default=None)
     tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -175,6 +193,7 @@ class ActivityModeCreate(_ActivityModeModel):
     led_brightness: int | None = Field(
         default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
     )
+    led_schedule: dict[str, Any] | None = Field(default=None)
     tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -193,6 +212,7 @@ class ActivityModeUpdate(_ActivityModeModel):
     led_brightness: int | None = Field(
         default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
     )
+    led_schedule: dict[str, Any] | None = Field(default=None)
     tilt_level: int | None = Field(default=None, strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(default=None, strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -220,6 +240,7 @@ class ActivityMode(_ActivityModeModel):
     led_brightness: int | None = Field(
         strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
     )
+    led_schedule: dict[str, Any] | None = Field(default=None)
     tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
 
@@ -236,6 +257,7 @@ class EffectiveActivityMode(_ActivityModeModel):
     led_brightness: int | None = Field(
         strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
     )
+    led_schedule: dict[str, Any] | None = Field(default=None)
     tilt_level: int | None = Field(strict=True, ge=TILT_LEVEL_MIN, le=TILT_LEVEL_MAX)
     description: str | None = Field(strict=True, max_length=DESCRIPTION_MAX_LENGTH)
     editable: bool = Field(strict=True)

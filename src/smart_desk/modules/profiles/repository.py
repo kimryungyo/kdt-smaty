@@ -9,6 +9,10 @@ from typing import TypeAlias
 from uuid import uuid4
 
 from smart_desk.modules.profiles.models import Profile, ProfileCreate, ProfileUpdate
+from smart_desk.modules.profiles.led_schedule import (
+    decode_schedule as _decode_schedule,
+    encode_schedule as _encode_schedule,
+)
 from smart_desk.storage import SQLiteDatabase
 
 
@@ -16,7 +20,7 @@ ProfileIdFactory: TypeAlias = Callable[[], str]
 
 PROFILE_SELECT_COLUMNS = (
     "id, name, sitting_height_cm, standing_height_cm, led_color, "
-    "led_brightness, tilt_level, description, pin_hash"
+    "led_brightness, led_schedule, tilt_level, description, pin_hash"
 )
 PROFILE_UPDATE_COLUMNS = {
     "name": "name",
@@ -24,6 +28,7 @@ PROFILE_UPDATE_COLUMNS = {
     "standing_height_cm": "standing_height_cm",
     "led_color": "led_color",
     "led_brightness": "led_brightness",
+    "led_schedule": "led_schedule",
     "tilt_level": "tilt_level",
     "description": "description",
 }
@@ -83,8 +88,8 @@ class ProfileRepository:
                 connection.execute(
                     "INSERT INTO profiles "
                     "(id, name, sitting_height_cm, standing_height_cm, led_color, "
-                    "led_brightness, tilt_level, description) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "led_brightness, led_schedule, tilt_level, description) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         profile_id,
                         create.name,
@@ -92,6 +97,7 @@ class ProfileRepository:
                         create.standing_height_cm,
                         create.led_color,
                         create.led_brightness,
+                        _encode_schedule(create.led_schedule),
                         create.tilt_level,
                         create.description,
                     ),
@@ -112,6 +118,11 @@ class ProfileRepository:
         update: ProfileUpdate,
     ) -> Profile:
         changes = update.model_dump(exclude_unset=True, by_alias=False)
+        # 색이나 밝기를 직접 고르면 그 값으로 고정한다. 스케줄을 남겨 두면
+        # 다음 구간에서 곧바로 덮어써, 고른 값이 잠깐만 보이고 사라진다.
+        if ("led_schedule" not in changes
+                and ("led_color" in changes or "led_brightness" in changes)):
+            changes["led_schedule"] = None
 
         def update_row(connection: Connection) -> Profile:
             assignments: list[str] = []
@@ -119,7 +130,10 @@ class ProfileRepository:
             for field_name, column_name in PROFILE_UPDATE_COLUMNS.items():
                 if field_name in changes:
                     assignments.append(f"{column_name} = ?")
-                    values.append(changes[field_name])
+                    value = changes[field_name]
+                    values.append(
+                        _encode_schedule(value) if field_name == "led_schedule" else value
+                    )
             values.append(profile_id)
             cursor = connection.execute(
                 f"UPDATE profiles SET {', '.join(assignments)} WHERE id = ?",
@@ -189,6 +203,7 @@ def _profile_from_row(row: Row) -> Profile:
             "standing_height_cm": row["standing_height_cm"],
             "led_color": row["led_color"],
             "led_brightness": row["led_brightness"],
+            "led_schedule": _decode_schedule(row["led_schedule"]),
             "tilt_level": row["tilt_level"],
             "description": row["description"],
             # PIN 해시 자체는 공개하지 않고 잠금 여부만 노출한다.

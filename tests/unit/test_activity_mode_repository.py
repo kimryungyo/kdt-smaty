@@ -4,6 +4,13 @@ from pathlib import Path
 
 import pytest
 
+from smart_desk.modules.profiles.led_schedule import (
+    DEFAULT_STUDY_SCHEDULE, parse_schedule, schedule_to_raw,
+)
+
+# 저장했다 읽으면 정렬된 표준 형태로 돌아온다.
+STUDY_RAW = schedule_to_raw(parse_schedule(DEFAULT_STUDY_SCHEDULE))
+
 from smart_desk.modules.profiles import (
     ActivityModeConflictError,
     ActivityModeCreate,
@@ -27,13 +34,14 @@ async def test_default_is_synthesized_and_custom_modes_are_profile_scoped(tmp_pa
 
     created = await modes.create_mode(
         first.id,
-        ActivityModeCreate(name=" 독서 ", sittingHeightCm=82, standingHeightCm=108, ledColor="ffd080", ledBrightness=40),
+        ActivityModeCreate(name=" 독서 ", sittingHeightCm=82, standingHeightCm=108, ledColor="ffd080", ledBrightness=40,
+                           ledSchedule=DEFAULT_STUDY_SCHEDULE),
     )
     effective = await modes.list_effective_modes(first.id)
 
     assert [item.model_dump() for item in effective] == [
-        {"key": "default", "kind": "DEFAULT", "name": "기본", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "FF0000", "ledBrightness": 200, "tiltLevel": None, "description": None, "editable": False},
-        {"key": created.id, "kind": "CUSTOM", "name": "독서", "sittingHeightCm": 82.0, "standingHeightCm": 108.0, "ledColor": "FFD080", "ledBrightness": 40, "tiltLevel": None, "description": None, "editable": True},
+        {"key": "default", "kind": "DEFAULT", "name": "기본", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "FF0000", "ledBrightness": 200, "ledSchedule": None, "tiltLevel": None, "description": None, "editable": False},
+        {"key": created.id, "kind": "CUSTOM", "name": "독서", "sittingHeightCm": 82.0, "standingHeightCm": 108.0, "ledColor": "FFD080", "ledBrightness": 40, "ledSchedule": STUDY_RAW, "tiltLevel": None, "description": None, "editable": True},
     ]
     with pytest.raises(ActivityModeOwnershipError):
         await modes.get_mode_for_profile(second.id, created.id)
@@ -64,4 +72,29 @@ async def test_normalized_duplicate_is_rejected_and_profile_delete_cascades(tmp_
     assert await database.read(
         lambda connection: connection.execute("SELECT COUNT(*) FROM profile_modes").fetchone()[0]
     ) == 0
+    await database.stop()
+
+
+async def test_choosing_a_colour_turns_the_schedule_off(tmp_path) -> None:
+    """색을 직접 고르면 스케줄이 꺼진다. 안 그러면 다음 구간에서 덮어써 버린다."""
+
+    from smart_desk.modules.profiles.models import ActivityModeUpdate
+
+    database = SQLiteDatabase(tmp_path / "modes.db")
+    await database.start()
+    profiles, modes = ProfileRepository(database), ActivityModeRepository(database)
+    profile = await profiles.create_profile(
+        ProfileCreate(name="A", sittingHeightCm=80, standingHeightCm=105)
+    )
+    created = await modes.create_mode(
+        profile.id,
+        ActivityModeCreate(name="공부", sittingHeightCm=80, standingHeightCm=105,
+                           ledSchedule=DEFAULT_STUDY_SCHEDULE),
+    )
+    assert created.led_schedule is not None
+
+    updated = await modes.update_mode(created.id, ActivityModeUpdate(ledColor="112233"))
+    assert updated.led_color == "112233"
+    assert updated.led_schedule is None
+
     await database.stop()

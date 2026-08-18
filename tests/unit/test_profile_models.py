@@ -36,6 +36,7 @@ def test_profile_accepts_snake_and_camel_case_and_serializes_aliases() -> None:
         "standingHeightCm": 105.0,
         "ledColor": "FF30A0",
         "ledBrightness": 200,
+        "ledSchedule": None,
         "hasPin": False,
         "tiltLevel": None,
         "description": None,
@@ -169,7 +170,7 @@ def test_activity_mode_models_normalize_and_expose_effective_contract() -> None:
     assert effective.model_dump() == {
         "key": "default", "kind": "DEFAULT", "name": "기본",
         "sittingHeightCm": 80.0, "standingHeightCm": 105.0,
-        "ledColor": None, "ledBrightness": None, "tiltLevel": None,
+        "ledColor": None, "ledBrightness": None, "ledSchedule": None, "tiltLevel": None,
         "description": None, "editable": False,
     }
 

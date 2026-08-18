@@ -15,6 +15,7 @@ from smart_desk.modules.profiles.models import (
     EffectiveActivityMode,
     Profile,
 )
+from smart_desk.modules.profiles.led_schedule import decode_schedule, encode_schedule
 from smart_desk.modules.profiles.repository import ProfileNotFoundError
 from smart_desk.storage import SQLiteDatabase
 
@@ -22,7 +23,7 @@ from smart_desk.storage import SQLiteDatabase
 ActivityModeIdFactory: TypeAlias = Callable[[], str]
 ACTIVITY_MODE_SELECT_COLUMNS = (
     "id, profile_id, name, sitting_height_cm, standing_height_cm, led_color, "
-    "led_brightness, tilt_level, description"
+    "led_brightness, led_schedule, tilt_level, description"
 )
 ACTIVITY_MODE_UPDATE_COLUMNS = {
     "name": "name",
@@ -30,6 +31,7 @@ ACTIVITY_MODE_UPDATE_COLUMNS = {
     "standing_height_cm": "standing_height_cm",
     "led_color": "led_color",
     "led_brightness": "led_brightness",
+    "led_schedule": "led_schedule",
     "tilt_level": "tilt_level",
     "description": "description",
 }
@@ -101,9 +103,9 @@ class ActivityModeRepository:
                 connection.execute(
                     "INSERT INTO profile_modes "
                     "(id, profile_id, name, normalized_name, sitting_height_cm, "
-                    "standing_height_cm, led_color, led_brightness, tilt_level, "
-                    "description) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "standing_height_cm, led_color, led_brightness, led_schedule, "
+                    "tilt_level, description) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         mode_id,
                         profile_id,
@@ -113,6 +115,7 @@ class ActivityModeRepository:
                         create.standing_height_cm,
                         create.led_color,
                         create.led_brightness,
+                        encode_schedule(create.led_schedule),
                         create.tilt_level,
                         create.description,
                     ),
@@ -131,6 +134,11 @@ class ActivityModeRepository:
         changes = update.model_dump(exclude_unset=True, by_alias=False)
         if "name" in changes:
             changes["normalized_name"] = normalize_activity_mode_name(changes["name"])
+        # 색이나 밝기를 직접 고르면 그 값으로 고정한다. 스케줄을 남겨 두면
+        # 다음 구간에서 곧바로 덮어써, 고른 값이 잠깐만 보이고 사라진다.
+        if ("led_schedule" not in changes
+                and ("led_color" in changes or "led_brightness" in changes)):
+            changes["led_schedule"] = None
 
         def update_row(connection: Connection) -> ActivityMode:
             _get_mode_or_raise(connection, mode_id)
@@ -139,7 +147,10 @@ class ActivityModeRepository:
             for field_name, column_name in ACTIVITY_MODE_UPDATE_COLUMNS.items():
                 if field_name in changes:
                     assignments.append(f"{column_name} = ?")
-                    values.append(changes[field_name])
+                    value = changes[field_name]
+                    values.append(
+                        encode_schedule(value) if field_name == "led_schedule" else value
+                    )
             if "normalized_name" in changes:
                 assignments.append("normalized_name = ?")
                 values.append(changes["normalized_name"])
@@ -180,12 +191,12 @@ class ActivityModeRepository:
 def _get_profile_or_raise(connection: Connection, profile_id: str) -> Profile:
     row = connection.execute(
         "SELECT id, name, sitting_height_cm, standing_height_cm, led_color, "
-        "led_brightness, tilt_level, description FROM profiles WHERE id = ?",
+        "led_brightness, led_schedule, tilt_level, description FROM profiles WHERE id = ?",
         (profile_id,),
     ).fetchone()
     if row is None:
         raise ProfileNotFoundError("요청한 프로필을 찾을 수 없습니다.")
-    return Profile.model_validate(dict(row))
+    return Profile.model_validate(_with_schedule(row))
 
 
 def _get_mode_or_raise(connection: Connection, mode_id: str) -> ActivityMode:
@@ -198,8 +209,17 @@ def _get_mode_or_raise(connection: Connection, mode_id: str) -> ActivityMode:
     return _activity_mode_from_row(row)
 
 
+def _with_schedule(row: Row) -> dict:
+    """행의 led_schedule은 JSON 문자열이다. 모델이 쓰는 형태로 풀어 준다."""
+
+    values = dict(row)
+    if "led_schedule" in values:
+        values["led_schedule"] = decode_schedule(values["led_schedule"])
+    return values
+
+
 def _activity_mode_from_row(row: Row) -> ActivityMode:
-    return ActivityMode.model_validate(dict(row))
+    return ActivityMode.model_validate(_with_schedule(row))
 
 
 def _default_mode_from_profile(profile: Profile) -> EffectiveActivityMode:
@@ -211,6 +231,7 @@ def _default_mode_from_profile(profile: Profile) -> EffectiveActivityMode:
         standing_height_cm=profile.standing_height_cm,
         led_color=profile.led_color,
         led_brightness=profile.led_brightness,
+        led_schedule=profile.led_schedule,
         tilt_level=profile.tilt_level,
         description=profile.description,
         editable=False,
@@ -232,6 +253,7 @@ def effective_mode_from_activity(mode: ActivityMode) -> EffectiveActivityMode:
         standing_height_cm=mode.standing_height_cm,
         led_color=mode.led_color,
         led_brightness=mode.led_brightness,
+        led_schedule=mode.led_schedule,
         tilt_level=mode.tilt_level,
         description=mode.description,
         editable=True,

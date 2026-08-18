@@ -13,7 +13,7 @@ from typing import TypeVar
 
 
 LOGGER = logging.getLogger(__name__)
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 SQLITE_TIMEOUT_SECONDS = 5.0
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -163,7 +163,11 @@ class SQLiteDatabase:
             if version == 7:
                 _verify_version_7_schema(connection)
                 _migrate_to_version_8(connection)
-            _verify_version_8_schema(connection)
+                version = 8
+            if version == 8:
+                _verify_version_8_schema(connection)
+                _migrate_to_version_9(connection)
+            _verify_version_9_schema(connection)
         finally:
             connection.close()
 
@@ -742,6 +746,113 @@ def _migrate_to_version_8(connection: Connection) -> None:
                 extra={"component": "sqlite", "event": "migration_rollback_failed"},
             )
         raise
+
+
+def _migrate_to_version_9(connection: Connection) -> None:
+    """프로필과 작업 모드에 조명 스케줄을 추가한다.
+
+    색과 밝기를 하나씩만 두면 하루 종일 같은 빛이다. 시각이나 모드를 켠 뒤
+    흐른 시간에 따라 바뀌도록 구간 목록을 JSON 문자열로 담는다. NULL이면
+    스케줄 없이 저장된 색과 밝기를 그대로 쓴다.
+    """
+
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        for table in ("profiles", "profile_modes"):
+            connection.execute(
+                f"""
+                ALTER TABLE {table} ADD COLUMN led_schedule TEXT
+                    CHECK (
+                        led_schedule IS NULL
+                        OR (
+                            typeof(led_schedule) = 'text'
+                            AND length(led_schedule) <= 4000
+                            AND json_valid(led_schedule)
+                        )
+                    )
+                """
+            )
+        connection.execute("PRAGMA user_version = 9")
+        connection.execute("COMMIT")
+    except BaseException:
+        try:
+            connection.execute("ROLLBACK")
+        except sqlite3.Error:
+            LOGGER.exception(
+                "SQLite migration rollback에 실패했습니다.",
+                extra={"component": "sqlite", "event": "migration_rollback_failed"},
+            )
+        raise
+
+
+def _verify_version_9_schema(connection: Connection) -> None:
+    """version 9는 v8에 조명 스케줄 column을 더한다."""
+
+    if _read_user_version(connection) != 9:
+        raise StorageVersionError("지원하지 않는 SQLite schema version입니다.")
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if tables != {
+        "profiles", "desk_height_cache", "profile_modes", "face_embeddings",
+        "activity_mode_usage",
+    }:
+        raise StorageVersionError("SQLite version 9 table 구성이 올바르지 않습니다.")
+    _verify_profile_schema_v9(connection)
+    _verify_height_cache_schema(connection)
+    _verify_profile_modes_schema_v9(connection)
+    _verify_face_embeddings_table_schema(connection)
+    _verify_face_embedding_constraints(connection)
+    _verify_activity_mode_usage_schema(connection)
+
+
+def _verify_profile_schema_v9(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(profiles)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "TEXT", 0, 1),
+        ("name", "TEXT", 1, 0),
+        ("sitting_height_cm", "REAL", 1, 0),
+        ("standing_height_cm", "REAL", 1, 0),
+        ("led_color", "TEXT", 0, 0),
+        ("tilt_level", "INTEGER", 0, 0),
+        ("description", "TEXT", 0, 0),
+        ("pin_hash", "TEXT", 0, 0),
+        ("led_brightness", "INTEGER", 0, 0),
+        ("led_schedule", "TEXT", 0, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 9 profiles schema가 올바르지 않습니다.")
+    _verify_profile_constraints(connection)
+    _verify_profile_v5_constraints(connection)
+    _verify_profile_pin_constraints(connection)
+    _verify_led_brightness_constraint(connection, "profiles")
+
+
+def _verify_profile_modes_schema_v9(connection: Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(profile_modes)").fetchall()
+    actual = [(row["name"], row["type"], row["notnull"], row["pk"]) for row in columns]
+    expected = [
+        ("id", "TEXT", 0, 1),
+        ("profile_id", "TEXT", 1, 0),
+        ("name", "TEXT", 1, 0),
+        ("normalized_name", "TEXT", 1, 0),
+        ("sitting_height_cm", "REAL", 1, 0),
+        ("standing_height_cm", "REAL", 1, 0),
+        ("led_color", "TEXT", 0, 0),
+        ("tilt_level", "INTEGER", 0, 0),
+        ("description", "TEXT", 0, 0),
+        ("led_brightness", "INTEGER", 0, 0),
+        ("led_schedule", "TEXT", 0, 0),
+    ]
+    if actual != expected:
+        raise StorageVersionError("SQLite version 9 profile modes schema가 올바르지 않습니다.")
+    _verify_profile_modes_relations(connection)
+    _verify_led_brightness_constraint(connection, "profile_modes")
 
 
 def _verify_version_8_schema(connection: Connection) -> None:
