@@ -13,4 +13,3 @@ frontend/dist
 *.py[cod]
 firmware/**/.pio
 firmware/**/include/secrets.h
-assets/vision/models/*.onnx

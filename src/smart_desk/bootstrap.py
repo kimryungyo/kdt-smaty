@@ -27,7 +27,7 @@ from smart_desk.modules.vision import (
     NoopVisionDetector,
     VisionService,
 )
-from smart_desk.modules.vision.remote import RemoteVisionService
+from smart_desk.modules.vision.remote import RemoteFaceEmbeddingExtractor, RemoteVisionService
 from smart_desk.modules.identity import (
     FaceIdentityService, OpenCvSFaceEmbeddingExtractor, UnavailableFaceEmbeddingExtractor,
 )
@@ -337,7 +337,9 @@ def build_container(settings: Settings) -> AppContainer:
     )
     container.assistant_turns = AssistantTurnStore(current_user)
     extractor = UnavailableFaceEmbeddingExtractor()
-    if not settings.vision_client.enabled and settings.face.embedding_model_path is not None:
+    if settings.vision_client.enabled:
+        extractor = RemoteFaceEmbeddingExtractor()
+    elif settings.face.embedding_model_path is not None:
         try:
             extractor = OpenCvSFaceEmbeddingExtractor(
                 settings.face.embedding_model_path, min_face_size=settings.face.min_face_size,

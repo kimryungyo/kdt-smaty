@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime
 import logging
 from typing import AsyncIterator
 
+import cv2
 from fastapi import FastAPI, Header, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 import uvicorn
@@ -21,10 +24,20 @@ from smart_desk.modules.vision.detector import (
     PresenceAndFaceUpperDetector,
 )
 from smart_desk.modules.vision.service import VisionService
-from smart_desk.modules.vision.models import VisionStatusResponse
+from smart_desk.modules.vision.models import VisionDebugResponse, VisionStatusResponse
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+class FaceEmbeddingResponse(BaseModel):
+    """Internal Main-to-Vision response; vectors are never persisted or public."""
+
+    model_config = ConfigDict(alias_generator=lambda value: value.split("_")[0] + "".join(part.title() for part in value.split("_")[1:]), populate_by_name=True)
+    face_count: int
+    captured_monotonic: float | None = None
+    observed_at: datetime | None = None
+    embedding: list[float] | None = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -55,6 +68,19 @@ class VisionWorker:
             detector=_build_detector(settings),
             settings=settings.vision,
         )
+        self._embedding_extractor = None
+        if settings.face.embedding_model_path is not None:
+            try:
+                from smart_desk.modules.identity.opencv import OpenCvSFaceEmbeddingExtractor
+                self._embedding_extractor = OpenCvSFaceEmbeddingExtractor(
+                    settings.face.embedding_model_path,
+                    min_face_size=settings.face.min_face_size,
+                    min_blur_variance=settings.face.min_blur_variance,
+                    min_brightness=settings.face.min_brightness,
+                    max_brightness=settings.face.max_brightness,
+                )
+            except Exception:
+                LOGGER.exception("Vision SFace model load failed")
 
     async def start(self) -> None:
         await self._upper.start()
@@ -68,6 +94,20 @@ class VisionWorker:
     async def analyze(self) -> VisionStatusResponse:
         await self._vision.process_once()
         return self._vision.get_status()
+
+    async def face_embedding(self) -> FaceEmbeddingResponse:
+        observation = self._vision.get_fresh_face_observation()
+        if observation is None:
+            return FaceEmbeddingResponse(face_count=0)
+        vector = None
+        if len(observation.boxes) == 1 and self._embedding_extractor is not None:
+            vector = await asyncio.to_thread(self._embedding_extractor.extract, observation)
+        return FaceEmbeddingResponse(
+            face_count=len(observation.boxes),
+            captured_monotonic=observation.captured_monotonic,
+            observed_at=observation.observed_at,
+            embedding=None if vector is None else list(vector),
+        )
 
 
 def _build_detector(settings: Settings):  # type: ignore[no-untyped-def]
@@ -164,6 +204,31 @@ def create_vision_application(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="unsupported schema")
         authorize(authorization)
         return await worker.analyze()
+
+    @app.get("/v1/debug", response_model=VisionDebugResponse)
+    async def debug(authorization: str | None = Header(default=None)) -> VisionDebugResponse:
+        authorize(authorization)
+        return worker._vision.get_debug()
+
+    @app.get("/v1/face-embedding", response_model=FaceEmbeddingResponse)
+    async def face_embedding(authorization: str | None = Header(default=None)) -> FaceEmbeddingResponse:
+        authorize(authorization)
+        return await worker.face_embedding()
+
+    @app.get("/v1/debug/frame/{camera}")
+    async def debug_frame(camera: str, authorization: str | None = Header(default=None)) -> Response:
+        authorize(authorization)
+        if camera not in {"upper", "lower"}:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown camera")
+        frame = worker._vision.get_debug_frame(camera)
+        if frame is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no inferred frame available")
+        encoded, payload = cv2.imencode(
+            ".jpg", frame, (cv2.IMWRITE_JPEG_QUALITY, 85)
+        )
+        if not encoded:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="could not encode frame")
+        return Response(content=payload.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store, max-age=0"})
 
     return app
 

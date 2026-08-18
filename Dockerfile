@@ -24,7 +24,7 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /app smartdesk
 COPY --from=python-build /install /usr/local
 COPY src/ ./src/
-COPY assets/ ./assets/
+COPY assets/voice/ ./assets/voice/
 
 FROM runtime-base AS main-runtime
 COPY --from=frontend-build /frontend/dist ./frontend/dist
@@ -33,6 +33,10 @@ EXPOSE 9090
 CMD ["uvicorn", "smart_desk.main:app", "--host", "0.0.0.0", "--port", "9090", "--workers", "1"]
 
 FROM runtime-base AS vision-runtime
+COPY assets/vision/models/ ./assets/vision/models/
+ENV SMART_DESK_FACE__DETECTOR_MODEL_PATH=/app/assets/vision/models/face_detection_yunet_2023mar.onnx \
+    SMART_DESK_FACE__EMBEDDING_MODEL_PATH=/app/assets/vision/models/face_recognition_sface_2021dec.onnx \
+    SMART_DESK_VISION__LOWER_POSE_MODEL_PATH=/app/assets/vision/models/yolo26n-pose.onnx
 USER smartdesk
 EXPOSE 9091
 CMD ["uvicorn", "smart_desk.vision_main:create_vision_application", "--factory", "--host", "0.0.0.0", "--port", "9091", "--workers", "1"]

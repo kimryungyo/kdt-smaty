@@ -20,3 +20,4 @@ deploy/env/*.env
 firmware/relay-controller/include/secrets.h
 face_detection_yunet_2023mar.onnx
 face_recognition_sface_2021dec.onnx
+yolo26n-pose.onnx
