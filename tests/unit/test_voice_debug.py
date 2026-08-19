@@ -119,6 +119,8 @@ async def test_debug_page_is_no_store_and_polls_snapshot() -> None:
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert "AI Speaker Debug" in response.text
+    assert 'id="dashboardLink"' in response.text
+    assert 'id="visionLink"' in response.text
     assert "/api/snapshot" in response.text
     assert "setInterval(refresh,250)" in response.text
     assert "noise floor (est.)" in response.text

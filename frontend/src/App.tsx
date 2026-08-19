@@ -22,6 +22,7 @@ import {
 } from "./api/dashboard";
 import { LED_BRIGHTNESS_MAX, LED_BRIGHTNESS_MIN } from "./config";
 import { DebugPanel } from "./features/debug/DebugPanel";
+import { AssistantPanel } from "./features/assistant/AssistantPanel";
 import { chooseGoalHeight, shouldSaveToProfile } from "./features/desk/heightGoal";
 import { ProfileSettings } from "./features/profiles/ProfileSettings";
 import { WorkRhythm } from "./features/report/WorkRhythm";
@@ -246,9 +247,11 @@ function SmatyDashboard() {
   ], [automationMode, color, currentHeight, ledOn, profile, selectedMode?.name, session?.kind, tilt.value]);
 
   return <div className="smaty-page">
-    <header><a className="brand" href="/">▰ <b>SMATY</b></a><div className="head"><span className={deskOnline ? "online" : "online offline"}>● {deskOnline ? "책상 연결됨" : "연결 확인 중"}</span><button className="theme" type="button" onClick={() => setDark((value) => !value)}>☀ <i>{dark ? "●" : "○"}</i> ☾</button></div></header>
+    <header><a className="brand" href="/">▰ <b>SMATY</b></a><div className="head"><nav className="header-diagnostics" aria-label="진단 페이지"><a className="header-link" href="/debug/vision">Vision 진단</a><a className="header-link" href="/debug/voice">AI 스피커 진단</a></nav><span className={deskOnline ? "online" : "online offline"}>● {deskOnline ? "책상 연결됨" : "연결 확인 중"}</span><button className="theme" type="button" onClick={() => setDark((value) => !value)}>☀ <i>{dark ? "●" : "○"}</i> ☾</button></div></header>
     <main><section className="hero"><div><small>MY WORKSPACE</small><h1>안녕하세요, {profile?.name ?? (session?.kind === "ANONYMOUS" ? "게스트" : "사용자")}님.</h1><p>{session ? "오늘도 편안한 환경에서 집중해 보세요." : "카메라가 사용자를 인식하면 개인 설정을 불러옵니다."}</p></div><aside><span>현재 책상 높이</span><b>{currentHeight.toFixed(1)} <small>cm</small></b></aside></section>
       <section className="grid">{cards.map((card, index) => <button key={card.id} type="button" className={`card c${index}`} onClick={() => { if (card.id === "profile") navigate(profile ? `/settings/profiles/${encodeURIComponent(profile.id)}` : "/settings/profiles/new"); else setPanel(card.id); }}><div className="cardtop"><Icon name={card.id} /><span>↗</span></div><small>{card.label}</small><h2>{card.value}</h2>{"busy" in card && card.busy && <em className="busy">{card.busy}</em>}{card.id === "led" && <span className="dot" style={{ background: `#${color}` }} />}{card.id === "tilt" && <div className="steps">{tiltLevels.map((level) => <i key={level} />)}</div>}<p>{card.sub}<b>›</b></p></button>)}<WorkRhythmCard className="c5" profileId={registeredProfileId} profileName={profile?.name ?? null} /></section>
+      <section className="assistant-grid" aria-label="AI 스피커 상태와 응답"><AssistantPanel currentSessionId={session?.sessionId ?? null} currentSessionKind={session?.kind ?? null} registeredProfileName={profile?.name ?? null} /></section>
+      <section className="diagnostic-links" aria-label="시스템 진단"><div><small>SYSTEM DEBUG</small><h2>실시간 진단 도구</h2><p>음성 상태와 카메라 추론 결과를 운영 장비에서 바로 확인합니다.</p></div><nav><a href="/debug/voice"><b>AI 스피커 디버그</b><span>Wake Word · 마이크 · 응답 상태</span></a><a href="/debug/vision"><b>Vision 디버그</b><span>상·하단 프레임 · 감지 오버레이</span></a></nav></section>
     </main><footer>SMATY <span>나에게 맞춰지는 더 나은 작업 환경</span></footer>
     {notice && <div className="toast" role="status">✓ {notice}</div>}
     {panel && <div className="shade" onMouseDown={close}><section className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="x" type="button" onClick={close} aria-label="닫기">×</button>

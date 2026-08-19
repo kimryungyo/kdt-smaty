@@ -173,6 +173,8 @@ DEBUG_PAGE = """<!doctype html>
     .eyebrow { margin:0 0 7px; color:#67d9ff; font-size:.75rem; font-weight:800; letter-spacing:.13em; }
     h1,h2,p { margin-top:0; } h1 { margin-bottom:7px; font-size:clamp(1.8rem,4vw,2.7rem); }
     header p:last-child,.muted { color:#8fa1aa; }
+    .header-actions { display:flex; align-items:flex-end; flex-direction:column; gap:10px; }
+    nav { display:flex; gap:8px; } nav a { padding:7px 10px; border:1px solid #2d5968; border-radius:9px; color:#b9dbe5; text-decoration:none; font-size:.76rem; }
     .status { padding:8px 12px; border:1px solid #2d5968; border-radius:999px; background:#10252d; font-weight:800; }
     .status.offline { border-color:#743c43; background:#2a171a; color:#ff9da8; }
     .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
@@ -186,12 +188,12 @@ DEBUG_PAGE = """<!doctype html>
     .response { white-space:pre-wrap; line-height:1.55; min-height:76px; }
     dl { display:grid; grid-template-columns:150px 1fr; gap:9px; margin:0; } dt { color:#82939c; } dd { margin:0; font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
     .privacy { margin-top:18px; padding:12px 14px; border-radius:10px; background:#271f12; color:#dfc689; font-size:.8rem; }
-    @media(max-width:760px){header{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:repeat(2,1fr)}.score{grid-column:span 2}.two{grid-template-columns:1fr}}
+    @media(max-width:760px){header{align-items:flex-start;flex-direction:column}.header-actions{align-items:flex-start}.grid{grid-template-columns:repeat(2,1fr)}.score{grid-column:span 2}.two{grid-template-columns:1fr}}
     @media(max-width:440px){.grid{grid-template-columns:1fr}.score{grid-column:auto}dl{grid-template-columns:1fr;gap:3px}dd{margin-bottom:8px}}
   </style>
 </head>
 <body><main>
-  <header><div><p class="eyebrow">TEMPORARY · PORT 10000</p><h1>AI Speaker Debug</h1><p>Wake Word와 local audio 상태를 read-only로 관측</p></div><div id="connection" class="status offline">연결 확인 중</div></header>
+  <header><div><p class="eyebrow">TEMPORARY · PORT 10000</p><h1>AI Speaker Debug</h1><p>Wake Word와 local audio 상태를 read-only로 관측</p></div><div class="header-actions"><nav><a id="dashboardLink" href="#">대시보드</a><a id="visionLink" href="#">Vision 진단</a></nav><div id="connection" class="status offline">연결 확인 중</div></div></header>
   <div class="grid">
     <article class="score"><div class="score-row"><div><span>HI SMARTY SCORE</span><strong id="score">--</strong></div><div><span>THRESHOLD</span><strong id="threshold">--</strong></div></div><progress id="scoreBar" max="1" value="0"></progress></article>
     <article><span>VOICE STATE</span><strong id="state">--</strong></article>
@@ -208,6 +210,7 @@ DEBUG_PAGE = """<!doctype html>
   <p class="privacy">이 페이지는 최신 AI 응답 텍스트를 표시합니다. 사용자 발화, 개인 대화 문맥과 provider secrets는 표시하지 않습니다. 신뢰할 수 있는 디버그 환경에서만 사용하세요.</p>
 </main><script>
   const byId=(id)=>document.getElementById(id);
+  const mainUrl=new URL(window.location.href);mainUrl.port="9090";mainUrl.pathname="/";mainUrl.search="";mainUrl.hash="";byId("dashboardLink").href=mainUrl.toString();mainUrl.pathname="/debug/vision";byId("visionLink").href=mainUrl.toString();
   const text=(id,value)=>{byId(id).textContent=value ?? "--"};
   const localTime=(value)=>value ? new Date(value).toLocaleTimeString("ko-KR") : "--";
   const dbfs=(value)=>value==null ? "--" : `${value.toFixed(1)} dBFS`;

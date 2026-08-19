@@ -467,6 +467,9 @@ async def test_react_build_and_spa_fallback_are_served(tmp_path) -> None:
     settings = Settings(
         environment="test",
         dashboard=DashboardSettings(frontend_directory=tmp_path),
+        voice={"enabled": True},
+        voice_debug={"enabled": True, "port": 10_000},
+        openai={"api_key": "test-key"},
         _env_file=None,
     )
     application = create_application(settings=settings)
@@ -478,12 +481,20 @@ async def test_react_build_and_spa_fallback_are_served(tmp_path) -> None:
             "/dashboard/settings",
             headers={"Accept": "text/html"},
         )
+        vision_debug_response = await client.get("/debug/vision")
+        voice_debug_response = await client.get(
+            "/debug/voice", follow_redirects=False
+        )
         api_response = await client.get("/api/status")
 
     assert root_response.status_code == 200
     assert "SMART DESK TEST" in root_response.text
     assert fallback_response.status_code == 200
     assert "SMART DESK TEST" in fallback_response.text
+    assert vision_debug_response.status_code == 200
+    assert "SMART DESK TEST" in vision_debug_response.text
+    assert voice_debug_response.status_code == 307
+    assert voice_debug_response.headers["location"] == "http://test:10000/"
     assert api_response.status_code == 200
     assert api_response.headers["content-type"].startswith("application/json")
 

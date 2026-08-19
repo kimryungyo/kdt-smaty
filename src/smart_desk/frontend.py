@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, RedirectResponse
 
 from smart_desk.config.settings import Settings
 
@@ -36,7 +37,51 @@ def attach_frontend(application: FastAPI, settings: Settings) -> None:
         return
 
     _attach_cache_headers(application)
+    _attach_debug_routes(application, settings, index_file)
     application.frontend("/", directory=directory, fallback="index.html")
+
+
+def _attach_debug_routes(
+    application: FastAPI,
+    settings: Settings,
+    index_file: Path,
+) -> None:
+    """디버그 화면의 고정 진입점을 frontend와 별도 debug 서버에 연결한다.
+
+    FastAPI frontend fallback은 브라우저의 ``Accept: text/html``에 따라 동작한다.
+    운영자가 curl이나 단순 링크 검사로도 Vision 화면을 확인할 수 있도록 해당
+    경로는 명시적으로 index를 반환한다. Voice debug는 같은 호스트의 전용 포트로
+    이동시켜 기존 read-only 관측 페이지를 재사용한다.
+    """
+
+    async def vision_debug_page() -> FileResponse:
+        return FileResponse(index_file, media_type="text/html")
+
+    application.add_api_route(
+        "/debug/vision",
+        vision_debug_page,
+        methods=["GET"],
+        include_in_schema=False,
+    )
+
+    if not settings.voice_debug.enabled:
+        return
+
+    async def voice_debug_page(request: Request) -> RedirectResponse:
+        target = request.url.replace(
+            path="/",
+            query="",
+            fragment="",
+            port=settings.voice_debug.port,
+        )
+        return RedirectResponse(str(target))
+
+    application.add_api_route(
+        "/debug/voice",
+        voice_debug_page,
+        methods=["GET"],
+        include_in_schema=False,
+    )
 
 
 def _attach_cache_headers(application: FastAPI) -> None:
@@ -65,4 +110,3 @@ def _resolve_frontend_directory(configured: Path) -> Path:
     if configured.is_absolute():
         return configured
     return PROJECT_ROOT / configured
-
