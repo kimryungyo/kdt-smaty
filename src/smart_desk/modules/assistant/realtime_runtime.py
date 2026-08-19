@@ -71,6 +71,7 @@ class RealtimeVoiceConfig:
     connect_timeout_seconds: float = 3.0
     direct_tool_timeout_seconds: float = 2.0
     episode_max_seconds: float = 120.0
+    transcription_grace_seconds: float = 10.0
 
 
 class RealtimeTransport(Protocol):
@@ -357,6 +358,8 @@ class RealtimeVoiceRuntime:
         feeder: asyncio.Task[None] | None = None
         sequence = 0
         saw_response = False
+        saw_transcript = False
+        pending_turn_end = False
         ledger: OrderedDict[str, dict[str, object]] = OrderedDict()
         deadline = asyncio.get_running_loop().time() + self._config.episode_max_seconds
         try:
@@ -386,10 +389,27 @@ class RealtimeVoiceRuntime:
                 if event_type == "conversation.item.input_audio_transcription.completed":
                     transcript = event.get("transcript")
                     if isinstance(transcript, str) and transcript.strip():
+                        saw_transcript = True
                         if self._on_transcript is not None:
                             await self._on_transcript(transcript)
                         sequence += 1
                         yield VoiceRuntimeEvent(sequence, VoiceRuntimeEventType.TRANSCRIPT, transcript=transcript)
+                        if pending_turn_end:
+                            LOGGER.info(
+                                "응답 종료 뒤 늦게 도착한 전사를 수신했습니다.",
+                                extra={
+                                    "component": "assistant.realtime",
+                                    "event": "late_transcript_received",
+                                },
+                            )
+                            sequence += 1
+                            yield VoiceRuntimeEvent(
+                                sequence,
+                                VoiceRuntimeEventType.LIFECYCLE,
+                                lifecycle=VoiceRuntimeLifecycle.TURN_ENDED,
+                                followup_requested=self._followup_requested(),
+                            )
+                            return
                 elif event_type == "response.output_audio.delta":
                     encoded = event.get("delta")
                     if isinstance(encoded, str):
@@ -434,6 +454,27 @@ class RealtimeVoiceRuntime:
                         await transport.send_json({"type": "response.create"})
                         continue
                     saw_response = True
+                    if not saw_transcript:
+                        # Input transcription is asynchronous and can complete after
+                        # response audio and response.done. Keep the socket open briefly
+                        # instead of dropping the valid response as an empty turn.
+                        pending_turn_end = True
+                        LOGGER.info(
+                            "응답은 끝났지만 입력 전사 확정을 기다립니다.",
+                            extra={
+                                "component": "assistant.realtime",
+                                "event": "turn_end_waiting_for_transcript",
+                                "timeout_seconds": (
+                                    self._config.transcription_grace_seconds
+                                ),
+                            },
+                        )
+                        deadline = min(
+                            deadline,
+                            asyncio.get_running_loop().time()
+                            + self._config.transcription_grace_seconds,
+                        )
+                        continue
                     sequence += 1
                     yield VoiceRuntimeEvent(sequence, VoiceRuntimeEventType.LIFECYCLE,
                                             lifecycle=VoiceRuntimeLifecycle.TURN_ENDED,
@@ -462,7 +503,7 @@ class RealtimeVoiceRuntime:
                 "Realtime 음성 episode가 실패했습니다.",
                 extra=log_fields,
             )
-            if not saw_response:
+            if not saw_response or pending_turn_end:
                 sequence += 1
                 yield VoiceRuntimeEvent(sequence, VoiceRuntimeEventType.ERROR, error_code="voice_pipeline_failed")
         finally:

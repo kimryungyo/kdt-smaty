@@ -370,14 +370,16 @@ class VoiceService:
                 event_type = getattr(event, "type", None)
                 if event_type is VoiceRuntimeEventType.TRANSCRIPT:
                     saw_transcript = True
-                    self._transition(VoiceState.PROCESSING)
+                    if playback_task is None:
+                        self._transition(VoiceState.PROCESSING)
                     self._input_stop.set()
                     self._audio.set_accepting(False)
                     self._audio.discard_pending()
                     input_stopped = True
                 elif event_type is VoiceRuntimeEventType.AUDIO:
-                    if not saw_transcript:
-                        raise VoiceFatalError("voice_pipeline_failed")
+                    # Realtime response audio and the separate input transcription are
+                    # asynchronous. Audio is allowed to arrive first; the runtime holds
+                    # TURN_ENDED until the final transcript has also arrived.
                     if not input_stopped:
                         self._input_stop.set()
                         self._audio.set_accepting(False)

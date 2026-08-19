@@ -178,11 +178,21 @@ async def test_speech_start_deadline_does_not_end_speech_after_rms_evidence() ->
     await chunks.aclose()
 
 
-async def test_audio_before_transcript_fails_closed_and_mutes_once() -> None:
-    voice, audio, playback, runtime = service([VoiceRuntimeEvent(1, VoiceRuntimeEventType.AUDIO, audio=b"\0\0")])
+async def test_audio_before_transcript_plays_and_finishes_after_late_transcript() -> None:
+    voice, audio, playback, runtime = service([
+        VoiceRuntimeEvent(1, VoiceRuntimeEventType.AUDIO, audio=b"\0\0"),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.TRANSCRIPT, transcript="늦은 전사"),
+        VoiceRuntimeEvent(
+            3,
+            VoiceRuntimeEventType.LIFECYCLE,
+            lifecycle=VoiceRuntimeLifecycle.TURN_ENDED,
+        ),
+    ])
     await start_wake_turn(voice, audio)
     await wait_state(voice, VoiceState.WAITING_WAKE)
-    assert playback.audio == [] and runtime.outcomes == [("FAILED", "voice_pipeline_failed")]
+    assert playback.audio == [b"\0\0"]
+    assert runtime.outcomes == [("SUCCEEDED", None)]
+    await voice.stop()
 
 
 async def test_followup_opens_only_after_turn_ended_request() -> None:

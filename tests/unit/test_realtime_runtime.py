@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
 from collections.abc import AsyncIterable
 
 from smart_desk.modules.assistant.agents_runtime import VoiceRuntimeEventType, VoiceRuntimeLifecycle
-from smart_desk.modules.assistant.realtime_runtime import RealtimeVoiceRuntime
+from smart_desk.modules.assistant.realtime_runtime import (
+    RealtimeVoiceConfig,
+    RealtimeVoiceRuntime,
+)
 from smart_desk.modules.assistant.turns import TurnStatus
 from tests.unit.test_agents_tools import _context
 
@@ -27,6 +31,15 @@ class Transport:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class BlockingTransport(Transport):
+    async def receive_json(self) -> dict[str, object]:
+        try:
+            return next(self.events)
+        except StopIteration:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
 
 
 async def chunks(*items: bytes) -> AsyncIterable[bytes]:
@@ -59,6 +72,7 @@ async def test_realtime_runtime_streams_transcript_audio_and_final_turn() -> Non
 async def test_realtime_runtime_returns_tool_output_then_continues_response() -> None:
     transport = Transport([
         {"type": "response.done", "response": {"output": [{"type": "function_call", "call_id": "call-1", "name": "turn_wled_off", "arguments": "{}"}]}},
+        {"type": "conversation.item.input_audio_transcription.completed", "transcript": "불 꺼줘"},
         {"type": "response.done", "response": {"output": []}},
     ])
     calls: list[str] = []
@@ -71,9 +85,58 @@ async def test_realtime_runtime_returns_tool_output_then_continues_response() ->
     events = [event async for event in RealtimeVoiceRuntime(lambda: _transport(transport), handler).run_audio(chunks(b"\x02\x00"))]
 
     assert calls == ["turn_wled_off"]
-    assert [event.lifecycle for event in events] == [VoiceRuntimeLifecycle.TURN_ENDED]
+    assert [event.type for event in events] == [
+        VoiceRuntimeEventType.TRANSCRIPT,
+        VoiceRuntimeEventType.LIFECYCLE,
+    ]
+    assert events[-1].lifecycle is VoiceRuntimeLifecycle.TURN_ENDED
     assert transport.sent[-2]["item"]["type"] == "function_call_output"  # type: ignore[index]
     assert transport.sent[-1] == {"type": "response.create"}
+
+
+async def test_realtime_runtime_waits_for_late_transcript_after_response() -> None:
+    transport = Transport([
+        {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x01\x00").decode()},
+        {"type": "response.done", "response": {"output": []}},
+        {"type": "conversation.item.input_audio_transcription.completed", "transcript": "늦은 전사"},
+    ])
+
+    async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("tool should not run")
+
+    events = [
+        event async for event in RealtimeVoiceRuntime(
+            lambda: _transport(transport), handler
+        ).run_audio(chunks(b"\x02\x00"))
+    ]
+
+    assert [event.type for event in events] == [
+        VoiceRuntimeEventType.AUDIO,
+        VoiceRuntimeEventType.TRANSCRIPT,
+        VoiceRuntimeEventType.LIFECYCLE,
+    ]
+    assert transport.closed is True
+
+
+async def test_realtime_runtime_fails_when_final_transcript_never_arrives() -> None:
+    transport = BlockingTransport([
+        {"type": "response.done", "response": {"output": []}},
+    ])
+
+    async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("tool should not run")
+
+    runtime = RealtimeVoiceRuntime(
+        lambda: _transport(transport),
+        handler,
+        config=RealtimeVoiceConfig(transcription_grace_seconds=0.01),
+    )
+    events = [event async for event in runtime.run_audio(chunks(b"\x02\x00"))]
+
+    assert [(event.type, event.error_code) for event in events] == [
+        (VoiceRuntimeEventType.ERROR, "voice_pipeline_failed"),
+    ]
+    assert transport.closed is True
 
 
 async def test_realtime_runtime_hides_provider_error(caplog) -> None:
@@ -131,6 +194,7 @@ async def test_realtime_service_binding_routes_delegate_as_a_read_only_tool() ->
         {"type": "response.done", "response": {"output": [
             {"type": "function_call", "call_id": "call-1", "name": "delegate_complex_request", "arguments": '{"task":"내일 날씨"}'},
         ]}},
+        {"type": "conversation.item.input_audio_transcription.completed", "transcript": "내일 날씨"},
         {"type": "response.done", "response": {"output": []}},
     ])
 
