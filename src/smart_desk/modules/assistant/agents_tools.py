@@ -339,6 +339,31 @@ def build_smart_desk_tools() -> list[Any]:
         return _ok(saved=True)
 
     @function_tool
+    async def recall_facts(
+        ctx: RunContextWrapper[SmartDeskAgentContext],
+        query: Annotated[str, Field(min_length=1, max_length=500)],
+    ) -> dict[str, object]:
+        """Look up what this registered user said before about one subject."""
+
+        context = ctx.context
+        # 읽기지만 turn 도중 사용자가 바뀌었을 수 있다. 남의 기억을 말하지 않도록
+        # 쓰기와 같은 session 검사를 지난다.
+        if not context.turn_context.personalized or not await context.valid_mutation():
+            return _error("memory_not_available")
+        await context.tool_started()
+        try:
+            values = await context.memory.search(context.turn_context.profile_id, query)
+        except Exception as error:
+            code = getattr(error, "code", "profile_memory_search_failed")
+            return _error(str(code))
+        facts = [
+            value["memory"].strip()
+            for value in values
+            if isinstance(value.get("memory"), str) and value["memory"].strip()
+        ]
+        return _ok(facts=facts)
+
+    @function_tool
     async def forget_fact(
         ctx: RunContextWrapper[SmartDeskAgentContext],
         fact: Annotated[str, Field(min_length=1, max_length=500)],
@@ -385,5 +410,6 @@ def build_smart_desk_tools() -> list[Any]:
             list_activity_modes, set_activity_mode,
             get_tilt_state, set_tilt_level, stop_tilt,
             get_wled_state, get_wled_capabilities, turn_wled_off, turn_wled_on,
-            set_wled_brightness, set_wled_color, set_wled_effect, remember_fact, forget_fact,
+            set_wled_brightness, set_wled_color, set_wled_effect,
+            remember_fact, recall_facts, forget_fact,
             request_followup]

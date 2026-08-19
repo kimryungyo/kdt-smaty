@@ -51,10 +51,16 @@ class _Wled:
 
 
 class _Memory:
-    def __init__(self) -> None: self.saved: list[tuple[str, str, bool]] = []
+    def __init__(self) -> None:
+        self.saved: list[tuple[str, str, bool]] = []
+        self.searched: list[tuple[str, str]] = []
+        self.results: list[dict[str, object]] = []
     async def remember(self, profile_id: str, fact: str, *, explicit: bool, **_kwargs: object) -> bool:
         self.saved.append((profile_id, fact, explicit))
         return True
+    async def search(self, profile_id: str, query: str) -> list[dict[str, object]]:
+        self.searched.append((profile_id, query))
+        return self.results
 
 
 async def _context(*, personalized: bool = True) -> tuple[SmartDeskAgentContext, CurrentUserSessionService, _Automation, _Wled, _Memory, AssistantTurnStore]:
@@ -129,6 +135,7 @@ async def test_null_context_blocks_every_non_stop_mutation() -> None:
         ("turn_wled_on", {}),
         ("set_wled_effect", {"effect_id": 1}),
         ("remember_fact", {"fact": "likes tea"}),
+        ("recall_facts", {"query": "tea"}),
         ("request_followup", {}),
     ):
         assert (await _invoke(context, name, **arguments))["ok"] is False
@@ -141,6 +148,7 @@ async def test_current_personalization_block_allows_manual_mutation_but_not_memo
     context, _users, automation, _wled, memory, _turns = await _context(personalized=False)
     assert (await _invoke(context, "set_desk_target", height_cm=70))["ok"] is True
     assert (await _invoke(context, "remember_fact", fact="likes tea"))["error"] == {"code": "memory_not_available"}
+    assert (await _invoke(context, "recall_facts", query="tea"))["error"] == {"code": "memory_not_available"}
     assert automation.calls[0][2]["expected_session_id"] == "session-a"
     assert not memory.saved
 
@@ -151,3 +159,22 @@ async def test_remember_persists_only_for_current_personalized_context_and_follo
     assert memory.saved == [("profile-a", "likes tea", True)]
     assert (await _invoke(context, "request_followup"))["result"] == {"followup_requested": True}
     assert context.followup_requested is True
+
+
+async def test_recall_returns_only_fact_text_for_the_current_personalized_user() -> None:
+    context, _users, _automation, _wled, memory, _turns = await _context()
+    memory.results = [
+        {"id": "m1", "memory": " 커피를 좋아한다 "},
+        {"id": "m2", "memory": ""},
+        {"id": "m3"},
+    ]
+    result = await _invoke(context, "recall_facts", query="음료")
+    assert result["result"] == {"facts": ["커피를 좋아한다"]}
+    assert memory.searched == [("profile-a", "음료")]
+
+
+async def test_recall_does_not_read_memory_after_the_user_changed_mid_turn() -> None:
+    context, users, _automation, _wled, memory, _turns = await _context()
+    await users.select(SessionKind.REGISTERED, "profile-b", "test")
+    assert (await _invoke(context, "recall_facts", query="음료"))["error"] == {"code": "memory_not_available"}
+    assert not memory.searched
