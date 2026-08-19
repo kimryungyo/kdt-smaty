@@ -13,7 +13,6 @@ services:
   mjpeg-workspace-cam:
     image: mkuf/ustreamer:v6.52-2-g3bb1ed3
     hostname: smart-desk-workspace-cam
-    profiles: ["workspace-camera"]
     user: "0:0"
     restart: unless-stopped
     command:
