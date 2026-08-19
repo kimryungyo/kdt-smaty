@@ -4,7 +4,7 @@ set -Eeuo pipefail
 # Keep the 2304x1296 sensor mode used by the original 1920x1080 stream.
 # The ISP produces the lower 640x360 stream, preserving the camera field of
 # view without a CPU-side scale pass.
-: "${MEDIAMTX_HOST:=192.168.0.10}"
+: "${MEDIAMTX_HOST:=127.0.0.1}"
 : "${MEDIAMTX_WHIP_PORT:=8889}"
 
 /usr/bin/rpicam-vid \
