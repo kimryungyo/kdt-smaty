@@ -652,6 +652,18 @@ class VoiceSettings(BaseModel):
         le=15,
         allow_inf_nan=False,
     )
+    recording_timeout_seconds: float = Field(
+        default=20.0,
+        gt=0,
+        le=60,
+        allow_inf_nan=False,
+    )
+    turn_timeout_seconds: float = Field(
+        default=120.0,
+        gt=0,
+        le=300,
+        allow_inf_nan=False,
+    )
 
     followup_enabled: bool = True
     followup_timeout_seconds: float = Field(
@@ -714,6 +726,10 @@ class VoiceSettings(BaseModel):
             and self.post_playback_guard_seconds >= self.followup_timeout_seconds
         ):
             raise ValueError("재생 후 guard는 follow-up timeout보다 짧아야 합니다.")
+        if self.speech_start_timeout_seconds >= self.recording_timeout_seconds:
+            raise ValueError("발화 시작 timeout은 녹음 timeout보다 짧아야 합니다.")
+        if self.recording_timeout_seconds >= self.turn_timeout_seconds:
+            raise ValueError("녹음 timeout은 전체 turn timeout보다 짧아야 합니다.")
         return self
 
 

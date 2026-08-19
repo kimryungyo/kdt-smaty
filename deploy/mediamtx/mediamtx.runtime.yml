@@ -31,8 +31,8 @@ authInternalUsers:
 # for the remote Vision worker. Docker interface addresses stay excluded.
 webrtcIPsFromInterfaces: false
 webrtcAdditionalHosts:
-  - 192.168.0.10
-  - 100.92.158.26
+  - 192.168.0.20
+  - 100.88.162.49
 
 paths:
   all:

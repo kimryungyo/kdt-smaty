@@ -141,6 +141,12 @@ class SmartDeskVoiceWorkflow:
         if self.context_factory is not None:
             self._active_context = await self.context_factory()
 
+    async def on_start(self) -> AsyncIterator[str]:
+        """Agents SDK 0.21+ startup hook; Smart Desk has no unsolicited intro."""
+
+        if False:
+            yield ""
+
     async def run(self, transcription: str) -> AsyncIterator[str]:
         if self._active_context is not None:
             await self._active_context.processing_started()
@@ -333,7 +339,6 @@ class AgentsVoiceRuntime:
         transcript_wait: asyncio.Task[str] | None = None
         transcript_channel: asyncio.Queue[str] | None = None
         sequence = 0
-        saw_sdk_event = False
         saw_turn_ended = False
         saw_final_transcript = False
         consumer_cancelled = False
@@ -384,14 +389,26 @@ class AgentsVoiceRuntime:
                 wait_for: set[asyncio.Task[Any]] = {result_wait}
                 if not feeder.done():
                     wait_for.add(feeder)
-                # turn_started가 stream의 첫 event라면 transcript보다 먼저 내보낸다.
-                # 첫 SDK event를 보기 전에는 side channel만으로 진행하지 않는다.
-                if transcript_wait is not None and (saw_sdk_event or result_wait.done()):
+                # STT가 확정되면 LLM/TTS event를 기다리지 않고 즉시 내보낸다.
+                # VoiceService가 이 event로 마이크를 닫아야 하나의 로컬 turn에
+                # 추가 server-VAD transcript가 섞이지 않는다.
+                if transcript_wait is not None:
                     wait_for.add(transcript_wait)
                 done, _ = await asyncio.wait(wait_for, return_when=asyncio.FIRST_COMPLETED)
 
                 if feeder in done:
                     feeder.result()  # feeder 오류는 fail-closed로 즉시 종료한다.
+
+                if transcript_wait is not None and transcript_wait in done:
+                    transcript = transcript_wait.result()
+                    sequence += 1
+                    yield VoiceRuntimeEvent(
+                        sequence=sequence,
+                        type=VoiceRuntimeEventType.TRANSCRIPT,
+                        transcript=transcript,
+                    )
+                    saw_final_transcript = True
+                    transcript_wait = asyncio.create_task(transcript_channel.get())
 
                 if result_wait in done:
                     try:
@@ -399,7 +416,6 @@ class AgentsVoiceRuntime:
                     except StopAsyncIteration:
                         result_wait = None
                     else:
-                        saw_sdk_event = True
                         result_wait = asyncio.create_task(anext(result_stream))
                         mapped = self._map_event(sdk_event, sequence + 1)
                         if mapped is not None:
@@ -468,17 +484,6 @@ class AgentsVoiceRuntime:
                                 return
                             if mapped.type is VoiceRuntimeEventType.ERROR:
                                 return
-
-                if transcript_wait is not None and transcript_wait in done:
-                    transcript = transcript_wait.result()
-                    sequence += 1
-                    yield VoiceRuntimeEvent(
-                        sequence=sequence,
-                        type=VoiceRuntimeEventType.TRANSCRIPT,
-                        transcript=transcript,
-                    )
-                    saw_final_transcript = True
-                    transcript_wait = asyncio.create_task(transcript_channel.get())
 
             await feeder
             # result 종료와 callback 완료가 같은 event-loop tick에서 맞물릴 수 있다.

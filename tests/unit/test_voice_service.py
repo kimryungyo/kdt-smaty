@@ -81,6 +81,41 @@ class Runtime:
             yield event
 
 
+class HangingRuntime(Runtime):
+    def __init__(self, events: list[VoiceRuntimeEvent]) -> None:
+        super().__init__(events)
+        self.release = asyncio.Event()
+
+    async def run_audio(self, chunks: AsyncIterable[bytes]) -> AsyncIterator[VoiceRuntimeEvent]:
+        iterator = chunks.__aiter__()
+        try:
+            self.received.append(await anext(iterator))
+        except StopAsyncIteration:
+            return
+        for event in self.events:
+            yield event
+        await self.release.wait()
+        if False:
+            yield VoiceRuntimeEvent(0, VoiceRuntimeEventType.ERROR)
+
+
+class StuckOnEmptyInputRuntime(Runtime):
+    """Reproduce Agents SDK 0.21 STT waiting after the input sentinel."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.release = asyncio.Event()
+
+    async def run_audio(self, chunks: AsyncIterable[bytes]) -> AsyncIterator[VoiceRuntimeEvent]:
+        iterator = chunks.__aiter__()
+        try:
+            self.received.append(await anext(iterator))
+        except StopAsyncIteration:
+            await self.release.wait()
+        if False:
+            yield VoiceRuntimeEvent(0, VoiceRuntimeEventType.ERROR)
+
+
 async def wait_state(service: VoiceService, state: VoiceState) -> None:
     async with asyncio.timeout(1):
         while service.get_snapshot().state is not state:
@@ -92,11 +127,18 @@ async def wait_accepting(audio: Audio) -> None:
         while not audio.accepting: await asyncio.sleep(0)
 
 
-def service(events: list[VoiceRuntimeEvent], *, playback: Playback | None = None):
-    audio, wake, runtime = Audio(), Wake(), Runtime(events)
+def service(
+    events: list[VoiceRuntimeEvent],
+    *,
+    playback: Playback | None = None,
+    runtime: Runtime | None = None,
+    settings: VoiceSettings | None = None,
+):
+    audio, wake = Audio(), Wake()
+    runtime = runtime or Runtime(events)
     playback = playback or Playback()
     voice = VoiceService(audio_input=audio, wakeword=wake, runtime=runtime, playback=playback,
-        settings=VoiceSettings(speech_start_timeout_seconds=.1, post_playback_guard_seconds=0, followup_timeout_seconds=.2), task_manager=TaskManager())
+        settings=settings or VoiceSettings(speech_start_timeout_seconds=.1, post_playback_guard_seconds=0, followup_timeout_seconds=.2), task_manager=TaskManager())
     return voice, audio, playback, runtime
 
 
@@ -159,6 +201,73 @@ async def test_no_speech_recovers_without_visible_provider_failure() -> None:
     await wait_state(voice, VoiceState.WAITING_WAKE)
     assert voice.get_snapshot().last_error is None
     assert runtime.outcomes == [("CANCELLED", None)] and EffectName.ERROR not in playback.effects
+    await voice.stop()
+
+
+async def test_no_speech_cancels_sdk_stream_that_stays_open_after_input_ends() -> None:
+    runtime = StuckOnEmptyInputRuntime()
+    settings = VoiceSettings(
+        speech_start_timeout_seconds=.01,
+        recording_timeout_seconds=.1,
+        turn_timeout_seconds=.2,
+        post_playback_guard_seconds=0,
+        followup_timeout_seconds=.2,
+    )
+    voice, audio, playback, _ = service([], runtime=runtime, settings=settings)
+
+    await voice.start()
+    await wait_accepting(audio)
+    audio.feed(0)
+    await wait_state(voice, VoiceState.RECORDING)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+
+    assert runtime.outcomes == [("CANCELLED", None)]
+    assert EffectName.ERROR not in playback.effects
+    assert voice.get_snapshot().last_error is None
+    await voice.stop()
+
+
+async def test_recording_timeout_cancels_stalled_stt_and_rearms_wakeword() -> None:
+    runtime = HangingRuntime([])
+    settings = VoiceSettings(
+        speech_start_timeout_seconds=.01,
+        recording_timeout_seconds=.05,
+        turn_timeout_seconds=.2,
+        post_playback_guard_seconds=0,
+        followup_timeout_seconds=.2,
+    )
+    voice, audio, playback, _ = service([], runtime=runtime, settings=settings)
+
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+
+    assert voice.get_snapshot().last_error == "voice_recording_timeout"
+    assert runtime.outcomes == [("FAILED", "voice_recording_timeout")]
+    assert playback.effects[-1] is EffectName.ERROR
+    assert audio.accepting is True
+    await voice.stop()
+
+
+async def test_turn_timeout_cancels_stalled_response_and_rearms_wakeword() -> None:
+    runtime = HangingRuntime(
+        [VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT, transcript="확정")]
+    )
+    settings = VoiceSettings(
+        speech_start_timeout_seconds=.01,
+        recording_timeout_seconds=.05,
+        turn_timeout_seconds=.08,
+        post_playback_guard_seconds=0,
+        followup_timeout_seconds=.2,
+    )
+    voice, audio, playback, _ = service([], runtime=runtime, settings=settings)
+
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+
+    assert voice.get_snapshot().last_error == "voice_turn_timeout"
+    assert runtime.outcomes == [("FAILED", "voice_turn_timeout")]
+    assert playback.effects[-1] is EffectName.ERROR
+    assert audio.accepting is True
     await voice.stop()
 
 

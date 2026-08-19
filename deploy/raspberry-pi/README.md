@@ -12,7 +12,41 @@ then install and enable the unit:
 sudo install -D -m 755 deploy/raspberry-pi/rpi-camera-stream /usr/local/sbin/rpi-camera-whip
 sudo install -D -m 644 deploy/raspberry-pi/rpi-camera-stream.service /etc/systemd/system/rpi-camera-stream.service
 sudo mkdir -p /etc/smart-desk
-sudo sh -c 'printf "MEDIAMTX_HOST=192.168.0.10\n" > /etc/smart-desk/rpi-camera-stream.env'
+sudo sh -c 'printf "MEDIAMTX_HOST=127.0.0.1\n" > /etc/smart-desk/rpi-camera-stream.env'
 sudo systemctl daemon-reload
 sudo systemctl enable --now rpi-camera-stream.service
 ```
+
+The production Raspberry Pi runs MediaMTX locally, so the publisher uses the
+loopback address. Do not probe the CSI camera with a second `rpicam-*` process
+while this unit is active; stop the unit first when camera diagnostics are
+required.
+
+## Production stack
+
+The Raspberry Pi is the production owner of Main, EMQX, MediaMTX and the USB
+camera relays. Run Compose from the repository root so the deployment `.env`
+is explicit:
+
+```bash
+docker compose --env-file .env \
+  -f deploy/compose.yml \
+  -f deploy/compose.raspberry-pi.yml \
+  config --quiet
+docker compose --env-file .env \
+  -f deploy/compose.yml \
+  -f deploy/compose.raspberry-pi.yml \
+  up -d --build
+```
+
+The Pi host exposes Main on `:9090`, voice debug on `:10000`, EMQX on `:1883`,
+MediaMTX WebRTC on TCP `:8889` and UDP `:8189`, `user-cam` MJPEG on `:10001`,
+and `workspace-cam` MJPEG on `:10002`. Main opens the CH340 height reader by
+its stable `/dev/serial/by-id` path. Both ESP32 controllers use MQTT in
+production; their USB serial paths remain available for diagnostics and
+firmware upload, but are not the production control transport.
+
+Keep both UVC cameras connected directly to the Pi USB ports on separate USB
+2.0 root controllers. Connect the AKG microphone, AB13X speaker, CH340 height
+reader, and relay ESP32 through the external hub. Putting both cameras behind
+that hub exhausts the USB bandwidth required by the microphone.

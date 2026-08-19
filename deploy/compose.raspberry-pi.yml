@@ -1,0 +1,50 @@
+services:
+  emqx:
+    hostname: smart-desk-emqx
+    environment:
+      EMQX_NODE__NAME: emqx@smart-desk-emqx
+
+  mediamtx:
+    hostname: smart-desk-mediamtx
+
+  mjpeg-user-cam:
+    hostname: smart-desk-user-cam
+
+  mjpeg-workspace-cam:
+    image: mkuf/ustreamer:v6.52-2-g3bb1ed3
+    hostname: smart-desk-workspace-cam
+    user: "0:0"
+    restart: unless-stopped
+    command:
+      - --device=/dev/workspace-cam
+      - --format=MJPEG
+      - --resolution=1920x1080
+      - --desired-fps=2
+      - --encoder=HW
+      - --workers=1
+      - --host=0.0.0.0
+      - --port=8080
+    devices:
+      - "${SMART_DESK_MEDIA__WORKSPACE__DEVICE}:/dev/workspace-cam"
+    ports:
+      - "10002:8080"
+    networks: [fin-internal]
+
+  main:
+    hostname: smart-desk-main
+    user: "1000:1000"
+    environment:
+      SMART_DESK_VOICE__INPUT_DEVICE_NAME: ${SMART_DESK_VOICE__INPUT_DEVICE_NAME:?set the Raspberry Pi PortAudio input device}
+      SMART_DESK_VOICE__OUTPUT_DEVICE_NAME: ${SMART_DESK_VOICE__OUTPUT_DEVICE_NAME:?set the Raspberry Pi PortAudio output device}
+    group_add:
+      - "46"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/health/live', timeout=3).read()"
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 60s

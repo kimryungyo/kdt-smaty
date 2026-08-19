@@ -237,13 +237,29 @@ class VoiceService:
             self._consume_runtime(initial, speech_already_started=speech_already_started)
         )
         try:
-            await self._turn_task
+            async with asyncio.timeout(self._settings.turn_timeout_seconds):
+                await self._turn_task
+        except TimeoutError:
+            LOGGER.warning(
+                "음성 turn 전체 제한을 넘어 대기 상태로 복귀합니다.",
+                extra={
+                    "component": "voice",
+                    "event": "turn_timeout",
+                    "timeout_seconds": self._settings.turn_timeout_seconds,
+                },
+            )
+            await self._finalize("FAILED", error_code="voice_turn_timeout")
+            await self._cleanup_call(self._playback.stop_speech, "speech_abort_failed")
+            await self._recover_turn_error("voice_turn_timeout")
         except asyncio.CancelledError:
             if self._stopping:
                 raise
             await self._finalize("CANCELLED")
             await self._cleanup_call(self._playback.stop_speech, "speech_abort_failed")
             self._enter_waiting_wake(clear_followup=True)
+        except VoiceFatalError as error:
+            await self._finalize("FAILED", error_code=error.code)
+            await self._recover_turn_error(error.code)
         except Exception:
             await self._finalize("FAILED", error_code="voice_pipeline_failed")
             await self._recover_turn_error("voice_pipeline_failed")
@@ -259,6 +275,24 @@ class VoiceService:
         self._input_stop = asyncio.Event()
         playback_task: asyncio.Task[object] | None = None
         audio_chunk_count = 0
+        input_ended = asyncio.Event()
+        speech_started = asyncio.Event()
+        if speech_already_started:
+            speech_started.set()
+        input_ended_wait: asyncio.Task[bool] | None = None
+        speech_started_wait: asyncio.Task[bool] | None = None
+        event_wait: asyncio.Task[object] | None = None
+
+        async def tracked_audio_chunks() -> AsyncIterator[bytes]:
+            try:
+                async for pcm in self._audio_chunks(
+                    initial,
+                    speech_already_started=speech_already_started,
+                    speech_started_event=speech_started,
+                ):
+                    yield pcm
+            finally:
+                input_ended.set()
 
         async def speaker() -> AsyncIterator[bytes]:
             while True:
@@ -285,9 +319,54 @@ class VoiceService:
                 "Agents 음성 runtime event stream을 수신합니다.",
                 extra={"component": "voice", "event": "runtime_stream_started"},
             )
-            async for event in self._runtime.run_audio(
-                self._audio_chunks(initial, speech_already_started=speech_already_started)
-            ):
+            runtime_stream = self._runtime.run_audio(tracked_audio_chunks())
+            runtime_iterator = runtime_stream.__aiter__()
+            input_ended_wait = asyncio.create_task(input_ended.wait())
+            speech_started_wait = asyncio.create_task(speech_started.wait())
+            recording_deadline = time.monotonic() + self._settings.recording_timeout_seconds
+            while True:
+                event_wait = asyncio.create_task(anext(runtime_iterator))
+                while not event_wait.done():
+                    wait_for_event: set[asyncio.Task[object]] = {event_wait}
+                    if not saw_transcript and not speech_started.is_set():
+                        wait_for_event.update((input_ended_wait, speech_started_wait))
+                    remaining = (
+                        max(0.0, recording_deadline - time.monotonic())
+                        if not saw_transcript
+                        else None
+                    )
+                    done, _ = await asyncio.wait(
+                        wait_for_event,
+                        timeout=remaining,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if not done:
+                        LOGGER.warning(
+                            "STT 확정 event가 녹음 제한 안에 도착하지 않았습니다.",
+                            extra={
+                                "component": "voice",
+                                "event": "recording_timeout",
+                                "timeout_seconds": self._settings.recording_timeout_seconds,
+                            },
+                        )
+                        raise VoiceFatalError("voice_recording_timeout")
+                    if input_ended_wait in done and not speech_started.is_set():
+                        # The SDK keeps its STT websocket open after StreamedAudioInput
+                        # receives None. Close our one-turn consumer explicitly instead of
+                        # inheriting the SDK's 1000-second event inactivity timeout.
+                        event_wait.cancel()
+                        await asyncio.gather(event_wait, return_exceptions=True)
+                        LOGGER.info(
+                            "발화 없이 입력이 종료되어 STT stream을 취소합니다.",
+                            extra={"component": "voice", "event": "no_speech_cancelled"},
+                        )
+                        await self._finalize("CANCELLED")
+                        self._enter_waiting_wake(clear_followup=True, clear_error=True)
+                        return
+                try:
+                    event = event_wait.result()
+                except StopAsyncIteration:
+                    break
                 event_type = getattr(event, "type", None)
                 if event_type is VoiceRuntimeEventType.TRANSCRIPT:
                     saw_transcript = True
@@ -386,15 +465,31 @@ class VoiceService:
                 self._enter_waiting_wake(clear_followup=True, clear_error=True)
         finally:
             self._input_stop.set()
+            wait_tasks = (event_wait, input_ended_wait, speech_started_wait)
+            for task in wait_tasks:
+                if task is not None and not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                *(task for task in wait_tasks if task is not None),
+                return_exceptions=True,
+            )
             if playback_task is not None and not playback_task.done():
                 playback_task.cancel()
             if playback_task is not None:
                 await asyncio.gather(playback_task, return_exceptions=True)
             self._input_stop = None
 
-    async def _audio_chunks(self, initial: tuple[AudioChunk, ...], *, speech_already_started: bool) -> AsyncIterator[bytes]:
+    async def _audio_chunks(
+        self,
+        initial: tuple[AudioChunk, ...],
+        *,
+        speech_already_started: bool,
+        speech_started_event: asyncio.Event | None = None,
+    ) -> AsyncIterator[bytes]:
         """Yield original 24kHz PCM; RMS only ends the wait *for speech to start*."""
         speech_started = speech_already_started
+        if speech_started and speech_started_event is not None:
+            speech_started_event.set()
         deadline = None if speech_started else time.monotonic() + self._settings.speech_start_timeout_seconds
         for chunk in initial:
             yield chunk.pcm
@@ -409,6 +504,8 @@ class VoiceService:
             yield chunk.pcm
             if not speech_started and calculate_rms(chunk.pcm) >= self._settings.silence_rms_threshold:
                 speech_started = True
+                if speech_started_event is not None:
+                    speech_started_event.set()
 
     async def _wait_for_followup_candidate(self) -> tuple[AudioChunk, ...] | None:
         deadline = self._followup_deadline
