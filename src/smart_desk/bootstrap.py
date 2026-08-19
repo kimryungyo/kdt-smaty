@@ -434,9 +434,9 @@ def build_container(settings: Settings) -> AppContainer:
                                             startup_order=80, shutdown_order=80))
     if settings.voice.enabled:
         try:
-            from smart_desk.modules.assistant.agents_runtime import (
-                AgentsVoiceConfig,
-                AgentsVoiceRuntime,
+            from smart_desk.modules.assistant.realtime_runtime import (
+                RealtimeVoiceConfig,
+                RealtimeVoiceRuntime,
             )
             from smart_desk.modules.voice.audio import LocalAudioInput, LocalPcmOutput
             from smart_desk.modules.voice.debug import VoiceDebugServer, VoiceDebugView
@@ -468,13 +468,13 @@ def build_container(settings: Settings) -> AppContainer:
             )
             # Keep local construction ahead of the OpenAI client.  A bad local
             # device/model/effect configuration then cannot leak a runtime client.
-            runtime = AgentsVoiceRuntime.build_for_services(
+            runtime = RealtimeVoiceRuntime.build_for_services(
                 api_key=api_key.get_secret_value(), sessions=container.assistant_context,
                 memory=container.profile_memory, turns=container.assistant_turns,
                 automation=automation, wled=container.wled,
                 tilt=container.tilt, activity_modes=activity_modes,
                 tilt_level_range=(settings.tilt.min_level, settings.tilt.max_level),
-                config=AgentsVoiceConfig(model=settings.openai.response_model),
+                config=RealtimeVoiceConfig(model=settings.openai.realtime_model),
             )
             voice = VoiceService(
                 audio_input=audio_input,

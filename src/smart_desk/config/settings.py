@@ -595,9 +595,11 @@ class OpenAiSettings(BaseModel):
 
     api_key: SecretStr | None = None
     response_model: str = "gpt-5.6-terra"
+    realtime_model: str = "gpt-realtime-2.1"
 
     @field_validator(
         "response_model",
+        "realtime_model",
     )
     @classmethod
     def normalize_required_string(cls, value: str) -> str:

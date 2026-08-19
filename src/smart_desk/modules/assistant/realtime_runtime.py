@@ -53,6 +53,10 @@ class RealtimeTransport(Protocol):
 ToolHandler = Callable[[str, dict[str, Any]], Awaitable[dict[str, object]]]
 TransportFactory = Callable[[], Awaitable[RealtimeTransport]]
 SessionStarted = Callable[[], Awaitable[None]]
+Finalizer = Callable[[str, str | None], Awaitable[None]]
+TranscriptHandler = Callable[[str], Awaitable[None]]
+ResponseTextHandler = Callable[[str], None]
+FollowupRequested = Callable[[], bool | None]
 
 
 class OpenAIWebSocketTransport:
@@ -109,6 +113,10 @@ class RealtimeVoiceRuntime:
         tool_schemas: list[dict[str, Any]] | None = None,
         instructions: str = PRIMARY_INSTRUCTIONS,
         on_session_started: SessionStarted | None = None,
+        on_transcript: TranscriptHandler | None = None,
+        on_response_text: ResponseTextHandler | None = None,
+        followup_requested: FollowupRequested | None = None,
+        finalizer: Finalizer | None = None,
     ) -> None:
         self._transport_factory = transport_factory
         self._tool_handler = tool_handler
@@ -116,8 +124,119 @@ class RealtimeVoiceRuntime:
         self._tool_schemas = tool_schemas or []
         self._instructions = instructions
         self._on_session_started = on_session_started
+        self._on_transcript = on_transcript
+        self._on_response_text = on_response_text
+        self._followup_requested_callback = followup_requested
+        self._finalizer = finalizer
+        self._turn_finalized = False
         self._stopping = False
         self._active_transport: RealtimeTransport | None = None
+
+    @classmethod
+    def build_for_services(
+        cls,
+        *,
+        api_key: str,
+        sessions: Any,
+        memory: Any,
+        turns: Any,
+        automation: Any,
+        wled: Any | None = None,
+        tilt: Any | None = None,
+        activity_modes: Any | None = None,
+        tilt_level_range: tuple[int, int] = (0, 3),
+        config: RealtimeVoiceConfig = RealtimeVoiceConfig(),
+        transport_factory: TransportFactory | None = None,
+    ) -> RealtimeVoiceRuntime:
+        """Build the Realtime manager and bind it to the existing safe local tools.
+
+        The model receives only direct, bounded physical tools.  ``hold_desk`` is
+        deliberately absent because an open-ended movement command needs a separate
+        press/release interaction contract.
+        """
+        from agents.tool_context import ToolContext
+        from smart_desk.modules.assistant.agents_tools import (
+            SmartDeskAgentContext,
+            build_smart_desk_tools,
+        )
+        from smart_desk.modules.assistant.turns import TurnStatus
+
+        state: dict[str, SmartDeskAgentContext | None] = {"context": None}
+        tools = {
+            tool.name: tool
+            for tool in build_smart_desk_tools()
+            if tool.name != "hold_desk"
+        }
+        schemas = [
+            {
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.params_json_schema,
+            }
+            for tool in tools.values()
+        ]
+
+        async def start_context() -> None:
+            captured = await sessions.capture()
+            turn = await turns.create(captured.session_id, captured.profile_id)
+            state["context"] = SmartDeskAgentContext(
+                turn_context=captured,
+                sessions=sessions,
+                memory=memory,
+                turns=turns,
+                turn_id=turn.turn_id,
+                turn_sequence=turn.sequence,
+                automation=automation,
+                wled=wled,
+                tilt=tilt,
+                activity_modes=activity_modes,
+                tilt_level_range=tilt_level_range,
+            )
+
+        async def invoke(name: str, arguments: dict[str, Any]) -> dict[str, object]:
+            context = state["context"]
+            tool = tools.get(name)
+            if context is None or tool is None:
+                return {"ok": False, "error": {"code": "tool_unavailable"}}
+            encoded = json.dumps(arguments, separators=(",", ":"))
+            result = await tool.on_invoke_tool(
+                ToolContext(context, tool_name=name, tool_call_id="realtime", tool_arguments=encoded),
+                encoded,
+            )
+            return result if isinstance(result, dict) else {"ok": False, "error": {"code": "tool_execution_failed"}}
+
+        async def transcript_received(_transcript: str) -> None:
+            if state["context"] is not None:
+                await state["context"].processing_started()
+
+        def response_text_received(text: str) -> None:
+            if state["context"] is not None:
+                state["context"].append_assistant_response(text)
+
+        def followup_requested() -> bool | None:
+            context = state["context"]
+            return context.followup_requested if context is not None else None
+
+        async def finalize(outcome: str, error_code: str | None) -> None:
+            context, state["context"] = state["context"], None
+            if context is not None:
+                await context.finish(TurnStatus(outcome), error_code=error_code)
+
+        async def connect() -> RealtimeTransport:
+            return await OpenAIWebSocketTransport.connect(api_key=api_key, model=config.model)
+
+        return cls(
+            transport_factory or connect,
+            invoke,
+            config=config,
+            tool_schemas=schemas,
+            on_session_started=start_context,
+            on_transcript=transcript_received,
+            on_response_text=response_text_received,
+            followup_requested=followup_requested,
+            finalizer=finalize,
+        )
 
     async def stop(self) -> None:
         self._stopping = True
@@ -125,6 +244,12 @@ class RealtimeVoiceRuntime:
         if transport is not None:
             with contextlib.suppress(Exception):
                 await transport.close()
+
+    async def finalize_turn(self, outcome: str, *, error_code: str | None = None) -> None:
+        """Persist the dashboard turn after the local speaker has drained."""
+        if self._finalizer is not None and not self._turn_finalized:
+            self._turn_finalized = True
+            await self._finalizer(outcome, error_code)
 
     def _session_update(self) -> dict[str, Any]:
         config = self._config
@@ -162,6 +287,7 @@ class RealtimeVoiceRuntime:
         saw_response = False
         ledger: OrderedDict[str, dict[str, object]] = OrderedDict()
         try:
+            self._turn_finalized = False
             transport = await self._transport_factory()
             self._active_transport = transport
             await transport.send_json(self._session_update())
@@ -179,6 +305,8 @@ class RealtimeVoiceRuntime:
                 if event_type == "conversation.item.input_audio_transcription.completed":
                     transcript = event.get("transcript")
                     if isinstance(transcript, str) and transcript.strip():
+                        if self._on_transcript is not None:
+                            await self._on_transcript(transcript)
                         sequence += 1
                         yield VoiceRuntimeEvent(sequence, VoiceRuntimeEventType.TRANSCRIPT, transcript=transcript)
                 elif event_type == "response.output_audio.delta":
@@ -191,6 +319,10 @@ class RealtimeVoiceRuntime:
                         if audio:
                             sequence += 1
                             yield VoiceRuntimeEvent(sequence, VoiceRuntimeEventType.AUDIO, audio=audio)
+                elif event_type == "response.output_audio_transcript.delta":
+                    transcript_delta = event.get("delta")
+                    if isinstance(transcript_delta, str) and self._on_response_text is not None:
+                        self._on_response_text(transcript_delta)
                 elif event_type == "response.done":
                     function_calls = self._function_calls(event)
                     if function_calls:
@@ -212,7 +344,10 @@ class RealtimeVoiceRuntime:
                     saw_response = True
                     sequence += 1
                     yield VoiceRuntimeEvent(sequence, VoiceRuntimeEventType.LIFECYCLE,
-                                            lifecycle=VoiceRuntimeLifecycle.TURN_ENDED)
+                                            lifecycle=VoiceRuntimeLifecycle.TURN_ENDED,
+                                            followup_requested=(
+                                                self._followup_requested()
+                                            ))
                     return
                 elif event_type == "error":
                     raise RuntimeError("realtime_provider_error")
@@ -233,6 +368,11 @@ class RealtimeVoiceRuntime:
                     await transport.close()
             if self._active_transport is transport:
                 self._active_transport = None
+
+    def _followup_requested(self) -> bool | None:
+        if self._followup_requested_callback is None:
+            return None
+        return self._followup_requested_callback()
 
     async def _feed_audio(self, transport: RealtimeTransport, chunks: AsyncIterable[bytes]) -> None:
         async for chunk in chunks:

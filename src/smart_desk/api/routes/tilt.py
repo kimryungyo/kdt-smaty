@@ -75,17 +75,17 @@ async def set_tilt_target(request: TiltTargetRequest) -> TiltStatusResponse:
     """설정 범위 안의 단계 이동을 요청한다."""
 
     container = get_container()
-    tilt = container.tilt
-    if tilt is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="틸팅 하드웨어가 아직 활성화되지 않았습니다.",
-        )
     settings = container.settings.tilt
     if not settings.min_level <= request.level <= settings.max_level:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"틸트 단계는 {settings.min_level}~{settings.max_level} 사이여야 합니다.",
+        )
+    tilt = container.tilt
+    if tilt is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="틸팅 하드웨어가 아직 활성화되지 않았습니다.",
         )
     try:
         await tilt.set_target(request.level)

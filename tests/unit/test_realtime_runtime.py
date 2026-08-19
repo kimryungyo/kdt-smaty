@@ -7,6 +7,8 @@ from collections.abc import AsyncIterable
 
 from smart_desk.modules.assistant.agents_runtime import VoiceRuntimeEventType, VoiceRuntimeLifecycle
 from smart_desk.modules.assistant.realtime_runtime import RealtimeVoiceRuntime
+from smart_desk.modules.assistant.turns import TurnStatus
+from tests.unit.test_agents_tools import _context
 
 
 class Transport:
@@ -78,6 +80,31 @@ async def test_realtime_runtime_hides_provider_error() -> None:
 
     events = [event async for event in RealtimeVoiceRuntime(lambda: _transport(transport), handler).run_audio(chunks(b"\x02\x00"))]
     assert [(event.type, event.error_code) for event in events] == [(VoiceRuntimeEventType.ERROR, "voice_pipeline_failed")]
+
+
+async def test_realtime_service_binding_exposes_direct_tools_and_invokes_wled() -> None:
+    context, _users, automation, wled, memory, turns = await _context()
+    transport = Transport([
+        {"type": "conversation.item.input_audio_transcription.completed", "transcript": "불 꺼줘"},
+        {"type": "response.done", "response": {"output": [
+            {"type": "function_call", "call_id": "call-1", "name": "turn_wled_off", "arguments": "{}"},
+        ]}},
+        {"type": "response.done", "response": {"output": []}},
+    ])
+    runtime = RealtimeVoiceRuntime.build_for_services(
+        api_key="test-key", sessions=context.sessions, memory=memory, turns=turns,
+        automation=automation, wled=wled, transport_factory=lambda: _transport(transport),
+    )
+
+    events = [event async for event in runtime.run_audio(chunks(b"\x02\x00"))]
+    await runtime.finalize_turn("SUCCEEDED")
+
+    session = transport.sent[0]["session"]  # type: ignore[index]
+    tool_names = {tool["name"] for tool in session["tools"]}  # type: ignore[index]
+    assert "turn_wled_off" in tool_names and "hold_desk" not in tool_names
+    assert wled.calls[0][0] == "turn_off"
+    assert events[-1].lifecycle is VoiceRuntimeLifecycle.TURN_ENDED
+    assert (await turns.latest()).status is TurnStatus.SUCCEEDED  # type: ignore[union-attr]
 
 
 async def _transport(value: Transport) -> Transport:

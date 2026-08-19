@@ -19,7 +19,7 @@ from smart_desk.modules.dashboard import get_dashboard
 from smart_desk.modules.desk import get_desk
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC
 from smart_desk.modules.profiles import get_activity_modes, get_profiles
-from smart_desk.modules.assistant.agents_runtime import AgentsVoiceRuntime
+from smart_desk.modules.assistant.realtime_runtime import RealtimeVoiceRuntime
 from smart_desk.modules.identity import UnavailableFaceEmbeddingExtractor
 from smart_desk.modules.vision import CompositeVisionDetector, NoopVisionDetector
 
@@ -62,15 +62,16 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
         "desk-controller",
         "vision",
         "face-identity",
+        "profile-memory",
         "assistant-context",
         "assistant-turns",
         "desk-automation",
     ]
     assert [registration.startup_order for registration in container.resources] == [
-        5, 10, 20, 30, 60, 70, 75, 76, 80,
+        5, 10, 20, 30, 60, 70, 72, 75, 76, 80,
     ]
     assert [registration.shutdown_order for registration in container.resources] == [
-        5, 10, 20, 30, 60, 70, 75, 76, 80,
+        5, 10, 20, 30, 60, 70, 72, 75, 76, 80,
     ]
 
     qos, handler = container.mqtt._handlers[ESP32_STATUS_TOPIC]  # noqa: SLF001
@@ -168,6 +169,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         "desk-controller",
         "vision",
         "face-identity",
+        "profile-memory",
         "assistant-context",
         "assistant-turns",
         "desk-automation",
@@ -187,6 +189,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         "webrtc-frame-source-user",
         "vision",
         "face-identity",
+        "profile-memory",
         "assistant-context",
         "assistant-turns",
         "desk-automation",
@@ -212,10 +215,10 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
     )
 
     assert [registration.startup_order for registration in enabled.resources][-10:] == [
-        40, 42, 50, 51, 52, 60, 70, 75, 76, 80
+        42, 50, 51, 52, 60, 70, 72, 75, 76, 80
     ]
     assert [registration.shutdown_order for registration in enabled.resources][-10:] == [
-        40, 42, 50, 51, 52, 60, 70, 75, 76, 80
+        42, 50, 51, 52, 60, 70, 72, 75, 76, 80
     ]
     assert [
         registration.name
@@ -224,10 +227,11 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             key=lambda registration: registration.shutdown_order,
             reverse=True,
         )
-    ][:10] == [
+    ][:11] == [
         "desk-automation",
         "assistant-turns",
         "assistant-context",
+        "profile-memory",
         "face-identity",
         "vision",
         "webrtc-frame-source-workspace",
@@ -251,10 +255,10 @@ def test_build_container_registers_voice_at_order_90_when_enabled(
         received.update(kwargs)
         return Runtime()
 
-    monkeypatch.setattr(AgentsVoiceRuntime, "build_for_services", classmethod(build_runtime))
+    monkeypatch.setattr(RealtimeVoiceRuntime, "build_for_services", classmethod(build_runtime))
     settings = Settings(
         voice={"enabled": True},
-        openai={"api_key": "test-key", "response_model": "configured-response-model"},
+        openai={"api_key": "test-key", "realtime_model": "configured-realtime-model"},
         _env_file=None,
     )
 
@@ -265,9 +269,8 @@ def test_build_container_registers_voice_at_order_90_when_enabled(
     assert container.resources[-1].startup_order == 90
     assert container.resources[-1].shutdown_order == 90
     config = received["config"]
-    assert config.model == "configured-response-model"  # type: ignore[union-attr]
-    assert config.stt_model == "gpt-4o-transcribe"  # type: ignore[union-attr]
-    assert config.tts_model == "gpt-4o-mini-tts"  # type: ignore[union-attr]
+    assert config.model == "configured-realtime-model"  # type: ignore[union-attr]
+    assert config.input_transcription_model == "gpt-4o-transcribe"  # type: ignore[union-attr]
 
 
 def test_build_container_registers_voice_debug_after_voice(
@@ -277,7 +280,7 @@ def test_build_container_registers_voice_debug_after_voice(
         async def stop(self): pass
         async def run_audio(self, _):
             if False: yield None
-    monkeypatch.setattr(AgentsVoiceRuntime, "build_for_services", classmethod(lambda cls, **_: Runtime()))
+    monkeypatch.setattr(RealtimeVoiceRuntime, "build_for_services", classmethod(lambda cls, **_: Runtime()))
     settings = Settings(
         voice={"enabled": True},
         voice_debug={"enabled": True},
@@ -303,7 +306,7 @@ def test_enabled_voice_build_failure_is_explicit_and_preserves_cause(
     def fail_build(cls, **_):
         raise failure
 
-    monkeypatch.setattr(AgentsVoiceRuntime, "build_for_services", classmethod(fail_build))
+    monkeypatch.setattr(RealtimeVoiceRuntime, "build_for_services", classmethod(fail_build))
     settings = Settings(
         voice={"enabled": True},
         openai={"api_key": "test-key"},
