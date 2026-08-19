@@ -478,6 +478,10 @@ def build_container(settings: Settings) -> AppContainer:
                 config=RealtimeVoiceConfig(
                     model=settings.openai.realtime_model,
                     voice=settings.voice.realtime_voice,
+                    input_transcription_model=(
+                        settings.openai.realtime_transcription_model
+                    ),
+                    reasoning_effort=settings.openai.realtime_reasoning_effort,
                     connect_timeout_seconds=settings.voice.realtime_connect_timeout_seconds,
                     call_ledger_cap=settings.voice.realtime_call_ledger_cap,
                     episode_max_seconds=settings.voice.realtime_episode_max_seconds,

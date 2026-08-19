@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from collections.abc import AsyncIterable
 
 from smart_desk.modules.assistant.agents_runtime import VoiceRuntimeEventType, VoiceRuntimeLifecycle
@@ -49,6 +50,8 @@ async def test_realtime_runtime_streams_transcript_audio_and_final_turn() -> Non
     assert [event.type for event in events] == [VoiceRuntimeEventType.TRANSCRIPT, VoiceRuntimeEventType.AUDIO, VoiceRuntimeEventType.LIFECYCLE]
     assert events[-1].lifecycle is VoiceRuntimeLifecycle.TURN_ENDED
     assert transport.sent[0]["type"] == "session.update"
+    assert transport.sent[0]["session"]["reasoning"] == {"effort": "medium"}  # type: ignore[index]
+    assert transport.sent[0]["session"]["audio"]["input"]["transcription"]["model"] == "gpt-transcribe"  # type: ignore[index]
     assert transport.sent[1] == {"type": "input_audio_buffer.append", "audio": base64.b64encode(b"\x02\x00").decode()}
     assert transport.closed is True
 
@@ -73,14 +76,28 @@ async def test_realtime_runtime_returns_tool_output_then_continues_response() ->
     assert transport.sent[-1] == {"type": "response.create"}
 
 
-async def test_realtime_runtime_hides_provider_error() -> None:
-    transport = Transport([{"type": "error", "message": "sensitive transcript"}])
+async def test_realtime_runtime_hides_provider_error(caplog) -> None:
+    transport = Transport([{
+        "type": "error",
+        "error": {
+            "type": "invalid_request_error",
+            "code": "input_audio_buffer_commit_empty",
+            "param": "input_audio_buffer",
+            "message": "sensitive transcript",
+        },
+    }])
 
     async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
         return {"ok": True}
 
-    events = [event async for event in RealtimeVoiceRuntime(lambda: _transport(transport), handler).run_audio(chunks(b"\x02\x00"))]
+    with caplog.at_level(logging.WARNING):
+        events = [event async for event in RealtimeVoiceRuntime(lambda: _transport(transport), handler).run_audio(chunks(b"\x02\x00"))]
     assert [(event.type, event.error_code) for event in events] == [(VoiceRuntimeEventType.ERROR, "voice_pipeline_failed")]
+    record = next(record for record in caplog.records if record.event == "episode_failed")
+    assert record.provider_error_type == "invalid_request_error"
+    assert record.provider_error_code == "input_audio_buffer_commit_empty"
+    assert record.provider_error_param == "input_audio_buffer"
+    assert "sensitive transcript" not in caplog.text
 
 
 async def test_realtime_service_binding_exposes_direct_tools_and_invokes_wled() -> None:

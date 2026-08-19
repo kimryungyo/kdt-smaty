@@ -270,7 +270,8 @@ def test_build_container_registers_voice_at_order_90_when_enabled(
     assert container.resources[-1].shutdown_order == 90
     config = received["config"]
     assert config.model == "configured-realtime-model"  # type: ignore[union-attr]
-    assert config.input_transcription_model == "gpt-4o-transcribe"  # type: ignore[union-attr]
+    assert config.input_transcription_model == "gpt-transcribe"  # type: ignore[union-attr]
+    assert config.reasoning_effort == "medium"  # type: ignore[union-attr]
 
 
 def test_build_container_registers_voice_debug_after_voice(

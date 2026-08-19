@@ -596,12 +596,16 @@ class OpenAiSettings(BaseModel):
     api_key: SecretStr | None = None
     response_model: str = "gpt-5.6-terra"
     realtime_model: str = "gpt-realtime-2.1"
-    delegate_model: str = "gpt-5.6-terra"
-    delegate_reasoning_effort: str = "low"
+    realtime_transcription_model: str = "gpt-transcribe"
+    realtime_reasoning_effort: str = "medium"
+    delegate_model: str = "gpt-5.6-sol"
+    delegate_reasoning_effort: str = "medium"
 
     @field_validator(
         "response_model",
         "realtime_model",
+        "realtime_transcription_model",
+        "realtime_reasoning_effort",
         "delegate_model",
         "delegate_reasoning_effort",
     )
