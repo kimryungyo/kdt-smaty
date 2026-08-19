@@ -1,5 +1,8 @@
 # 운영 runbook
 
+2026-08-19 Raspberry Pi 배포, AI 스피커/Vision 디버그 연결과 최신 Voice 장애 수정의
+현재 인수인계는 [Raspberry Pi 서비스 인수인계](2026-08-19-service-handoff.md)를 먼저 본다.
+
 이 문서는 현재 `main` 코드 기준의 안전한 시작·상태 확인·복구 범위를 정리한다. 자동
 테스트 통과는 실물 장치 동작 승인이 아니다. 실제 이동은 [Task 09](../tasks/09-system-validation.md)의
 안전 순서와 현장 책임자 승인 뒤에만 검증한다.
