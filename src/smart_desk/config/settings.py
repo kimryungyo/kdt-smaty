@@ -689,6 +689,7 @@ class VoiceSettings(BaseModel):
     delegate_timeout_seconds: float = Field(default=12.0, gt=0, le=30)
     realtime_episode_max_seconds: float = Field(default=120.0, gt=0, le=600)
     realtime_call_ledger_cap: int = Field(default=64, ge=1, le=256)
+    realtime_voice: str = "coral"
 
     # 얼굴을 알아본 순간 이름을 부르고 날씨와 관심사를 전한다.
     greeting_enabled: bool = True

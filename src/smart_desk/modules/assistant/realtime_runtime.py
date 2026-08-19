@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import hashlib
 import json
 import logging
 from collections import OrderedDict
@@ -39,7 +40,7 @@ LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class RealtimeVoiceConfig:
     model: str = "gpt-realtime-2.1"
-    voice: str = "nova"
+    voice: str = "coral"
     input_transcription_model: str = "gpt-4o-transcribe"
     vad_threshold: float = 0.5
     vad_prefix_padding_ms: int = 300
@@ -320,6 +321,7 @@ class RealtimeVoiceRuntime:
                 },
                 "tools": self._tool_schemas,
                 "tool_choice": "auto",
+                "output_modalities": ["audio"],
             },
         }
 
@@ -340,6 +342,9 @@ class RealtimeVoiceRuntime:
                 self._transport_factory(), timeout=self._config.connect_timeout_seconds
             )
             self._active_transport = transport
+            LOGGER.info("Realtime 음성 episode를 연결했습니다.", extra={
+                "component": "assistant.realtime", "event": "connected",
+            })
             await transport.send_json(self._session_update())
             if self._on_session_started is not None:
                 await self._on_session_started()
@@ -382,6 +387,11 @@ class RealtimeVoiceRuntime:
                         for call_id, name, arguments in function_calls:
                             result = ledger.get(call_id)
                             if result is None:
+                                LOGGER.info("Realtime 도구를 실행합니다.", extra={
+                                    "component": "assistant.realtime", "event": "tool_started",
+                                    "tool_name": name,
+                                    "tool_call_id_hash": self._hash_call_id(call_id),
+                                })
                                 result = await self._call_tool(name, arguments)
                                 ledger[call_id] = result
                                 ledger.move_to_end(call_id)
@@ -391,6 +401,12 @@ class RealtimeVoiceRuntime:
                                 "type": "conversation.item.create",
                                 "item": {"type": "function_call_output", "call_id": call_id,
                                          "output": json.dumps(result, separators=(",", ":"))},
+                            })
+                            LOGGER.info("Realtime 도구 결과를 반환했습니다.", extra={
+                                "component": "assistant.realtime", "event": "tool_finished",
+                                "tool_name": name,
+                                "tool_call_id_hash": self._hash_call_id(call_id),
+                                "tool_status": result.get("ok") is True,
                             })
                         await transport.send_json({"type": "response.create"})
                         continue
@@ -461,3 +477,7 @@ class RealtimeVoiceRuntime:
             if isinstance(call_id, str) and isinstance(name, str) and isinstance(arguments, str):
                 calls.append((call_id, name, arguments))
         return calls
+
+    @staticmethod
+    def _hash_call_id(call_id: str) -> str:
+        return hashlib.sha256(call_id.encode("utf-8")).hexdigest()[:12]

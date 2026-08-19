@@ -477,6 +477,7 @@ def build_container(settings: Settings) -> AppContainer:
                 tilt_level_range=(settings.tilt.min_level, settings.tilt.max_level),
                 config=RealtimeVoiceConfig(
                     model=settings.openai.realtime_model,
+                    voice=settings.voice.realtime_voice,
                     connect_timeout_seconds=settings.voice.realtime_connect_timeout_seconds,
                     call_ledger_cap=settings.voice.realtime_call_ledger_cap,
                     episode_max_seconds=settings.voice.realtime_episode_max_seconds,
