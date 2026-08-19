@@ -326,6 +326,8 @@ def test_voice_is_disabled_by_default_without_api_key() -> None:
     assert settings.voice.wakeword_threshold == 0.35
     assert settings.voice.wakeword_consecutive_frames == 1
     assert settings.voice.wakeword_inference_interval_frames == 5
+    assert settings.voice.recording_timeout_seconds == 20.0
+    assert settings.voice.turn_timeout_seconds == 120.0
     assert settings.voice.followup_timeout_seconds == 4.0
     assert settings.voice.post_playback_guard_seconds == 1.0
     assert settings.voice.session_history_item_cap == 24
@@ -335,6 +337,18 @@ def test_voice_is_disabled_by_default_without_api_key() -> None:
 def test_voice_session_history_item_cap_must_be_positive_and_bounded(item_cap: int) -> None:
     with pytest.raises(ValidationError):
         Settings(voice={"session_history_item_cap": item_cap}, _env_file=None)
+
+
+@pytest.mark.parametrize(
+    "voice",
+    [
+        {"speech_start_timeout_seconds": 3, "recording_timeout_seconds": 3},
+        {"recording_timeout_seconds": 20, "turn_timeout_seconds": 20},
+    ],
+)
+def test_voice_turn_timeouts_must_be_strictly_ordered(voice: dict[str, float]) -> None:
+    with pytest.raises(ValidationError):
+        Settings(voice=voice, _env_file=None)
 
 
 def test_enabled_voice_requires_api_key() -> None:

@@ -232,6 +232,16 @@ async def test_workflow_sends_only_final_transcript_to_callback_and_streams_runn
     assert not hasattr(workflow, "_input_history")
 
 
+async def test_workflow_sdk_start_hook_has_no_unsolicited_intro() -> None:
+    workflow = SmartDeskVoiceWorkflow(
+        agent="agent",
+        run_streamed=lambda *_: object(),
+        stream_text_from=_empty_text,
+    )
+
+    assert [text async for text in workflow.on_start()] == []
+
+
 async def test_runtime_merges_final_transcript_before_matching_audio_with_sequence() -> None:
     received: list[str] = []
 
@@ -258,12 +268,12 @@ async def test_runtime_merges_final_transcript_before_matching_audio_with_sequen
     events = [event async for event in runtime.run_audio(chunks(b"\0\0"))]
 
     assert [event.type for event in events] == [
-        VoiceRuntimeEventType.LIFECYCLE,
         VoiceRuntimeEventType.TRANSCRIPT,
+        VoiceRuntimeEventType.LIFECYCLE,
         VoiceRuntimeEventType.AUDIO,
     ]
     assert [event.sequence for event in events] == [1, 2, 3]
-    assert events[1].transcript == "확정된 문장"
+    assert events[0].transcript == "확정된 문장"
     assert received == ["확정된 문장"]
 
 
@@ -317,7 +327,7 @@ async def test_runtime_cancel_cleans_final_transcript_side_channel() -> None:
     runtime = AgentsVoiceRuntime(pipeline, lambda: input_value, workflow=workflow)
     stream = runtime.run_audio(chunks(b"\0\0"))
 
-    assert (await anext(stream)).type is VoiceRuntimeEventType.LIFECYCLE
+    assert (await anext(stream)).type is VoiceRuntimeEventType.TRANSCRIPT
     await stream.aclose()
 
     assert pipeline.result.closed is True
@@ -488,7 +498,7 @@ async def test_runtime_exhaustion_after_final_transcript_marks_turn_failed() -> 
 
     events = [event async for event in AgentsVoiceRuntime(pipeline, Input, workflow=workflow).run_audio(chunks(b"\0\0"))]
 
-    assert [event.type for event in events] == [VoiceRuntimeEventType.LIFECYCLE, VoiceRuntimeEventType.TRANSCRIPT, VoiceRuntimeEventType.AUDIO]
+    assert [event.type for event in events] == [VoiceRuntimeEventType.TRANSCRIPT, VoiceRuntimeEventType.LIFECYCLE, VoiceRuntimeEventType.AUDIO]
     assert context.phases == ["PROCESSING", "FINAL:FAILED"]
 
 
