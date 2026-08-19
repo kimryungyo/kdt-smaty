@@ -1,6 +1,8 @@
 services:
   emqx:
     hostname: smart-desk-emqx
+    environment:
+      EMQX_NODE__NAME: emqx@smart-desk-emqx
 
   mediamtx:
     hostname: smart-desk-mediamtx
@@ -11,6 +13,7 @@ services:
   mjpeg-workspace-cam:
     image: mkuf/ustreamer:v6.52-2-g3bb1ed3
     hostname: smart-desk-workspace-cam
+    profiles: ["workspace-camera"]
     user: "0:0"
     restart: unless-stopped
     command:

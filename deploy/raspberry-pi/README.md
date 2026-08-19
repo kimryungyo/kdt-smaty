@@ -40,8 +40,20 @@ docker compose --env-file .env \
 ```
 
 The Pi host exposes Main on `:9090`, voice debug on `:10000`, EMQX on `:1883`,
-MediaMTX WebRTC on TCP `:8889` and UDP `:8189`, `user-cam` MJPEG on `:10001`,
-and `workspace-cam` MJPEG on `:10002`. Main opens the CH340 height reader by
-its stable `/dev/serial/by-id` path. Both ESP32 controllers use MQTT in
-production; their USB serial paths remain available for diagnostics and
-firmware upload, but are not the production control transport.
+MediaMTX WebRTC on TCP `:8889` and UDP `:8189`, and `user-cam` MJPEG on
+`:10001`. Main opens the CH340 height reader by its stable `/dev/serial/by-id`
+path. Both ESP32 controllers use MQTT in production; their USB serial paths
+remain available for diagnostics and firmware upload, but are not the
+production control transport.
+
+`workspace-cam` is optional and is disabled by default because running both
+USB cameras on the deployed USB 2.0 hub exhausts isochronous bandwidth needed
+by the AKG microphone. Start its MJPEG stream on `:10002` only after moving it
+to an independent USB controller, or when voice input is not required:
+
+```bash
+docker compose --env-file .env \
+  -f deploy/compose.yml \
+  -f deploy/compose.raspberry-pi.yml \
+  --profile workspace-camera up -d mjpeg-workspace-cam
+```
