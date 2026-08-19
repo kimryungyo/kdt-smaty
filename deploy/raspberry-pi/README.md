@@ -21,3 +21,27 @@ The production Raspberry Pi runs MediaMTX locally, so the publisher uses the
 loopback address. Do not probe the CSI camera with a second `rpicam-*` process
 while this unit is active; stop the unit first when camera diagnostics are
 required.
+
+## Production stack
+
+The Raspberry Pi is the production owner of Main, EMQX, MediaMTX and the USB
+camera relays. Run Compose from the repository root so the deployment `.env`
+is explicit:
+
+```bash
+docker compose --env-file .env \
+  -f deploy/compose.yml \
+  -f deploy/compose.raspberry-pi.yml \
+  config --quiet
+docker compose --env-file .env \
+  -f deploy/compose.yml \
+  -f deploy/compose.raspberry-pi.yml \
+  up -d --build
+```
+
+The Pi host exposes Main on `:9090`, voice debug on `:10000`, EMQX on `:1883`,
+MediaMTX WebRTC on TCP `:8889` and UDP `:8189`, `user-cam` MJPEG on `:10001`,
+and `workspace-cam` MJPEG on `:10002`. Main opens the CH340 height reader by
+its stable `/dev/serial/by-id` path. Both ESP32 controllers use MQTT in
+production; their USB serial paths remain available for diagnostics and
+firmware upload, but are not the production control transport.
