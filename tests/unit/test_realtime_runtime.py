@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import AsyncIterable
 
 from smart_desk.modules.assistant.agents_runtime import VoiceRuntimeEventType, VoiceRuntimeLifecycle
@@ -105,6 +106,33 @@ async def test_realtime_service_binding_exposes_direct_tools_and_invokes_wled() 
     assert wled.calls[0][0] == "turn_off"
     assert events[-1].lifecycle is VoiceRuntimeLifecycle.TURN_ENDED
     assert (await turns.latest()).status is TurnStatus.SUCCEEDED  # type: ignore[union-attr]
+
+
+async def test_realtime_service_binding_routes_delegate_as_a_read_only_tool() -> None:
+    context, _users, automation, wled, memory, turns = await _context()
+    transport = Transport([
+        {"type": "response.done", "response": {"output": [
+            {"type": "function_call", "call_id": "call-1", "name": "delegate_complex_request", "arguments": '{"task":"내일 날씨"}'},
+        ]}},
+        {"type": "response.done", "response": {"output": []}},
+    ])
+
+    class Delegate:
+        async def run(self, task: str, received_context: object) -> dict[str, object]:
+            assert task == "내일 날씨" and received_context is not None
+            return {"ok": True, "spoken_answer": "조사 결과", "sources": []}
+
+    runtime = RealtimeVoiceRuntime.build_for_services(
+        api_key="test-key", sessions=context.sessions, memory=memory, turns=turns,
+        automation=automation, wled=wled, delegate=Delegate(),
+        transport_factory=lambda: _transport(transport),
+    )
+    await anext(runtime.run_audio(chunks(b"\x02\x00")))
+
+    schemas = transport.sent[0]["session"]["tools"]  # type: ignore[index]
+    output = transport.sent[-2]["item"]["output"]  # type: ignore[index]
+    assert any(item["name"] == "delegate_complex_request" for item in schemas)
+    assert json.loads(output)["spoken_answer"] == "조사 결과"
 
 
 async def _transport(value: Transport) -> Transport:

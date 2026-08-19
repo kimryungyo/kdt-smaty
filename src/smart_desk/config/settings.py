@@ -596,10 +596,14 @@ class OpenAiSettings(BaseModel):
     api_key: SecretStr | None = None
     response_model: str = "gpt-5.6-terra"
     realtime_model: str = "gpt-realtime-2.1"
+    delegate_model: str = "gpt-5.6-terra"
+    delegate_reasoning_effort: str = "low"
 
     @field_validator(
         "response_model",
         "realtime_model",
+        "delegate_model",
+        "delegate_reasoning_effort",
     )
     @classmethod
     def normalize_required_string(cls, value: str) -> str:
@@ -681,6 +685,10 @@ class VoiceSettings(BaseModel):
         "assets/voice/effects/acknowledgement.wav"
     )
     error_effect_path: Path = Path("assets/voice/effects/error.wav")
+    realtime_connect_timeout_seconds: float = Field(default=3.0, gt=0, le=15)
+    delegate_timeout_seconds: float = Field(default=12.0, gt=0, le=30)
+    realtime_episode_max_seconds: float = Field(default=120.0, gt=0, le=600)
+    realtime_call_ledger_cap: int = Field(default=64, ge=1, le=256)
 
     # 얼굴을 알아본 순간 이름을 부르고 날씨와 관심사를 전한다.
     greeting_enabled: bool = True

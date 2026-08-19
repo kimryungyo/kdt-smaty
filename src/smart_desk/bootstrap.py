@@ -438,6 +438,7 @@ def build_container(settings: Settings) -> AppContainer:
                 RealtimeVoiceConfig,
                 RealtimeVoiceRuntime,
             )
+            from smart_desk.modules.assistant.delegation import build_openai_delegate
             from smart_desk.modules.voice.audio import LocalAudioInput, LocalPcmOutput
             from smart_desk.modules.voice.debug import VoiceDebugServer, VoiceDebugView
             from smart_desk.modules.voice.playback import PlaybackCoordinator
@@ -474,7 +475,17 @@ def build_container(settings: Settings) -> AppContainer:
                 automation=automation, wled=container.wled,
                 tilt=container.tilt, activity_modes=activity_modes,
                 tilt_level_range=(settings.tilt.min_level, settings.tilt.max_level),
-                config=RealtimeVoiceConfig(model=settings.openai.realtime_model),
+                config=RealtimeVoiceConfig(
+                    model=settings.openai.realtime_model,
+                    connect_timeout_seconds=settings.voice.realtime_connect_timeout_seconds,
+                    call_ledger_cap=settings.voice.realtime_call_ledger_cap,
+                    episode_max_seconds=settings.voice.realtime_episode_max_seconds,
+                ),
+                delegate=build_openai_delegate(
+                    api_key=api_key.get_secret_value(), model=settings.openai.delegate_model,
+                    reasoning_effort=settings.openai.delegate_reasoning_effort,
+                    timeout_seconds=settings.voice.delegate_timeout_seconds,
+                ),
             )
             voice = VoiceService(
                 audio_input=audio_input,
