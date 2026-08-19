@@ -9,6 +9,14 @@ import sys
 from typing import Any
 
 
+# 로그로 내보내도 되는 진단 필드. 사용자 발화나 provider 본문은 담지 않고,
+# 상태 이름과 오류 code 같은 고정 어휘만 담는다.
+DIAGNOSTIC_FIELDS = (
+    "task_name", "resource", "error_code", "from_state", "to_state",
+    "retry_seconds", "timeout_seconds",
+)
+
+
 class JsonFormatter(logging.Formatter):
     """운영 로그의 공통 필드를 JSON 객체로 변환한다."""
 
@@ -20,10 +28,9 @@ class JsonFormatter(logging.Formatter):
             "event": getattr(record, "event", "log"),
             "detail": record.getMessage(),
         }
-        if hasattr(record, "task_name"):
-            payload["task_name"] = record.task_name
-        if hasattr(record, "resource"):
-            payload["resource"] = record.resource
+        for field in DIAGNOSTIC_FIELDS:
+            if hasattr(record, field):
+                payload[field] = getattr(record, field)
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False)

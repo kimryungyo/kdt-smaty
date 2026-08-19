@@ -6,7 +6,7 @@ from collections.abc import AsyncIterable, AsyncIterator
 from smart_desk.config.settings import VoiceSettings
 from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.assistant.agents_runtime import VoiceRuntimeEvent, VoiceRuntimeEventType, VoiceRuntimeLifecycle
-from smart_desk.modules.voice.models import AudioChunk, EffectName, INPUT_FRAME_SAMPLES, VoiceState
+from smart_desk.modules.voice.models import AudioChunk, EffectName, INPUT_FRAME_SAMPLES, VoiceFatalError, VoiceState
 from smart_desk.modules.voice.service import VoiceService
 
 
@@ -120,6 +120,11 @@ async def wait_state(service: VoiceService, state: VoiceState) -> None:
     async with asyncio.timeout(1):
         while service.get_snapshot().state is not state:
             await asyncio.sleep(0)
+
+
+async def wait_reopen(playback: "Playback", opens: int) -> None:
+    async with asyncio.timeout(1):
+        while playback.opens < opens: await asyncio.sleep(0)
 
 
 async def wait_accepting(audio: Audio) -> None:
@@ -306,3 +311,63 @@ async def test_stop_is_idempotent_and_partial_start_cancellation_cleans_resource
     voice, _, _, runtime = service([])
     await voice.start(); await voice.stop(); await voice.stop()
     assert runtime.closed == 1
+
+
+class FatalSpeechPlayback(Playback):
+    async def play_speech(self, chunks: AsyncIterator[bytes]) -> None:
+        async for _chunk in chunks:
+            raise VoiceFatalError("speaker_failed")
+
+
+class DeadSpeaker(Playback):
+    """USB가 다시 연결되면서 열어 둔 stream이 죽은 스피커."""
+
+    def __init__(self, *, heal_after: int) -> None:
+        super().__init__()
+        self.heal_after = heal_after
+        self.opens = 0
+
+    async def start(self) -> None:
+        await super().start()
+        self.opens += 1
+
+    async def play_effect(self, effect: EffectName) -> None:
+        if self.opens <= self.heal_after:
+            raise VoiceFatalError("speaker_failed")
+        await super().play_effect(effect)
+
+
+async def test_dead_speaker_during_wake_effect_reopens_device_instead_of_stopping(monkeypatch) -> None:
+    monkeypatch.setattr("smart_desk.modules.voice.service.DEVICE_RETRY_INTERVAL_SECONDS", 0.01)
+    events = [VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT), VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"), VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED)]
+    playback = DeadSpeaker(heal_after=1)
+    voice, audio, _, runtime = service(events, playback=playback)
+    await voice.start()
+    await wait_accepting(audio)
+    audio.feed(0)
+    # 첫 turn은 깨움 효과음에서 죽지만, 서비스가 멈추는 대신 장치를 다시 연다.
+    await wait_state(voice, VoiceState.ERROR)
+    await wait_reopen(playback, 2)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    await wait_accepting(audio)
+    audio.feed(0)
+    await wait_state(voice, VoiceState.RECORDING)
+    await wait_accepting(audio)
+    audio.feed(500)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    assert playback.audio == [b"\x01\x00"]
+    assert runtime.outcomes[-1] == ("SUCCEEDED", None)
+    await voice.stop()
+
+
+async def test_speaker_loss_inside_turn_reaches_device_retry(monkeypatch) -> None:
+    monkeypatch.setattr("smart_desk.modules.voice.service.DEVICE_RETRY_INTERVAL_SECONDS", 0.01)
+    events = [VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT), VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00")]
+    playback = FatalSpeechPlayback()
+    voice, audio, _, runtime = service(events, playback=playback)
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    # turn은 실패로 마감되고, 같은 stream으로 되돌아가는 대신 장치를 다시 연다.
+    assert runtime.outcomes == [("FAILED", "speaker_failed")]
+    assert playback.starts >= 2
+    await voice.stop()

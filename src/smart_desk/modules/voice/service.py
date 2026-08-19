@@ -34,9 +34,13 @@ LOGGER = logging.getLogger(__name__)
 # The deployment normally recovers the microphone with one planned restart.
 # A slow fallback retry avoids flooding logs while the configured device is unplugged.
 DEVICE_RETRY_INTERVAL_SECONDS = 30.0
+# 장치를 다시 열면 회복되는 오류들. USB 재연결처럼 이미 열어 둔 stream이
+# 도중에 죽는 경우도 여기에 든다. 열 때 실패한 것만 복구 대상으로 두면
+# 재연결 뒤 첫 재생에서 서비스가 영구히 멈춘다.
 RECOVERABLE_DEVICE_ERRORS = frozenset({
     "input_device_name_invalid", "microphone_inactive", "microphone_open_failed",
     "output_device_name_invalid", "speaker_open_failed",
+    "speaker_failed", "speaker_not_started", "speaker_close_failed",
 })
 
 
@@ -157,7 +161,7 @@ class VoiceService:
                     extra={
                         "component": "voice",
                         "event": "announcement_failed",
-                        "error": str(error),
+                        "error_code": getattr(error, "code", type(error).__name__),
                     },
                 )
                 return False
@@ -259,6 +263,11 @@ class VoiceService:
             self._enter_waiting_wake(clear_followup=True)
         except VoiceFatalError as error:
             await self._finalize("FAILED", error_code=error.code)
+            if error.code in RECOVERABLE_DEVICE_ERRORS:
+                # 장치가 사라진 뒤에는 같은 stream으로 대기 상태에 돌아가 봐야
+                # 다음 turn도 같은 자리에서 실패한다. supervisor가 장치를
+                # 다시 열도록 올려보낸다.
+                raise
             await self._recover_turn_error(error.code)
         except Exception:
             await self._finalize("FAILED", error_code="voice_pipeline_failed")

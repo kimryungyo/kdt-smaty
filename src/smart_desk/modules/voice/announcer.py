@@ -55,14 +55,14 @@ class SpeechAnnouncer:
             LOGGER.warning(
                 "알림을 소리로 바꾸지 못했습니다.",
                 extra={"component": "voice.announcer", "event": "announce_tts_failed",
-                       "error": error.code},
+                       "error_code": error.code},
             )
             return False
         except Exception as error:
             LOGGER.warning(
                 "알림을 말하지 못했습니다.",
                 extra={"component": "voice.announcer", "event": "announce_failed",
-                       "error": str(error)},
+                       "error_code": getattr(error, "code", type(error).__name__)},
             )
             return False
 
