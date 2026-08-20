@@ -380,10 +380,15 @@ def build_container(settings: Settings) -> AppContainer:
     if settings.profile_memory.enabled:
         api_key = settings.openai.api_key
         assert api_key is not None  # Settings validates this dependency at startup.
-        llm_config = {
+        llm_config: dict[str, object] = {
             "api_key": api_key.get_secret_value(),
             "model": settings.openai.response_model,
         }
+        # Mem0는 이름만 보고 추론 모델을 판별하며 gpt-5.x 변종을 제외한다.
+        # 그런 모델에 temperature를 보내면 400이 되어 기억 저장이 통째로
+        # 실패하므로, 설정으로 판별을 덮어쓸 수 있게 한다.
+        if settings.profile_memory.llm_is_reasoning_model is not None:
+            llm_config["is_reasoning_model"] = settings.profile_memory.llm_is_reasoning_model
         embedder_config = {
             "api_key": api_key.get_secret_value(),
             "model": settings.profile_memory.embedding_model,

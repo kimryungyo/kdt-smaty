@@ -644,6 +644,10 @@ class ProfileMemorySettings(BaseModel):
     fact_limit: int = Field(default=500, ge=1, le=2000)
     circuit_failure_threshold: int = Field(default=3, ge=1, le=20)
     circuit_open_seconds: float = Field(default=30.0, gt=0, le=300, allow_inf_nan=False)
+    # Mem0의 이름 기반 추론 모델 판별은 gpt-5.x 변종을 일부러 제외한다. 그런
+    # 모델은 temperature를 거부하므로 fact 추출이 400으로 실패한다. None이면
+    # Mem0 기본 판별을 그대로 두고, True/False로 명시 지정할 수 있다.
+    llm_is_reasoning_model: bool | None = None
 
 
 class VoiceSettings(BaseModel):
