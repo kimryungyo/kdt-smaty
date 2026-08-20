@@ -386,9 +386,12 @@ class VoiceService:
                     wait_for_event: set[asyncio.Task[object]] = {event_wait}
                     if not saw_transcript and not speech_started.is_set():
                         wait_for_event.update((input_ended_wait, speech_started_wait))
+                    # 녹음 제한은 "사용자 발화가 STT로 확정되기를 기다리는" 한계다.
+                    # 응답 재생이 시작되었다면 그 기다림은 이미 끝난 것이므로,
+                    # 입력 전사가 늦게 오더라도 진행 중인 응답을 끊지 않는다.
                     remaining = (
                         max(0.0, recording_deadline - time.monotonic())
-                        if not saw_transcript
+                        if not saw_transcript and playback_task is None
                         else None
                     )
                     done, _ = await asyncio.wait(

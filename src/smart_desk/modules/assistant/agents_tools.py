@@ -34,8 +34,18 @@ class SmartDeskAgentContext:
     activity_modes: Any | None = None
     # 이 책상이 실제로 받는 틸트 단계 범위. 도구가 값을 거를 때 쓴다.
     tilt_level_range: tuple[int, int] = (0, 3)
+    # 얼굴 인식이 끊긴 동안 개인화 명령이 참고할 직전 사용자. 없으면 None이다.
+    recent_user: Any | None = None
     followup_requested: bool = False
     assistant_response: str = ""
+
+    async def personalization_profile_id(self) -> str | None:
+        """개인화 명령이 쓸 profile_id. 살아 있는 세션이 언제나 우선한다."""
+        if self.turn_context.profile_id is not None:
+            return self.turn_context.profile_id
+        if self.recent_user is None:
+            return None
+        return await self.recent_user.profile_id()
 
     async def valid_mutation(self) -> bool:
         return self.turn_context.session_id is not None and await self.sessions.is_valid(self.turn_context)
@@ -92,9 +102,9 @@ def build_smart_desk_tools() -> list[Any]:
     """Build the local SDK function tools for a per-turn context."""
 
     async def guarded(ctx: RunContextWrapper[SmartDeskAgentContext]) -> SmartDeskAgentContext | None:
+        # 기기 제어는 얼굴 인식 세션과 무관하게 항상 받는다. 로그인한 사용자가
+        # 없거나 인식이 흔들리는 동안에도 사용자가 말로 책상을 다룰 수 있어야 한다.
         context = ctx.context
-        if not await context.valid_mutation():
-            return None
         await context.tool_started()
         return context
 
@@ -118,9 +128,9 @@ def build_smart_desk_tools() -> list[Any]:
         if context is None:
             return _error("session_mismatch")
         try:
-            await context.automation.hold(
-                Direction(direction.upper()), expected_session_id=context.turn_context.session_id
-            )
+            # 음성 제어는 얼굴 인식과 무관하게 받는다. None은 Dashboard/HTTP와 같은
+            # identity 비의존 경로로, session 소유권 검사를 건너뛴다.
+            await context.automation.hold(Direction(direction.upper()), expected_session_id=None)
             return _ok(direction=direction)
         except Exception:
             return _error("desk_command_failed")
@@ -135,7 +145,7 @@ def build_smart_desk_tools() -> list[Any]:
         if context is None:
             return _error("session_mismatch")
         try:
-            await context.automation.set_target(height_cm, expected_session_id=context.turn_context.session_id)
+            await context.automation.set_target(height_cm, expected_session_id=None)
             return _ok(height_cm=height_cm)
         except Exception:
             return _error("desk_command_failed")
@@ -150,7 +160,7 @@ def build_smart_desk_tools() -> list[Any]:
         if context is None:
             return _error("session_mismatch")
         try:
-            await context.automation.set_control_mode(ControlMode(mode.upper()), context.turn_context.session_id)
+            await context.automation.set_control_mode(ControlMode(mode.upper()), None)
             return _ok(mode=mode)
         except Exception:
             return _error("desk_command_failed")
@@ -163,8 +173,13 @@ def build_smart_desk_tools() -> list[Any]:
         context = await guarded(ctx)
         if context is None:
             return _error("session_mismatch")
+        profile_id = await context.personalization_profile_id()
+        if profile_id is None:
+            return _error("session_mismatch")
         try:
-            await context.automation.set_activity_mode(key, context.turn_context.session_id)
+            await context.automation.set_activity_mode(
+                key, context.turn_context.session_id, profile_id=profile_id
+            )
             return _ok(key=key)
         except Exception:
             return _error("desk_command_failed")
@@ -180,7 +195,7 @@ def build_smart_desk_tools() -> list[Any]:
         await context.tool_started()
         if context.activity_modes is None:
             return _error("activity_modes_unavailable")
-        profile_id = context.turn_context.profile_id
+        profile_id = await context.personalization_profile_id()
         if profile_id is None:
             return _error("session_mismatch")
         try:
@@ -274,7 +289,8 @@ def build_smart_desk_tools() -> list[Any]:
         if context.wled is None:
             return _error("wled_unavailable")
         try:
-            value = await getattr(context.wled, method)(*args, expected_session_id=context.turn_context.session_id, **kwargs)
+            # 조명도 기기 제어다. 얼굴 인식과 무관하게 받는다.
+            value = await getattr(context.wled, method)(*args, expected_session_id=None, **kwargs)
             return _ok(on=value.on, brightness=value.brightness, mode=value.mode.value if value.mode else None)
         except Exception:
             return _error("wled_command_failed")
@@ -400,8 +416,6 @@ def build_smart_desk_tools() -> list[Any]:
     async def request_followup(ctx: RunContextWrapper[SmartDeskAgentContext]) -> dict[str, object]:
         """Request a short follow-up listening window only when another answer is needed."""
         context = ctx.context
-        if not await context.valid_mutation():
-            return _error("session_mismatch")
         await context.tool_started()
         context.followup_requested = True
         return _ok(followup_requested=True)

@@ -94,6 +94,7 @@ class AppContainer:
     automation: AutomationService | None = None
     profile_memory: ProfileMemoryService | None = None
     assistant_context: CurrentUserSessionManager | None = None
+    recent_user: object | None = None
     assistant_turns: AssistantTurnStore | None = None
     resources: list[ResourceRegistration] = field(default_factory=list)
     started_resources: list[ResourceRegistration] = field(default_factory=list)

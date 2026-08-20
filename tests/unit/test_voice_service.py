@@ -116,6 +116,26 @@ class StuckOnEmptyInputRuntime(Runtime):
             yield VoiceRuntimeEvent(0, VoiceRuntimeEventType.ERROR)
 
 
+class SlowTranscriptRuntime(Runtime):
+    """응답 오디오가 먼저 흐르고 입력 전사가 녹음 제한보다 늦게 도착한다."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.release = asyncio.Event()
+
+    async def run_audio(self, chunks: AsyncIterable[bytes]) -> AsyncIterator[VoiceRuntimeEvent]:
+        iterator = chunks.__aiter__()
+        try:
+            self.received.append(await anext(iterator))
+        except StopAsyncIteration:
+            return
+        yield VoiceRuntimeEvent(1, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00")
+        await self.release.wait()
+        yield VoiceRuntimeEvent(2, VoiceRuntimeEventType.TRANSCRIPT, transcript="늦은 전사")
+        yield VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE,
+                                lifecycle=VoiceRuntimeLifecycle.TURN_ENDED)
+
+
 async def wait_state(service: VoiceService, state: VoiceState) -> None:
     async with asyncio.timeout(1):
         while service.get_snapshot().state is not state:
@@ -462,4 +482,24 @@ async def test_followup_opens_on_sustained_speech() -> None:
     for _ in range(3):
         audio.feed(5000)
     await wait_state(voice, VoiceState.RECORDING)
+    await voice.stop()
+
+
+async def test_recording_timeout_does_not_cut_response_already_playing() -> None:
+    """응답 재생이 시작된 뒤에는 입력 전사가 늦어도 녹음 제한이 turn을 끊지 않는다."""
+    events = [
+        VoiceRuntimeEvent(1, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.TRANSCRIPT, transcript="늦은 전사"),
+        VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+    ]
+    runtime = SlowTranscriptRuntime()
+    voice, audio, playback, _ = service(events, runtime=runtime, settings=VoiceSettings(
+        speech_start_timeout_seconds=.1, post_playback_guard_seconds=0,
+        followup_timeout_seconds=.2, recording_timeout_seconds=.3))
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.SPEAKING)
+    # 녹음 제한(0.3초)을 넘겨도 재생 중인 응답은 살아 있어야 한다.
+    await asyncio.sleep(.5)
+    assert voice.get_snapshot().last_error != "voice_recording_timeout"
+    runtime.release.set()
     await voice.stop()

@@ -274,13 +274,16 @@ class AutomationService:
                         blocked_reason_codes=self._without_stop_failure(),
                     )
 
-    async def set_control_mode(self, mode: ControlMode, expected_session_id: str) -> None:
+    async def set_control_mode(self, mode: ControlMode, expected_session_id: str | None) -> None:
+        # None은 Dashboard/HTTP와 음성이 공유하는 identity 비의존 경로다.
+        # 제어 방식 전환은 프로필을 읽지 않으므로 사용자 없이도 받는다.
         async with self._command_lock:
-            current = await self._users.snapshot()
-            if current is None or current.session_id != expected_session_id:
-                raise AutomationConflictError("SESSION_MISMATCH")
+            if expected_session_id is not None:
+                current = await self._users.snapshot()
+                if current is None or current.session_id != expected_session_id:
+                    raise AutomationConflictError("SESSION_MISMATCH")
             async with self._state_lock:
-                if self._snapshot.session_id != expected_session_id:
+                if expected_session_id is not None and self._snapshot.session_id != expected_session_id:
                     raise AutomationConflictError("SESSION_MISMATCH")
                 live = self._invalidate_locked("CONTROL_MODE")
                 blocked = self._with_stop_failure(())
@@ -299,17 +302,31 @@ class AutomationService:
             if live or mode is ControlMode.AUTO:
                 await self._stop_or_block("제어 방식 전환 전 정지")
 
-    async def set_activity_mode(self, key: str, expected_session_id: str) -> None:
+    async def set_activity_mode(
+        self, key: str, expected_session_id: str | None, *, profile_id: str | None = None
+    ) -> None:
+        """Select an activity mode for the session owner, or for ``profile_id``.
+
+        음성은 얼굴 인식이 끊긴 동안에도 모드를 바꿀 수 있어야 한다. 그때는
+        session 소유권 대신 부르는 쪽이 고른 profile을 그대로 쓴다. session을
+        넘긴 호출은 예전처럼 소유권을 끝까지 검사한다.
+        """
         async with self._command_lock:
             current = await self._users.snapshot()
-            if (current is None or current.session_id != expected_session_id
-                    or current.kind is not SessionKind.REGISTERED or current.profile_id is None):
-                raise AutomationConflictError("SESSION_MISMATCH")
-            selected = await self._read_mode(current.profile_id, key)
-            if not await self._users.is_current(expected_session_id):
+            if expected_session_id is not None:
+                if (current is None or current.session_id != expected_session_id
+                        or current.kind is not SessionKind.REGISTERED or current.profile_id is None):
+                    raise AutomationConflictError("SESSION_MISMATCH")
+                owner_profile_id = current.profile_id
+            else:
+                if profile_id is None:
+                    raise AutomationConflictError("SESSION_MISMATCH")
+                owner_profile_id = profile_id
+            selected = await self._read_mode(owner_profile_id, key)
+            if expected_session_id is not None and not await self._users.is_current(expected_session_id):
                 raise AutomationConflictError("SESSION_MISMATCH")
             async with self._state_lock:
-                if self._snapshot.session_id != expected_session_id:
+                if expected_session_id is not None and self._snapshot.session_id != expected_session_id:
                     raise AutomationConflictError("SESSION_MISMATCH")
                 control = self._snapshot.control_mode or ControlMode.AUTO
                 live = self._invalidate_locked("ACTIVITY_MODE") if control is ControlMode.AUTO else False
@@ -327,8 +344,8 @@ class AutomationService:
             # Mode selection and its LED are committed independently of the
             # Desk preemption outcome; a failed STOP must not roll either back.
             self._queue_led(*self._install_mode_lighting(selected))
-            self._remember_mode(current.profile_id, selected.key)
-            await self._begin_usage(current.profile_id, selected)
+            self._remember_mode(owner_profile_id, selected.key)
+            await self._begin_usage(owner_profile_id, selected)
             if live:
                 await self._stop_or_block("작업 모드 변경 전 정지")
 

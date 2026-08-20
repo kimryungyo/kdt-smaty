@@ -63,15 +63,16 @@ def test_build_container_assembles_desk_io_once_before_mqtt_start() -> None:
         "vision",
         "face-identity",
         "profile-memory",
+        "recent-user",
         "assistant-context",
         "assistant-turns",
         "desk-automation",
     ]
     assert [registration.startup_order for registration in container.resources] == [
-        5, 10, 20, 30, 60, 70, 72, 75, 76, 80,
+        5, 10, 20, 30, 60, 70, 72, 74, 75, 76, 80,
     ]
     assert [registration.shutdown_order for registration in container.resources] == [
-        5, 10, 20, 30, 60, 70, 72, 75, 76, 80,
+        5, 10, 20, 30, 60, 70, 72, 74, 75, 76, 80,
     ]
 
     qos, handler = container.mqtt._handlers[ESP32_STATUS_TOPIC]  # noqa: SLF001
@@ -170,6 +171,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         "vision",
         "face-identity",
         "profile-memory",
+        "recent-user",
         "assistant-context",
         "assistant-turns",
         "desk-automation",
@@ -190,6 +192,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         "vision",
         "face-identity",
         "profile-memory",
+        "recent-user",
         "assistant-context",
         "assistant-turns",
         "desk-automation",
@@ -214,11 +217,11 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
         )
     )
 
-    assert [registration.startup_order for registration in enabled.resources][-10:] == [
-        42, 50, 51, 52, 60, 70, 72, 75, 76, 80
+    assert [registration.startup_order for registration in enabled.resources][-11:] == [
+        42, 50, 51, 52, 60, 70, 72, 74, 75, 76, 80
     ]
-    assert [registration.shutdown_order for registration in enabled.resources][-10:] == [
-        42, 50, 51, 52, 60, 70, 72, 75, 76, 80
+    assert [registration.shutdown_order for registration in enabled.resources][-11:] == [
+        42, 50, 51, 52, 60, 70, 72, 74, 75, 76, 80
     ]
     assert [
         registration.name
@@ -227,10 +230,11 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             key=lambda registration: registration.shutdown_order,
             reverse=True,
         )
-    ][:11] == [
+    ][:12] == [
         "desk-automation",
         "assistant-turns",
         "assistant-context",
+        "recent-user",
         "profile-memory",
         "face-identity",
         "vision",

@@ -185,6 +185,7 @@ class RealtimeVoiceRuntime:
         tilt: Any | None = None,
         activity_modes: Any | None = None,
         tilt_level_range: tuple[int, int] = (0, 3),
+        recent_user: Any | None = None,
         delegate: Any | None = None,
         config: RealtimeVoiceConfig = RealtimeVoiceConfig(),
         transport_factory: TransportFactory | None = None,
@@ -242,6 +243,7 @@ class RealtimeVoiceRuntime:
                 tilt=tilt,
                 activity_modes=activity_modes,
                 tilt_level_range=tilt_level_range,
+                recent_user=recent_user,
             )
             current = asyncio.current_task()
             if current is not None:

@@ -81,12 +81,13 @@ async def _invoke(context: SmartDeskAgentContext, name: str, **arguments: Any) -
     return await tool.on_invoke_tool(ToolContext(context, tool_name=name, tool_call_id="call", tool_arguments=json.dumps(arguments)), json.dumps(arguments))
 
 
-async def test_mutation_tools_pass_expected_session_and_wled_effect() -> None:
+async def test_device_control_uses_identity_independent_path_and_wled_effect() -> None:
+    """기기 제어는 얼굴 인식과 무관하게 None(identity 비의존) 경로로 내려간다."""
     context, _users, automation, wled, _memory, _turns = await _context()
     assert (await _invoke(context, "hold_desk", direction="up"))["ok"] is True
     assert (await _invoke(context, "set_wled_effect", effect_id=2, palette_id=3))["ok"] is True
-    assert automation.calls[0][2]["expected_session_id"] == "session-a"
-    assert wled.calls[0] == ("set_effect", (2,), {"expected_session_id": "session-a", "palette_id": 3, "speed": 128, "intensity": 128, "color": None})
+    assert automation.calls[0][2]["expected_session_id"] is None
+    assert wled.calls[0] == ("set_effect", (2,), {"expected_session_id": None, "palette_id": 3, "speed": 128, "intensity": 128, "color": None})
 
 
 async def test_successful_final_turn_contains_only_compact_assistant_response() -> None:
@@ -106,15 +107,18 @@ async def test_successful_final_turn_contains_only_compact_assistant_response() 
     assert latest.phase.value == "FINAL" and latest.status is TurnStatus.SUCCEEDED
 
 
-async def test_stop_survives_invalidation_but_every_other_mutation_is_blocked() -> None:
-    context, users, automation, wled, _memory, _turns = await _context()
+async def test_device_control_survives_invalidation_but_memory_does_not() -> None:
+    """사용자가 바뀌어도 기기 제어는 계속 받는다. 개인화만 session을 따진다."""
+    context, users, automation, wled, memory, _turns = await _context()
     await users.select(SessionKind.REGISTERED, "profile-b", "switch")
     assert (await _invoke(context, "stop_desk"))["ok"] is True
-    assert (await _invoke(context, "set_desk_target", height_cm=70))["error"] == {"code": "session_mismatch"}
-    assert (await _invoke(context, "turn_wled_on"))["error"] == {"code": "session_mismatch"}
-    assert (await _invoke(context, "request_followup"))["error"] == {"code": "session_mismatch"}
-    assert [call[0] for call in automation.calls] == ["stop_motion"]
-    assert not wled.calls
+    assert (await _invoke(context, "set_desk_target", height_cm=70))["ok"] is True
+    assert (await _invoke(context, "turn_wled_on"))["ok"] is True
+    assert (await _invoke(context, "request_followup"))["ok"] is True
+    # 남의 기억을 말하거나 남기지 않는다.
+    assert (await _invoke(context, "remember_fact", fact="likes tea"))["error"] == {"code": "memory_not_available"}
+    assert [call[0] for call in automation.calls] == ["stop_motion", "set_target"]
+    assert wled.calls and not memory.saved
 
 
 async def test_null_context_blocks_every_non_stop_mutation() -> None:
@@ -127,21 +131,18 @@ async def test_null_context_blocks_every_non_stop_mutation() -> None:
     turn = await turns.create(None, None)
     automation, wled, memory = _Automation(), _Wled(), _Memory()
     context = SmartDeskAgentContext(captured, sessions, memory, turns, turn.turn_id, turn.sequence, automation, wled)
+    # 등록 사용자가 없으면 개인화 명령만 막힌다. 기기 제어는 그대로 받는다.
     for name, arguments in (
-        ("hold_desk", {"direction": "up"}),
-        ("set_desk_target", {"height_cm": 70}),
-        ("set_control_mode", {"mode": "manual"}),
         ("set_activity_mode", {"key": "focus"}),
-        ("turn_wled_on", {}),
-        ("set_wled_effect", {"effect_id": 1}),
         ("remember_fact", {"fact": "likes tea"}),
         ("recall_facts", {"query": "tea"}),
-        ("request_followup", {}),
     ):
         assert (await _invoke(context, name, **arguments))["ok"] is False
     assert (await _invoke(context, "stop_desk"))["ok"] is True
-    assert [call[0] for call in automation.calls] == ["stop_motion"]
-    assert not wled.calls and not memory.saved
+    assert (await _invoke(context, "set_desk_target", height_cm=70))["ok"] is True
+    assert (await _invoke(context, "turn_wled_on"))["ok"] is True
+    assert [call[0] for call in automation.calls] == ["stop_motion", "set_target"]
+    assert wled.calls and not memory.saved
 
 
 async def test_current_personalization_block_allows_manual_mutation_but_not_memory() -> None:
@@ -149,7 +150,8 @@ async def test_current_personalization_block_allows_manual_mutation_but_not_memo
     assert (await _invoke(context, "set_desk_target", height_cm=70))["ok"] is True
     assert (await _invoke(context, "remember_fact", fact="likes tea"))["error"] == {"code": "memory_not_available"}
     assert (await _invoke(context, "recall_facts", query="tea"))["error"] == {"code": "memory_not_available"}
-    assert automation.calls[0][2]["expected_session_id"] == "session-a"
+    # 기기 제어는 identity 비의존 경로(None)로 내려간다.
+    assert automation.calls[0][2]["expected_session_id"] is None
     assert not memory.saved
 
 

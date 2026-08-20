@@ -410,6 +410,10 @@ def build_container(settings: Settings) -> AppContainer:
         current_user, item_cap=settings.voice.session_history_item_cap
     )
     container.assistant_turns = AssistantTurnStore(current_user)
+    # 얼굴 인식이 끊긴 동안에도 모드 변경이 되도록 직전 사용자를 따로 기억한다.
+    from smart_desk.modules.identity.recent_user import RecentUserMemory
+
+    container.recent_user = RecentUserMemory(current_user=current_user)
     extractor = UnavailableFaceEmbeddingExtractor()
     if settings.vision_client.enabled:
         extractor = RemoteFaceEmbeddingExtractor()
@@ -439,6 +443,8 @@ def build_container(settings: Settings) -> AppContainer:
                                             startup_order=70, shutdown_order=70))
     container.register(ResourceRegistration(name="profile-memory", resource=container.profile_memory,
                                             startup_order=72, shutdown_order=72))
+    container.register(ResourceRegistration(name="recent-user", resource=container.recent_user,
+                                            startup_order=74, shutdown_order=74))
     container.register(ResourceRegistration(name="assistant-context", resource=container.assistant_context,
                                             startup_order=75, shutdown_order=75))
     container.register(ResourceRegistration(name="assistant-turns", resource=container.assistant_turns,
@@ -507,6 +513,7 @@ def build_container(settings: Settings) -> AppContainer:
                 automation=automation, wled=container.wled,
                 tilt=container.tilt, activity_modes=activity_modes,
                 tilt_level_range=(settings.tilt.min_level, settings.tilt.max_level),
+                recent_user=container.recent_user,
                 config=RealtimeVoiceConfig(
                     model=settings.openai.realtime_model,
                     voice=settings.voice.realtime_voice,
