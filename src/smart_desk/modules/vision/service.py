@@ -350,9 +350,13 @@ class VisionService:
             self._stable_presence = self._stabilize_presence(raw_presence)
         if not (force_stale or lower_immediate) and advance_posture:
             self._stable_posture = self._stabilize_posture(raw_posture)
+        # usable은 "관측을 믿을 수 있는가"만 뜻한다. 사람이 몇 명인지는 여기서
+        # 따지지 않고 stable_presence로 노출해, 소비자가 정책에 맞게 판단한다.
+        # 여럿이 보인다고 관측이 틀린 것은 아니기 때문이다.
         usable = (
             not immediate_reasons
-            and self._stable_presence is PresenceStatus.PRESENT_SINGLE
+            and self._stable_presence in (PresenceStatus.PRESENT_SINGLE,
+                                          PresenceStatus.MULTIPLE)
             and self._stable_posture is not PostureStatus.UNKNOWN
         )
         reason_codes = self._effective_reason_codes(

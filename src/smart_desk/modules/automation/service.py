@@ -709,7 +709,12 @@ class AutomationService:
             self._schedule_locked(target, IntentSource.AUTO, current.session_id)
 
     def _auto_usable(self, vision: VisionSnapshot) -> bool:
-        return (vision.usable and vision.stable_presence is PresenceStatus.PRESENT_SINGLE
+        # 사람이 여럿 보여도 자동 이동을 막지 않는다. 지나가는 사람이나 검출
+        # 흔들림으로 한 프레임만 둘이 되어도 이동이 끊겨, 목표와 다른 높이에
+        # 멈춘 채 남는 일이 잦았다. 자리에 아무도 없을 때만 이동을 보류한다.
+        return (vision.usable
+                and vision.stable_presence in (PresenceStatus.PRESENT_SINGLE,
+                                               PresenceStatus.MULTIPLE)
                 and vision.stable_posture in (PostureStatus.SITTING, PostureStatus.STANDING)
                 and self._pair(vision) is not None)
 
