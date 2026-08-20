@@ -671,7 +671,7 @@ class VoiceSettings(BaseModel):
     wakeword_inference_interval_frames: int = Field(default=5, ge=1, le=25)
 
     silence_rms_threshold: float = Field(
-        default=500.0,
+        default=1000.0,
         gt=0,
         le=32_767,
         allow_inf_nan=False,

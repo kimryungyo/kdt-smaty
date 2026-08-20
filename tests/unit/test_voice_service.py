@@ -173,8 +173,9 @@ async def test_speech_start_deadline_does_not_end_speech_after_rms_evidence() ->
     chunks = voice._audio_chunks((), speech_already_started=False)  # noqa: SLF001
     waiter = asyncio.create_task(anext(chunks))
     await asyncio.sleep(0)
-    audio.set_accepting(True); audio.feed(500)
-    assert await waiter == pcm(500)
+    # 임계값을 넘는 프레임이 발화 시작 증거가 된다.
+    audio.set_accepting(True); audio.feed(2000)
+    assert await waiter == pcm(2000)
     await asyncio.sleep(.12)
     next_chunk = asyncio.create_task(anext(chunks))
     await asyncio.sleep(0)
