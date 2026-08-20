@@ -512,7 +512,9 @@ class VoiceService:
             self._audio.set_accepting(False)
             self._audio.discard_pending()
             await asyncio.sleep(self._settings.post_playback_guard_seconds)
-            if followup_requested and self._settings.followup_enabled and not self._stopping:
+            # AI의 request_followup 판단과 무관하게 항상 후속 발화 창을 연다.
+            # 창 안에 발화가 없으면 아래 _wait_for_followup_candidate가 조용히 웨이크 대기로 돌린다.
+            if self._settings.followup_enabled and not self._stopping:
                 # Keep post-TTS room/speaker tail out of the follow-up pre-roll.
                 # The hardware stream remains open, but frames are discarded while
                 # accepting is false, so this is strictly half-duplex.
@@ -570,6 +572,10 @@ class VoiceService:
         if deadline is None:
             raise VoiceFatalError("followup_deadline_missing")
         pre_roll: deque[AudioChunk] = deque(maxlen=ceil(self._settings.followup_preroll_seconds / INPUT_FRAME_SECONDS))
+        # 마이크 노이즈 플로어가 임계값 근처에서 요동치는 환경에서는 단일 프레임
+        # 스파이크만으로 turn을 열면 사용자가 말하기도 전에 창이 소진된다.
+        # 연속으로 임계값을 넘는 프레임이 쌓여야 실제 발화로 인정한다.
+        streak = 0
         while (remaining := deadline - time.monotonic()) > 0:
             try:
                 chunk = await self._audio.read(timeout_seconds=remaining)
@@ -577,7 +583,11 @@ class VoiceService:
                 return None
             pre_roll.append(chunk)
             if calculate_rms(chunk.pcm) >= self._settings.silence_rms_threshold:
-                return tuple(pre_roll)
+                streak += 1
+                if streak >= self._settings.followup_speech_frames:
+                    return tuple(pre_roll)
+            else:
+                streak = 0
         return None
 
     async def _finalize(self, outcome: str, *, error_code: str | None = None) -> None:

@@ -702,6 +702,9 @@ class VoiceSettings(BaseModel):
         le=30,
         allow_inf_nan=False,
     )
+    # follow-up 창에서 발화로 인정할 연속 프레임 수. 마이크 노이즈 플로어가
+    # 임계값 근처에서 요동칠 때 단일 프레임 스파이크로 turn이 열리는 것을 막는다.
+    followup_speech_frames: int = Field(default=3, ge=1, le=25)
     followup_preroll_seconds: float = Field(
         default=0.3,
         ge=0.08,

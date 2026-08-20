@@ -393,3 +393,72 @@ async def test_speaker_loss_inside_turn_reaches_device_retry(monkeypatch) -> Non
     assert runtime.outcomes == [("FAILED", "speaker_failed")]
     assert playback.starts >= 2
     await voice.stop()
+
+
+async def test_followup_opens_without_request_and_expires_into_waiting_wake() -> None:
+    """AI가 request_followup을 부르지 않아도 창이 열리고, 발화가 없으면 대기로 돌아간다."""
+    events = [
+        VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+    ]
+    voice, audio, _, runtime = service(events)
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_FOLLOWUP)
+    assert runtime.outcomes == [("SUCCEEDED", None)]
+    # 창 안에 발화가 없으면 조용히 웨이크 대기로 복귀한다.
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    assert voice.get_snapshot().last_error is None
+    await voice.stop()
+
+
+async def test_followup_disabled_returns_straight_to_waiting_wake() -> None:
+    """followup_enabled=False면 창을 열지 않고 곧바로 웨이크 대기로 돌아간다."""
+    events = [
+        VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+    ]
+    voice, audio, _, _ = service(events, settings=VoiceSettings(
+        speech_start_timeout_seconds=.1, post_playback_guard_seconds=0,
+        followup_timeout_seconds=.2, followup_enabled=False))
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    assert voice.get_snapshot().state is VoiceState.WAITING_WAKE
+    await voice.stop()
+
+
+async def test_followup_ignores_single_frame_noise_spike() -> None:
+    """단일 프레임 잡음 스파이크로는 follow-up turn이 열리지 않는다."""
+    events = [
+        VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+    ]
+    voice, audio, _, _ = service(events, settings=VoiceSettings(
+        speech_start_timeout_seconds=.1, post_playback_guard_seconds=0,
+        followup_timeout_seconds=.5, followup_speech_frames=3))
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_FOLLOWUP)
+    # 잡음 스파이크 한 프레임 뒤 무음이 이어지면 streak가 끊겨 창이 유지된다.
+    for _ in range(6):
+        audio.feed(5000); audio.feed(0)
+        await asyncio.sleep(0)
+    assert voice.get_snapshot().state is VoiceState.WAITING_FOLLOWUP
+    # 창이 만료되면 조용히 웨이크 대기로 돌아간다.
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    await voice.stop()
+
+
+async def test_followup_opens_on_sustained_speech() -> None:
+    """연속 프레임이 임계값을 넘으면 follow-up turn이 열린다."""
+    events = [
+        VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+    ]
+    voice, audio, _, _ = service(events, settings=VoiceSettings(
+        speech_start_timeout_seconds=.1, post_playback_guard_seconds=0,
+        followup_timeout_seconds=2, followup_speech_frames=3))
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_FOLLOWUP)
+    for _ in range(3):
+        audio.feed(5000)
+    await wait_state(voice, VoiceState.RECORDING)
+    await voice.stop()
