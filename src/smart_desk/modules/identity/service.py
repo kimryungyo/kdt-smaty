@@ -116,6 +116,7 @@ class FaceIdentityService:
         pairwise_consistency_threshold: float | None = None,
         duplicate_threshold: float | None = None,
         enrollment_sample_interval_seconds: float = 0.0,
+        vacant_grace_seconds: float = 0.0,
     ) -> None:
         self._vision = vision
         self._repo = repository
@@ -129,6 +130,9 @@ class FaceIdentityService:
         self._pairwise_consistency_threshold = pairwise_consistency_threshold
         self._duplicate_threshold = duplicate_threshold
         self._enrollment_sample_interval_seconds = enrollment_sample_interval_seconds
+        self._vacant_grace_seconds = vacant_grace_seconds
+        # VACANT가 처음 연속으로 관측되기 시작한 시각. 사람이 다시 보이면 지운다.
+        self._vacant_since_mono: float | None = None
         self._state_lock = asyncio.Lock()
         self._model_lock = threading.Lock()
         self._stop = asyncio.Event()
@@ -368,10 +372,24 @@ class FaceIdentityService:
                 if generation != self._generation or self._suspension is not None:
                     return self._unknown_identity()
                 self._candidate = None
+                # VACANT 한 번에 곧바로 session을 끝내면, 몸을 잠깐 기울이거나
+                # 검출이 흔들릴 때마다 session이 새로 발급되고 진행 중이던 자동
+                # 이동이 취소된다. 계속 비어 있는 것이 확인될 때만 끝낸다.
+                now = self._monotonic()
+                if self._vacant_since_mono is None:
+                    self._vacant_since_mono = now
+                waited = now - self._vacant_since_mono
+            if waited < self._vacant_grace_seconds:
+                return self._observation(
+                    IdentityStatus.UNKNOWN, None, identity.observed_at
+                )
             current = await self._current.snapshot()
             if current is not None:
                 await self._current.end_if_current(current.session_id, "VACANT")
             return self._observation(IdentityStatus.UNKNOWN, None, identity.observed_at)
+        # 사람이 보이면 부재 시계를 지운다. 잠깐의 VACANT는 누적되지 않는다.
+        async with self._state_lock:
+            self._vacant_since_mono = None
         if presence is not PresenceStatus.PRESENT_SINGLE:
             async with self._state_lock:
                 if generation != self._generation or self._suspension is not None:

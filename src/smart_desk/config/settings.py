@@ -561,6 +561,12 @@ class AutomationSettings(BaseModel):
     # 후보와 다른 자세가 이 시간 안에 지나가면 흔들림으로 보고 세던 시간을
     # 지킨다. 자세 인식은 앉고 서는 동안 몇 초씩 오락가락한다.
     posture_flicker_grace_seconds: float = Field(default=2.0, ge=0, le=10, allow_inf_nan=False)
+    # 자리를 비운 것으로 보고 사용자 session을 끝내기까지 기다리는 시간이다.
+    # VACANT 한 번에 곧바로 끝내면, 화면 밖으로 잠깐 몸을 기울이거나 검출이
+    # 흔들릴 때마다 session이 새로 발급되고 진행 중이던 자동 이동이 취소된다.
+    session_vacant_grace_seconds: float = Field(
+        default=30.0, ge=0, le=300, allow_inf_nan=False
+    )
     auto_rearm_distance_cm: float = Field(default=1.5, gt=1.0, le=5.0, allow_inf_nan=False)
     auto_rearm_seconds: float = Field(default=3.0, gt=0, le=30, allow_inf_nan=False)
     # 조명 시각 스케줄이 쓰는 현지 시간대. 컨테이너는 UTC로 도는 경우가 많아

@@ -23,7 +23,9 @@ from smart_desk.modules.profiles.activity_modes import (
 )
 from smart_desk.modules.profiles.led_schedule import LedSchedule, parse_schedule
 from smart_desk.modules.profiles.models import ActivityMode, EffectiveActivityMode
-from smart_desk.modules.vision.models import PresenceStatus, PostureStatus, VisionSnapshot
+from smart_desk.modules.vision.models import (
+    BlockCode, PresenceStatus, PostureStatus, VisionSnapshot,
+)
 
 
 class AutomationConflictError(RuntimeError):
@@ -615,9 +617,15 @@ class AutomationService:
         # _finish_automatic_if_idle can fail-close a live intent when the Desk
         # reports ERROR. Do not let this same fresh vision frame overwrite that
         # terminal state with OBSERVING or schedule another target.
+        #
+        # DESK_STOPPED_BEFORE_TARGET은 여기 넣지 않는다. 그것은 고장이 아니라
+        # "목표에 못 미치고 멈췄다"는 사실 기록이다. Vision이 잠깐 흔들려 이동이
+        # 중단되면 이 코드가 남는데, 차단 집합에 넣어 두면 아래 재개 경로에
+        # 영영 도달하지 못해 세션이 바뀔 때까지 목표와 다른 높이로 방치된다.
+        # 재개해도 _auto_usable과 자세 확인을 다시 거치고, 이미 목표 범위면
+        # READY로 끝나므로 무한 재시도가 되지 않는다.
         if {
             "DESK_ERROR",
-            "DESK_STOPPED_BEFORE_TARGET",
             "DESK_HEIGHT_UNAVAILABLE_AFTER_STOP",
         }.intersection(self._snapshot.blocked_reason_codes):
             return
@@ -707,6 +715,15 @@ class AutomationService:
 
     async def _block_auto(self, vision: VisionSnapshot) -> None:
         codes = self._vision_codes(vision)
+        # 이동이 이미 진행 중이면, 사람이 잠깐 둘로 보이거나 자세 판정이
+        # 흔들렸다는 이유만으로 멈추지 않는다. 목표는 이동을 시작할 때의 관측으로
+        # 이미 정해졌고, 중간에 끊으면 목표와 다른 높이에 멈춘 채 남는다.
+        # 카메라가 실제로 끊기거나 오래된 프레임인 경우는 아래 코드로 걸러
+        # 그대로 정지시킨다.
+        if (self._live_automatic
+                and not self._vision_hard_failure(vision)
+                and "DESK_STOP_FAILED" not in self._snapshot.blocked_reason_codes):
+            return
         # 자동 dispatch와 같은 command lock을 사용한다. vision이 불확실해진 뒤에는
         # 이미 생성된 dispatch가 STOP 뒤에 set_target()을 실행할 수 없어야 한다.
         async with self._command_lock:
@@ -738,9 +755,18 @@ class AutomationService:
                 if not self._live_automatic:
                     return
                 self._invalidate_locked("DESK_ERROR")
+                # 이동이 중단되면 Desk는 ERROR로 남지만, 그 원인이 릴레이 고장이
+                # 아니라 Vision 불확실 같은 상위 판단인 경우가 많다. 릴레이가
+                # 멀쩡히 STOP을 보고하고 있으면 다음 프레임에서 다시 목표를
+                # 세울 수 있어야 한다. 그러지 않으면 목표와 다른 높이로 멈춘 채
+                # 세션이 바뀔 때까지 방치된다.
+                codes: tuple[str, ...] = ()
+                if not self._desk_relay_recoverable(desk):
+                    codes = ("DESK_ERROR",)
                 self._replace_locked(
-                    state=AutomationState.BLOCKED,
-                    blocked_reason_codes=self._with_stop_failure(("DESK_ERROR",)),
+                    state=(AutomationState.BLOCKED if codes
+                           else AutomationState.OBSERVING),
+                    blocked_reason_codes=self._with_stop_failure(codes),
                 )
             return
         if desk.state not in {DeskState.IDLE, DeskState.STOPPED}:
@@ -848,6 +874,24 @@ class AutomationService:
                 and vision.stable_presence is PresenceStatus.VACANT
                 and vision.upper.count == 0 and vision.lower.count == 0
                 and {str(code) for code in vision.reason_codes}.issubset(allowed))
+
+    @staticmethod
+    def _desk_relay_recoverable(desk: DeskSnapshot) -> bool:
+        """중단된 이동을 다시 시도해도 되는 Desk 상태인지 본다.
+
+        릴레이가 정지 상태로 정상 보고 중이고 높이도 읽히면, ERROR는 상위
+        판단으로 이동이 끊긴 흔적일 뿐이라 재개할 수 있다. 반대로 STOP 발행
+        자체가 실패했거나 릴레이가 응답하지 않으면 그대로 막아야 한다.
+        """
+
+        relay = desk.relay
+        if relay.last_error is not None:
+            return False
+        if relay.event in {None, RelayEvent.OFFLINE, RelayEvent.REJECTED}:
+            return False
+        if relay.state is not RelayState.STOP:
+            return False
+        return desk.height.height_cm is not None
 
     def _park_desk_safe(self) -> tuple[bool, str | None]:
         """Keep PARK policy checks out of DeskController's motion admission.
@@ -1277,6 +1321,29 @@ class AutomationService:
             code for code in self._snapshot.blocked_reason_codes
             if code != "DESK_STOP_FAILED"
         )
+
+    @staticmethod
+    def _vision_hard_failure(vision: VisionSnapshot) -> bool:
+        """관측 자체를 믿을 수 없어 이동을 즉시 끊어야 하는지 본다.
+
+        카메라가 끊기거나 프레임이 오래됐거나 모델이 죽은 경우는 지금 무엇이
+        보이는지 알 수 없으므로 그대로 정지한다. 반대로 사람이 둘로 보이거나
+        자세가 잠깐 흔들리는 것은 관측은 살아 있는 상태라, 이미 시작한 이동을
+        끊을 이유가 되지 않는다.
+        """
+
+        if not vision.usable:
+            return True
+        hard = {
+            BlockCode.UPPER_CAMERA_UNAVAILABLE,
+            BlockCode.LOWER_CAMERA_UNAVAILABLE,
+            BlockCode.UPPER_FRAME_STALE,
+            BlockCode.LOWER_FRAME_STALE,
+            BlockCode.MODEL_UNAVAILABLE,
+            BlockCode.MODEL_ERROR,
+            BlockCode.CAMERA_TIMESTAMP_MISMATCH,
+        }
+        return any(code in hard for code in vision.reason_codes)
 
     @staticmethod
     def _vision_codes(vision: VisionSnapshot) -> tuple[str, ...]:

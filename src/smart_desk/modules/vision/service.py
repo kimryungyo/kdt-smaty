@@ -507,11 +507,16 @@ class VisionService:
             return stable
         counts = Counter(item[2] for item in window)
         winner, votes = counts.most_common(1)[0]
-        result = (
-            winner
-            if votes / len(window) >= self._settings.stability_majority_ratio
-            else unknown
-        )
+        if votes / len(window) >= self._settings.stability_majority_ratio:
+            result = winner
+        elif stable is not unknown:
+            # 다수결이 갈렸다고 곧바로 UNKNOWN으로 떨어뜨리면, 검출이 한두 프레임
+            # 흔들리는 것만으로 자동 제어가 끊기고 세션까지 흔들린다. 확신이
+            # 없을 뿐 관측 자체는 계속되고 있으므로, 새 합의가 설 때까지 직전
+            # 값을 유지한다. 관측이 끊기는 경우는 호출부가 따로 UNKNOWN으로 만든다.
+            result = stable
+        else:
+            result = unknown
         window.clear()
         return result
 

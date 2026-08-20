@@ -430,6 +430,7 @@ def build_container(settings: Settings) -> AppContainer:
         pairwise_consistency_threshold=settings.face.pairwise_consistency_threshold,
         duplicate_threshold=settings.face.duplicate_threshold,
         enrollment_sample_interval_seconds=settings.face.enrollment_sample_interval_seconds,
+        vacant_grace_seconds=settings.automation.session_vacant_grace_seconds,
     )
     container.face_embeddings = face_embeddings
     container.current_user = current_user

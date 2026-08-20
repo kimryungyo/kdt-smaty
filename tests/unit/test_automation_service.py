@@ -470,8 +470,13 @@ async def test_tolerance_is_ready_and_live_target_is_not_duplicated() -> None:
     assert not [call for call in desk.calls if call[0] == "target"]
 
 
-async def test_stopped_before_target_is_blocked_not_reported_ready() -> None:
-    """A safe desk STOP is not successful automatic target completion."""
+async def test_stopped_before_target_is_not_reported_ready() -> None:
+    """중간 정지는 목표 완료가 아니다. 다만 영구 차단으로 두지도 않는다.
+
+    목표에 못 미치고 멈춘 것은 사실 기록일 뿐 고장이 아니다. BLOCKED로 굳혀
+    두면 목표와 다른 높이에 멈춘 채 session이 바뀔 때까지 방치되므로, 다음
+    관측에서 다시 목표를 세울 수 있어야 한다.
+    """
 
     clock, desk, users = Clock(), FakeDesk(height=90), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
@@ -489,9 +494,9 @@ async def test_stopped_before_target_is_blocked_not_reported_ready() -> None:
     await observe(service, camera, (4, 4), clock)
 
     snapshot = service.get_snapshot()
-    assert snapshot.state is AutomationState.BLOCKED
+    # 완료로 보고하지 않는다(READY 아님). 재개 여지를 남기되 목표는 유지한다.
+    assert snapshot.state is not AutomationState.READY
     assert snapshot.target_height_cm == 75
-    assert snapshot.blocked_reason_codes == ("DESK_STOPPED_BEFORE_TARGET",)
 
 
 async def test_stopped_at_target_with_fresh_height_is_ready() -> None:
@@ -950,10 +955,42 @@ async def test_live_automatic_desk_error_is_reflected_as_blocked_not_moving() ->
     )
     await observe(service, camera, (4, 4), clock)
 
+    # 릴레이가 정상 STOP을 보고하는 한 Desk ERROR는 상위 판단으로 이동이 끊긴
+    # 흔적일 뿐이다. 다음 관측에서 다시 목표를 세울 수 있어야, 목표와 다른
+    # 높이로 멈춘 채 세션이 바뀔 때까지 방치되지 않는다.
+    snapshot = service.get_snapshot()
+    assert snapshot.state is AutomationState.OBSERVING
+    assert snapshot.blocked_reason_codes == ()
+    assert snapshot.last_transition_reason == "DESK_ERROR"
+
+
+async def test_desk_error_stays_blocked_when_the_relay_is_not_recoverable() -> None:
+    """릴레이가 응답하지 않으면 재개하지 않고 그대로 막는다."""
+
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    await observe(service, camera, (3, 3), clock, 2)
+    await flush_background_tasks()
+    assert service.get_snapshot().state is AutomationState.MOVING
+
+    desk.snapshot = DeskSnapshot(
+        DeskState.ERROR,
+        desk.snapshot.height,
+        RelaySnapshot(RelayEvent.OFFLINE, None, "1", None, None, NOW, "relay offline"),
+        None,
+        None,
+        "relay offline",
+        "relay offline",
+        NOW,
+    )
+    await observe(service, camera, (4, 4), clock)
+
     snapshot = service.get_snapshot()
     assert snapshot.state is AutomationState.BLOCKED
     assert snapshot.blocked_reason_codes == ("DESK_ERROR",)
-    assert snapshot.last_transition_reason == "DESK_ERROR"
 
 
 async def test_vision_recovery_uses_first_usable_pair_only_as_baseline() -> None:
