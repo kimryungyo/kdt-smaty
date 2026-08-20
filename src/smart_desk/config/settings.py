@@ -98,7 +98,13 @@ class TiltSettings(BaseModel):
     enabled: bool = False
     # 장치와 어떻게 이야기할지. relay와 맞춰 mqtt를 기본으로 쓰고, 보드를
     # 직접 물려 확인할 때만 serial로 되돌린다.
-    transport: Literal["mqtt", "serial"] = "mqtt"
+    # gpio는 ESP32를 걷어내고 라즈베리파이가 BTS7960을 직접 구동하는 구성이다.
+    transport: Literal["mqtt", "serial", "gpio"] = "mqtt"
+    gpio_r_en_pin: int = Field(default=22, ge=0, le=27)
+    gpio_l_en_pin: int = Field(default=23, ge=0, le=27)
+    gpio_r_pwm_pin: int = Field(default=12, ge=0, le=27)
+    gpio_l_pwm_pin: int = Field(default=13, ge=0, le=27)
+    gpio_pwm_frequency_hz: int = Field(default=20000, ge=1000, le=50000)
     # 이 환경에는 ESP32-C3 native USB 장치가 relay-controller와 틸트 보드
     # 두 개 있어 glob 자동탐색은 쓰지 않는다. 실측된 by-id 경로로 고정한다.
     serial_port: str = (
@@ -219,6 +225,10 @@ class DeskSettings(BaseModel):
         le=10,
         allow_inf_nan=False,
     )
+    # ESP32 relay 보드를 걷어내고 라즈베리파이 GPIO로 직접 구동할 때 켠다.
+    relay_transport: Literal["mqtt", "gpio"] = "mqtt"
+    relay_gpio_up_pin: int = Field(default=17, ge=0, le=27)
+    relay_gpio_down_pin: int = Field(default=27, ge=0, le=27)
     relay_stale_after_seconds: float = Field(
         default=15.0,
         gt=0,

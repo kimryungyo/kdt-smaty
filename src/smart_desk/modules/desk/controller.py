@@ -32,6 +32,8 @@ LOGGER = logging.getLogger(__name__)
 DESK_CONTROLLER_TASK_NAME = "desk-controller"
 SUPPORTED_RELAY_FIRMWARES = frozenset(
     {
+        # ESP32 대신 라즈베리파이 GPIO가 직접 릴레이를 구동하는 구성.
+        "rpi-gpio-relay-1.0.0",
         "smartdesk-fin-relay-1.0.0",
         "smartdesk-fin-relay-1.0.1",
         "smartdesk-fin-relay-1.0.2",

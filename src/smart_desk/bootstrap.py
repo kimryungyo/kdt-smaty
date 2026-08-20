@@ -120,7 +120,15 @@ def build_container(settings: Settings) -> AppContainer:
     mqtt = MqttClient(settings.mqtt, task_manager)
     serial_source = SerialLineSource(settings.serial)
     decoder = SegmentDecoder(settings.desk)
-    relay = RelayClient(mqtt)
+    if settings.desk.relay_transport == "gpio":
+        from smart_desk.modules.desk.relay_gpio import GpioRelayClient
+
+        relay = GpioRelayClient(
+            settings.desk.relay_gpio_up_pin,
+            settings.desk.relay_gpio_down_pin,
+        )
+    else:
+        relay = RelayClient(mqtt)
     height_cache = HeightCacheRepository(database)
     height_monitor = DeskHeightMonitor(
         serial_source,
@@ -136,11 +144,14 @@ def build_container(settings: Settings) -> AppContainer:
         settings.desk,
         task_manager,
     )
-    mqtt.register_handler(
-        ESP32_STATUS_TOPIC,
-        relay.handle_status,
-        qos=0,
-    )
+    if settings.desk.relay_transport != "gpio":
+        # GPIO 구성에는 ESP32가 없다. 이 구독을 걸면 오지 않는 heartbeat를
+        # 기다리다 relay 상태가 영원히 비고 stale 판정에 걸린다.
+        mqtt.register_handler(
+            ESP32_STATUS_TOPIC,
+            relay.handle_status,
+            qos=0,
+        )
     container = AppContainer(
         settings=settings,
         runtime=runtime,
@@ -187,6 +198,17 @@ def build_container(settings: Settings) -> AppContainer:
             shutdown_order=30,
         )
     )
+    if settings.desk.relay_transport == "gpio":
+        # desk-controller(30)가 멈춘 뒤 GPIO를 끄고 반납해야 마지막 명령이
+        # 릴레이를 켠 채로 남지 않는다.
+        container.register(
+            ResourceRegistration(
+                name="desk-relay-gpio",
+                resource=relay,
+                startup_order=31,
+                shutdown_order=31,
+            )
+        )
     if settings.tilt.enabled:
         tilt_levels = TiltLevelRepository(
             settings.tilt.levels_file, settings.tilt.calibration_file
@@ -196,12 +218,16 @@ def build_container(settings: Settings) -> AppContainer:
             max_level=settings.tilt.max_level,
             move_duty_percent=settings.tilt.move_duty_percent,
         )
-        # relay와 같은 결로 기본은 MQTT다. 보드를 직접 물려 확인할 때만 serial로 둔다.
-        tilt_link = (
-            TiltMqttLink(mqtt, settings.tilt)
-            if settings.tilt.transport == "mqtt"
-            else TiltSerialLink(settings.tilt)
-        )
+        # relay와 같은 결로 기본은 MQTT다. 보드를 직접 물려 확인할 때만 serial로,
+        # ESP32를 걷어낸 구성에서는 gpio로 둔다.
+        if settings.tilt.transport == "gpio":
+            from smart_desk.modules.tilt.gpio_link import TiltGpioLink
+
+            tilt_link = TiltGpioLink(settings.tilt)
+        elif settings.tilt.transport == "mqtt":
+            tilt_link = TiltMqttLink(mqtt, settings.tilt)
+        else:
+            tilt_link = TiltSerialLink(settings.tilt)
         tilt = TiltController(tilt_link, tilt_levels, mqtt, settings.tilt, task_manager)
         container.tilt = tilt
         mqtt.register_handler(
