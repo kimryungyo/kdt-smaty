@@ -65,10 +65,12 @@ void consume_serial() {
   }
 }
 
-// 재접속은 모터가 멈춰 있을 때만 시도한다. 이동 중 블로킹으로 timer 처리가
-// 밀리면 정지 시점을 놓칠 수 있기 때문이다.
+// 이동 중에도 접속을 시도한다. 연결이 없으면 STOP 명령 자체를 받을 수 없어,
+// 이동 중 접속을 미루면 서버가 재발행하는 명령과 맞물려 영구 미접속이 된다.
+// 정지는 hardware timer ISR이 force_off_isr()로 GPIO를 직접 끄므로 loop
+// 블로킹과 무관하게 보장된다.
 void connect_wifi(uint32_t now) {
-  if (motion.is_moving() || WiFi.status() == WL_CONNECTED ||
+  if (WiFi.status() == WL_CONNECTED ||
       (last_wifi_attempt != 0 &&
        !TiltConfig::elapsed(now, last_wifi_attempt, TiltConfig::WIFI_RETRY_MS))) {
     return;
@@ -78,8 +80,9 @@ void connect_wifi(uint32_t now) {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
+// connect_wifi와 같은 이유로 이동 중에도 broker 접속을 시도한다.
 void connect_mqtt(uint32_t now) {
-  if (motion.is_moving() || WiFi.status() != WL_CONNECTED || mqtt.connected() ||
+  if (WiFi.status() != WL_CONNECTED || mqtt.connected() ||
       (last_mqtt_attempt != 0 &&
        !TiltConfig::elapsed(now, last_mqtt_attempt, TiltConfig::MQTT_RETRY_MS))) {
     return;

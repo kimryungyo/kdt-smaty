@@ -85,9 +85,12 @@ void handleBenchSerial() {
 }
 #endif
 
+// 이동 중에도 접속을 시도한다. 연결이 없으면 STOP 명령 자체를 받을 수 없어,
+// 이동 중 접속을 미루면 서버가 재발행하는 명령과 맞물려 영구 미접속이 된다.
+// 이동의 안전은 hardware timer ISR(최대 MAX_HOLD_MS)이 소프트웨어와 무관하게
+// GPIO를 끄는 것으로 이미 보장된다.
 void connectWifi(uint32_t now) {
-  if (relay.direction() != RelayDirection::Stop ||
-      WiFi.status() == WL_CONNECTED ||
+  if (WiFi.status() == WL_CONNECTED ||
       (lastWifiAttempt != 0 && !elapsed(now, lastWifiAttempt, WIFI_RETRY_MS))) {
     return;
   }
@@ -96,9 +99,9 @@ void connectWifi(uint32_t now) {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
+// connectWifi와 같은 이유로 이동 중에도 broker 접속을 시도한다.
 void connectMqtt(uint32_t now) {
-  if (relay.direction() != RelayDirection::Stop ||
-      WiFi.status() != WL_CONNECTED || mqtt.connected() ||
+  if (WiFi.status() != WL_CONNECTED || mqtt.connected() ||
       (lastMqttAttempt != 0 && !elapsed(now, lastMqttAttempt, MQTT_RETRY_MS))) {
     return;
   }
@@ -135,10 +138,13 @@ void connectMqtt(uint32_t now) {
     if (mqttState == MQTT_CONNECT_FAILED &&
         ++consecutiveMqttSocketFailures >= MQTT_SOCKET_RECOVERY_FAILURES) {
       // A full ESP restart recovered the observed C3 Wi-Fi stack wedge after
-      // an EMQX restart.  This branch runs only while relay.direction() is
-      // Stop (the guard at the beginning of connectMqtt), so it is fail-safe.
-      Serial.println("MQTT TCP 재연결 실패 누적으로 ESP32를 안전 재기동합니다.");
-      ESP.restart();
+      // an EMQX restart.  connectMqtt는 더 이상 정지 상태를 전제하지 않으므로,
+      // 재기동 전에 직접 릴레이를 끄고 이동 중에는 미룬다.
+      relay.stop();
+      if (relay.direction() == RelayDirection::Stop) {
+        Serial.println("MQTT TCP 재연결 실패 누적으로 ESP32를 안전 재기동합니다.");
+        ESP.restart();
+      }
     }
     return;
   }
@@ -164,11 +170,18 @@ void connectMqtt(uint32_t now) {
 }  // namespace
 
 void setup() {
-  if (!relay.begin()) {
-    // GPIO OFF는 begin()의 timer 생성 전 이미 적용됐다.
-    while (true) delay(1000);
-  }
+  // Serial을 먼저 연다. begin() 실패를 조용한 정지로 만들면 USB 진단조차
+  // 불가능해져 원인 파악이 막힌다.
   Serial.begin(115200);
+  if (!relay.begin()) {
+    // GPIO OFF는 begin()의 timer 생성 전 이미 적용됐다. timer 없이는 hold
+    // 상한을 보장할 수 없으므로 이동은 하지 않고, 진단 로그만 계속 낸다.
+    while (true) {
+      Serial.println(
+          "{\"event\":\"fault\",\"reason\":\"timer_init_failed\"}");
+      delay(1000);
+    }
+  }
   Serial.printf("SMART DESK FIN relay %s\n", FIRMWARE_VERSION);
 
 #if defined(SMARTDESK_RELAY_BENCH)
