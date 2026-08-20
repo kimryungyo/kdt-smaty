@@ -315,12 +315,13 @@ python3 -m venv firmware/.venv
 firmware/.venv/bin/python -m pip install -r firmware/requirements.txt
 ```
 
-Arduino 세그먼트 리더 build와 FIN relay firmware의 native 계약 test·ESP32-C3 build:
+Arduino 세그먼트 리더 build와 desk firmware(높이 relay + 틸트 통합)의 native 계약
+test·ESP32-WROOM-32E build:
 
 ```bash
 firmware/.venv/bin/pio run -d firmware/segment-reader
-firmware/.venv/bin/pio test -d firmware/relay-controller -e native
-firmware/.venv/bin/pio run -d firmware/relay-controller -e esp32-c3-devkitm-1
+firmware/.venv/bin/pio test -d firmware/desk-controller -e native
+firmware/.venv/bin/pio run -d firmware/desk-controller -e esp32dev
 ```
 
 전용 환경은 애플리케이션 `.venv`와 PlatformIO의 웹 의존성 충돌을 막는다. build는

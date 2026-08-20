@@ -18,7 +18,7 @@ bool RelayController::begin() {
   forceOffMain();
 
   instance_ = this;
-  timer_ = timerBegin(0, 80, true);  // 80MHz / 80 = 1us tick
+  timer_ = timerBegin(RELAY_TIMER_INDEX, 80, true);  // 80MHz / 80 = 1us tick
   if (timer_ == nullptr) return false;
   timerStop(timer_);
   timerAttachInterruptFlag(
@@ -116,16 +116,16 @@ void RelayController::disarmTimer() {
 }
 
 void RelayController::forceOffMain() {
-  GPIO.out_w1tc.val = RELAY_MASK;
+  GPIO.out_w1tc = RELAY_MASK;
   direction_ = RelayDirection::Stop;
 }
 
 void RelayController::writeRelay(uint8_t pin, bool enabled) {
   const bool level = RELAY_ACTIVE_LOW ? !enabled : enabled;
   if (level) {
-    GPIO.out_w1ts.val = 1UL << pin;
+    GPIO.out_w1ts = 1UL << pin;
   } else {
-    GPIO.out_w1tc.val = 1UL << pin;
+    GPIO.out_w1tc = 1UL << pin;
   }
 }
 
@@ -142,6 +142,6 @@ void IRAM_ATTR RelayController::onTimer() {
 
 void IRAM_ATTR RelayController::forceOffFromIsr() {
   // active-high 고정 핀을 register write로 즉시 OFF한다.
-  GPIO.out_w1tc.val = RELAY_MASK;
+  GPIO.out_w1tc = RELAY_MASK;
   direction_ = RelayDirection::Stop;
 }

@@ -1,31 +1,72 @@
+// 높이 relay와 틸트를 ESP32 한 대가 맡는 통합 펌웨어다.
+//
+// 두 장치는 서로 독립된 명령/상태 토픽을 그대로 쓴다(/desk_ctl, /tilt_ctl).
+// 서버 입장에서는 보드가 둘이든 하나든 계약이 같으므로, 서버 코드는 바뀌지
+// 않는다. 공유하는 것은 Wi-Fi 연결 하나와 MQTT client 하나다.
+//
+// hardware timer는 relay가 0번, 틸트가 1번을 쓴다. 같은 번호를 쓰면 한쪽의
+// 최후 안전 정지가 사라지므로 config.h에서 분리해 두었다.
+
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
 
 #include "config.h"
 #include "control_handler.h"
+#include "motion_controller.h"
 #include "relay_controller.h"
-
-#if !ARDUINO_USB_CDC_ON_BOOT
-#error "Production relay firmware requires USB CDC serial output."
-#endif
+#include "tilt_protocol.h"
 
 using namespace SmartDeskConfig;
 
 namespace {
 WiFiClient network;
 PubSubClient mqtt(network);
+
 RelayController relay;
 ControlHandler control(mqtt, relay);
+
+MotionController motion;
+TiltProtocol protocol(motion);
+
 uint32_t lastWifiAttempt = 0;
 uint32_t lastMqttAttempt = 0;
 uint32_t lastHeartbeat = 0;
+uint32_t lastTiltStatusAt = 0;
 bool wifiWasConnected = false;
 bool mqttWasConnected = false;
 int lastWifiStatus = -1;
 uint8_t consecutiveMqttSocketFailures = 0;
 
+// 틸트 이벤트 한 줄이 완성될 때마다 불린다. MQTT가 본선이고, 시리얼은 Wi-Fi가
+// 끊겼을 때도 보드를 들여다볼 수 있게 항상 같이 내보낸다.
+void emitTiltLine(const char* line) {
+  Serial.println(line);
+  if (mqtt.connected()) {
+    mqtt.publish(TiltConfig::MQTT_STATUS_TOPIC, line, false);
+  }
+}
+
+void handleTiltCommand(const uint8_t* payload, unsigned int length) {
+  if (length == 0 || length > TiltConfig::SERIAL_LINE_MAX_BYTES) {
+    protocol.emergency_stop("invalid_mqtt_payload");
+    return;
+  }
+  char command[TiltConfig::SERIAL_LINE_MAX_BYTES + 1];
+  memcpy(command, payload, length);
+  command[length] = '\0';
+  // 줄바꿈이 섞여 와도 첫 줄만 명령으로 본다.
+  char* newline = strpbrk(command, "\r\n");
+  if (newline != nullptr) *newline = '\0';
+  protocol.handle_line(command);
+}
+
+// 두 장치가 한 callback을 공유한다. 토픽으로 갈라 각자의 처리로 넘긴다.
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
+  if (topic != nullptr && strcmp(topic, TiltConfig::MQTT_COMMAND_TOPIC) == 0) {
+    handleTiltCommand(payload, length);
+    return;
+  }
   control.handleMessage(topic, payload, length);
 }
 
@@ -37,58 +78,10 @@ void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   }
 }
 
-#if defined(SMARTDESK_RELAY_BENCH)
-const char* startResultName(RelayStartResult result) {
-  if (result == RelayStartResult::Extended) return "extended";
-  if (result == RelayStartResult::Switched) return "switched";
-  return "started";
-}
-
-void printBenchState(const char* event) {
-  Serial.printf(
-      "BENCH event=%s direction=%s up=%d down=%d at_ms=%lu\n",
-      event,
-      relay.directionName(),
-      digitalRead(UP_RELAY_PIN),
-      digitalRead(DOWN_RELAY_PIN),
-      static_cast<unsigned long>(millis()));
-}
-
-void startBenchRelay(RelayDirection direction, uint16_t holdMs) {
-  const RelayStartResult result = relay.start(direction, holdMs);
-  Serial.printf(
-      "BENCH command=%s hold_ms=%u result=%s\n",
-      direction == RelayDirection::Up ? "UP" : "DOWN",
-      holdMs,
-      startResultName(result));
-  printBenchState("moving");
-}
-
-void handleBenchSerial() {
-  while (Serial.available() > 0) {
-    const char command = static_cast<char>(Serial.read());
-    if (command == 'u') startBenchRelay(RelayDirection::Up, 50);
-    if (command == 'U') startBenchRelay(RelayDirection::Up, 500);
-    if (command == 'd') startBenchRelay(RelayDirection::Down, 50);
-    if (command == 'D') startBenchRelay(RelayDirection::Down, 500);
-    if (command == 'b') {
-      startBenchRelay(RelayDirection::Up, 500);
-      delay(1000);
-      printBenchState("loop_stall_complete");
-    }
-    if (command == 's') {
-      relay.stop();
-      printBenchState("explicit_stop");
-    }
-    if (command == 'p') printBenchState("snapshot");
-  }
-}
-#endif
-
 // 이동 중에도 접속을 시도한다. 연결이 없으면 STOP 명령 자체를 받을 수 없어,
 // 이동 중 접속을 미루면 서버가 재발행하는 명령과 맞물려 영구 미접속이 된다.
-// 이동의 안전은 hardware timer ISR(최대 MAX_HOLD_MS)이 소프트웨어와 무관하게
-// GPIO를 끄는 것으로 이미 보장된다.
+// 이동의 안전은 hardware timer ISR이 소프트웨어와 무관하게 GPIO를 끄는 것으로
+// 이미 보장된다.
 void connectWifi(uint32_t now) {
   if (WiFi.status() == WL_CONNECTED ||
       (lastWifiAttempt != 0 && !elapsed(now, lastWifiAttempt, WIFI_RETRY_MS))) {
@@ -97,6 +90,11 @@ void connectWifi(uint32_t now) {
   lastWifiAttempt = now;
   Serial.printf("Wi-Fi 연결 시도 (status=%d)\n", static_cast<int>(WiFi.status()));
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
+// 두 장치가 모두 멈춰 있을 때만 안전하게 재기동할 수 있다.
+bool everythingStopped() {
+  return relay.direction() == RelayDirection::Stop && !motion.is_moving();
 }
 
 // connectWifi와 같은 이유로 이동 중에도 broker 접속을 시도한다.
@@ -110,7 +108,7 @@ void connectMqtt(uint32_t now) {
   snprintf(
       clientId,
       sizeof(clientId),
-      "smartdesk-fin-relay-%012llx",
+      "smartdesk-fin-desk-%012llx",
       ESP.getEfuseMac());
   char will[192];
   snprintf(
@@ -137,11 +135,11 @@ void connectMqtt(uint32_t now) {
     network.stop();
     if (mqttState == MQTT_CONNECT_FAILED &&
         ++consecutiveMqttSocketFailures >= MQTT_SOCKET_RECOVERY_FAILURES) {
-      // A full ESP restart recovered the observed C3 Wi-Fi stack wedge after
-      // an EMQX restart.  connectMqtt는 더 이상 정지 상태를 전제하지 않으므로,
-      // 재기동 전에 직접 릴레이를 끄고 이동 중에는 미룬다.
+      // 관측된 C3 Wi-Fi stack wedge는 재기동으로만 풀렸다. 재기동 전에 두
+      // 장치를 먼저 세우고, 이동 중이면 다음 기회로 미룬다.
       relay.stop();
-      if (relay.direction() == RelayDirection::Stop) {
+      motion.stop();
+      if (everythingStopped()) {
         Serial.println("MQTT TCP 재연결 실패 누적으로 ESP32를 안전 재기동합니다.");
         ESP.restart();
       }
@@ -153,7 +151,8 @@ void connectMqtt(uint32_t now) {
 
   control.beginSession(now);
   if (!mqtt.subscribe(MQTT_HEIGHT_TOPIC, 1) ||
-      !mqtt.subscribe(MQTT_CONTROL_TOPIC, 1)) {
+      !mqtt.subscribe(MQTT_CONTROL_TOPIC, 1) ||
+      !mqtt.subscribe(TiltConfig::MQTT_COMMAND_TOPIC, 1)) {
     control.failClosed();
     return;
   }
@@ -164,8 +163,19 @@ void connectMqtt(uint32_t now) {
     control.failClosed();
     return;
   }
+  // 서버가 이 세션의 틸트 상태를 즉시 동기화할 수 있게 한 번 알린다.
+  protocol.publish_status("ready");
   mqttWasConnected = true;
   lastHeartbeat = now;
+  lastTiltStatusAt = now;
+}
+
+// Wi-Fi나 broker가 끊기면 두 장치를 모두 세운다. 명령을 받을 수 없는 동안
+// 움직이고 있으면 정지 명령이 도달할 방법이 없다.
+void stopEverythingAndInvalidate() {
+  relay.stop();
+  motion.stop();
+  control.invalidateSession();
 }
 }  // namespace
 
@@ -178,24 +188,25 @@ void setup() {
     // 상한을 보장할 수 없으므로 이동은 하지 않고, 진단 로그만 계속 낸다.
     while (true) {
       Serial.println(
-          "{\"event\":\"fault\",\"reason\":\"timer_init_failed\"}");
+          "{\"event\":\"fault\",\"reason\":\"relay_timer_init_failed\"}");
       delay(1000);
     }
   }
-  Serial.printf("SMART DESK FIN relay %s\n", FIRMWARE_VERSION);
-
-#if defined(SMARTDESK_RELAY_BENCH)
-  Serial.println(
-      "BENCH mode: u/U=UP 50/500, d/D=DOWN 50/500, "
-      "b=blocked-loop timer, s=STOP, p=state");
-  printBenchState("boot");
-  return;
-#endif
+  protocol.set_line_handler(emitTiltLine);
+  if (!motion.begin()) {
+    while (true) {
+      Serial.println(
+          "{\"event\":\"fault\",\"reason\":\"tilt_timer_init_failed\"}");
+      delay(1000);
+    }
+  }
+  Serial.printf("SMART DESK FIN desk %s\n", FIRMWARE_VERSION);
 
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(false);
+  // relay 보드에서 출력을 단계별로 낮춰가며 실측한 값이다.
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.onEvent(onWifiEvent);
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
@@ -203,20 +214,16 @@ void setup() {
   mqtt.setBufferSize(MQTT_BUFFER_BYTES);
   mqtt.setKeepAlive(MQTT_KEEPALIVE_SECONDS);
   mqtt.setSocketTimeout(MQTT_SOCKET_TIMEOUT_SECONDS);
+  protocol.begin();
   connectWifi(millis());
 }
 
 void loop() {
   const uint32_t now = millis();
 
-#if defined(SMARTDESK_RELAY_BENCH)
-  if (relay.takeTimeoutEvent()) printBenchState("timeout");
-  handleBenchSerial();
-  delay(1);
-  return;
-#endif
-
+  // 두 장치의 timer 만료는 연결 상태와 무관하게 항상 먼저 처리한다.
   if (relay.takeTimeoutEvent()) control.handleTimeoutEvent();
+  protocol.handle_timer_event();
 
   const int wifiStatus = static_cast<int>(WiFi.status());
   if (wifiStatus != lastWifiStatus) {
@@ -225,9 +232,8 @@ void loop() {
   }
   const bool wifiConnected = wifiStatus == WL_CONNECTED;
   if (!wifiConnected) {
-    if (wifiWasConnected || relay.direction() != RelayDirection::Stop) {
-      relay.stop();
-      control.invalidateSession();
+    if (wifiWasConnected || !everythingStopped()) {
+      stopEverythingAndInvalidate();
     }
     wifiWasConnected = false;
     mqttWasConnected = false;
@@ -242,9 +248,8 @@ void loop() {
   wifiWasConnected = true;
 
   if (!mqtt.connected()) {
-    if (mqttWasConnected || relay.direction() != RelayDirection::Stop) {
-      relay.stop();
-      control.invalidateSession();
+    if (mqttWasConnected || !everythingStopped()) {
+      stopEverythingAndInvalidate();
     }
     mqttWasConnected = false;
     connectMqtt(now);
@@ -253,8 +258,7 @@ void loop() {
   }
 
   if (!mqtt.loop()) {
-    relay.stop();
-    control.invalidateSession();
+    stopEverythingAndInvalidate();
     mqtt.disconnect();
     mqttWasConnected = false;
     delay(1);
@@ -272,6 +276,12 @@ void loop() {
       control.failClosed();
     }
     lastHeartbeat = controlNow;
+  }
+  if (mqtt.connected() &&
+      TiltConfig::elapsed(controlNow, lastTiltStatusAt,
+                          TiltConfig::STATUS_HEARTBEAT_MS)) {
+    protocol.publish_status();
+    lastTiltStatusAt = controlNow;
   }
   delay(1);
 }

@@ -1,6 +1,6 @@
 #include <unity.h>
 
-#include "policy.h"
+#include "tilt_policy.h"
 
 void test_invalid_position_or_speed_is_rejected() {
   const auto invalid_position = TiltPolicy::make_motion_plan(

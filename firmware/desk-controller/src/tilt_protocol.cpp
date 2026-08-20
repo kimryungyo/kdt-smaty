@@ -5,7 +5,7 @@
 #include <cstring>
 
 #include "config.h"
-#include "policy.h"
+#include "tilt_policy.h"
 
 using namespace TiltConfig;
 

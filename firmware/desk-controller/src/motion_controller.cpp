@@ -25,7 +25,7 @@ bool MotionController::begin() {
   force_off_main();
 
   instance_ = this;
-  timer_ = timerBegin(0, 80, true);  // 1us tick
+  timer_ = timerBegin(TILT_TIMER_INDEX, 80, true);  // 1us tick
   if (timer_ == nullptr) return false;
   timerStop(timer_);
   timerAttachInterruptFlag(timer_, &MotionController::on_timer_static, false,
@@ -53,7 +53,7 @@ bool MotionController::start(TiltPolicy::Direction direction, uint32_t duration_
     ledcWrite(R_PWM_CHANNEL, 0);
     ledcWrite(L_PWM_CHANNEL, duty);
   }
-  GPIO.out_w1ts.val = DRIVER_ENABLE_MASK;
+  GPIO.out_w1ts = DRIVER_ENABLE_MASK;
   direction_ = direction;
   timer_pending_ = false;
   portEXIT_CRITICAL(&state_mux_);
@@ -103,7 +103,7 @@ void MotionController::disarm_timer() {
 void MotionController::force_off_main() {
   ledcWrite(R_PWM_CHANNEL, 0);
   ledcWrite(L_PWM_CHANNEL, 0);
-  GPIO.out_w1tc.val = DRIVER_ENABLE_MASK;
+  GPIO.out_w1tc = DRIVER_ENABLE_MASK;
   direction_ = TiltPolicy::Direction::Stop;
 }
 
@@ -120,6 +120,6 @@ void IRAM_ATTR MotionController::on_timer() {
 
 void IRAM_ATTR MotionController::force_off_isr() {
   // PWM peripheral와 무관하게 driver enable을 끊어 ISR에서도 즉시 OFF한다.
-  GPIO.out_w1tc.val = DRIVER_ENABLE_MASK;
+  GPIO.out_w1tc = DRIVER_ENABLE_MASK;
   direction_ = TiltPolicy::Direction::Stop;
 }

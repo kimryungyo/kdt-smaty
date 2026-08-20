@@ -74,10 +74,10 @@ services:
       SMART_DESK_MQTT__HOST: emqx
       SMART_DESK_MQTT__PORT: "1883"
       SMART_DESK_SERIAL__PORT: /dev/desk-height
-      # relay와 tilt는 GPIO 직결이 기본이다. ESP32 구성으로 되돌릴 때만 .env에서
-      # mqtt로 덮어쓰고, 그때는 아래 devices에 보드 serial 경로를 다시 넣는다.
-      SMART_DESK_DESK__RELAY_TRANSPORT: ${SMART_DESK_DESK__RELAY_TRANSPORT:-gpio}
-      SMART_DESK_TILT__TRANSPORT: ${SMART_DESK_TILT__TRANSPORT:-gpio}
+      # 높이 relay와 틸트는 ESP32 한 대가 MQTT로 맡는다. 라즈베리파이 GPIO
+      # 직결은 선 길이 문제로 접었고, 되살릴 때만 gpio로 덮어쓴다.
+      SMART_DESK_DESK__RELAY_TRANSPORT: ${SMART_DESK_DESK__RELAY_TRANSPORT:-mqtt}
+      SMART_DESK_TILT__TRANSPORT: ${SMART_DESK_TILT__TRANSPORT:-mqtt}
       SMART_DESK_DASHBOARD__FRONTEND_DIRECTORY: /app/frontend/dist
       SMART_DESK_PROFILE_MEMORY__DATA_PATH: /app/data/mem0
       SMART_DESK_PROFILE_MEMORY__HISTORY_DB_PATH: /app/data/mem0/history.db
@@ -98,22 +98,15 @@ services:
       SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS: "true"
     volumes:
       - ../data:/app/data
-      # 틸트 20kHz는 lgpio 소프트웨어 PWM 상한(10kHz)을 넘어 하드웨어 PWM이
-      # 필요하다. sysfs 노드를 그대로 열어 준다.
-      - /sys/class/pwm:/sys/class/pwm
-      - /sys/devices/platform:/sys/devices/platform
     devices:
+      # ESP32는 Wi-Fi/MQTT로 붙으므로 매핑할 장치가 없다. Arduino 높이 리더만
+      # USB serial을 쓴다.
       - "${SMART_DESK_SERIAL__PORT}:/dev/desk-height"
-      # relay와 tilt는 ESP32 대신 라즈베리파이 GPIO로 직접 구동한다. Pi 5의
-      # 40핀 헤더는 gpiochip0(pinctrl-rp1)이다.
-      - "/dev/gpiochip0:/dev/gpiochip0"
       - "/dev/snd:/dev/snd"
     group_add:
       - "20"
       - "29"
       - "1001"
-      # gpio 그룹. gpiochip 노드가 root:gpio 0660이라 없으면 열 수 없다.
-      - "${SMART_DESK_GPIO_GID:-986}"
     ports:
       - "9090:9090"
       - "10000:10000"

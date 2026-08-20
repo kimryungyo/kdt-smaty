@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#include "policy.h"
+#include "tilt_policy.h"
 
 class MotionController {
  public:
