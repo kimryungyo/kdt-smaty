@@ -38,8 +38,12 @@ constexpr char MQTT_CONTROL_TOPIC[] = "/desk_ctl";
 constexpr char MQTT_STATUS_TOPIC[] = "/desk_ctl_status";
 constexpr char MQTT_HEIGHT_TOPIC[] = "/smartdesk/desk/height";
 
-constexpr uint8_t UP_RELAY_PIN = 25;
-constexpr uint8_t DOWN_RELAY_PIN = 26;
+// GPIO 25/26은 쓰지 않는다. DAC1/DAC2이자 RTC 도메인 핀이라 부팅 순간 레벨이
+// 확정되지 않고, active-high 릴레이에서는 그 순간이 그대로 책상 이동이 된다.
+// 실제로 25/26에서는 전원을 넣자마자 UP이 걸렸다. 22/23은 부팅 내내
+// 하이임피던스라 모듈 풀다운이 OFF를 유지한다.
+constexpr uint8_t UP_RELAY_PIN = 22;
+constexpr uint8_t DOWN_RELAY_PIN = 23;
 constexpr bool RELAY_ACTIVE_LOW = false;
 
 constexpr uint16_t MIN_HOLD_MS = SmartDeskPolicy::MIN_HOLD_MS;

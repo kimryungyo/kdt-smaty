@@ -116,7 +116,13 @@ void RelayController::disarmTimer() {
 }
 
 void RelayController::forceOffMain() {
-  GPIO.out_w1tc = RELAY_MASK;
+  // OFF level은 모듈 극성에 따라 다르다. active-low 모듈에 LOW를 쓰면 끄는 게
+  // 아니라 켜진다.
+  if (RELAY_ACTIVE_LOW) {
+    GPIO.out_w1ts = RELAY_MASK;
+  } else {
+    GPIO.out_w1tc = RELAY_MASK;
+  }
   direction_ = RelayDirection::Stop;
 }
 
@@ -141,7 +147,12 @@ void IRAM_ATTR RelayController::onTimer() {
 }
 
 void IRAM_ATTR RelayController::forceOffFromIsr() {
-  // active-high 고정 핀을 register write로 즉시 OFF한다.
-  GPIO.out_w1tc = RELAY_MASK;
+  // register write로 즉시 OFF한다. OFF level은 모듈 극성을 따라야 한다.
+  // active-low 모듈에 LOW를 쓰면 최후 차단이 오히려 릴레이를 켠다.
+  if (RELAY_ACTIVE_LOW) {
+    GPIO.out_w1ts = RELAY_MASK;
+  } else {
+    GPIO.out_w1tc = RELAY_MASK;
+  }
   direction_ = RelayDirection::Stop;
 }
