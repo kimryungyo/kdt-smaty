@@ -39,6 +39,11 @@ class VoiceDebugView:
         self._audio_input = audio_input
         self._assistant_turns = assistant_turns
 
+    def trigger_wake(self) -> dict[str, object]:
+        """웨이크워드 인식과 동일한 turn을 강제로 시작한다(디버그/원격 전용)."""
+        accepted = self._voice.trigger_wake()
+        return {"accepted": accepted, "state": self._voice.get_snapshot().state}
+
     async def snapshot(self) -> dict[str, object]:
         turn = await self._assistant_turns.latest()
         response = None
@@ -156,6 +161,10 @@ def create_voice_debug_application(view: VoiceDebugView) -> FastAPI:
     async def snapshot() -> dict[str, object]:
         return await view.snapshot()
 
+    @app.post("/api/wake")
+    async def wake() -> dict[str, object]:
+        return view.trigger_wake()
+
     return app
 
 
@@ -175,8 +184,12 @@ DEBUG_PAGE = """<!doctype html>
     header p:last-child,.muted { color:#8fa1aa; }
     .header-actions { display:flex; align-items:flex-end; flex-direction:column; gap:10px; }
     nav { display:flex; gap:8px; } nav a { padding:7px 10px; border:1px solid #2d5968; border-radius:9px; color:#b9dbe5; text-decoration:none; font-size:.76rem; }
+    .actions { display:flex; align-items:center; gap:10px; }
     .status { padding:8px 12px; border:1px solid #2d5968; border-radius:999px; background:#10252d; font-weight:800; }
     .status.offline { border-color:#743c43; background:#2a171a; color:#ff9da8; }
+    #wakeBtn { padding:8px 14px; border:1px solid #2d5968; border-radius:999px; background:#123b4c; color:#cdeefb; font-weight:800; cursor:pointer; font-size:.85rem; }
+    #wakeBtn:hover:not(:disabled) { background:#17506a; }
+    #wakeBtn:disabled { opacity:.55; cursor:default; }
     .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
     article { border:1px solid #26343c; border-radius:14px; background:rgba(18,27,33,.93); padding:17px; }
     article span { color:#8fa1aa; font-size:.77rem; } article strong { display:block; margin-top:8px; font-size:1.15rem; overflow-wrap:anywhere; }
@@ -193,7 +206,7 @@ DEBUG_PAGE = """<!doctype html>
   </style>
 </head>
 <body><main>
-  <header><div><p class="eyebrow">TEMPORARY · PORT 10000</p><h1>AI Speaker Debug</h1><p>Wake Word와 local audio 상태를 read-only로 관측</p></div><div class="header-actions"><nav><a id="dashboardLink" href="#">대시보드</a><a id="visionLink" href="#">Vision 진단</a></nav><div id="connection" class="status offline">연결 확인 중</div></div></header>
+  <header><div><p class="eyebrow">TEMPORARY · PORT 10000</p><h1>AI Speaker Debug</h1><p>Wake Word와 local audio 상태를 read-only로 관측</p></div><div class="header-actions"><nav><a id="dashboardLink" href="#">대시보드</a><a id="visionLink" href="#">Vision 진단</a></nav><div class="actions"><button id="wakeBtn" type="button">강제 웨이크</button><div id="connection" class="status offline">연결 확인 중</div></div></div></header>
   <div class="grid">
     <article class="score"><div class="score-row"><div><span>HI SMARTY SCORE</span><strong id="score">--</strong></div><div><span>THRESHOLD</span><strong id="threshold">--</strong></div></div><progress id="scoreBar" max="1" value="0"></progress></article>
     <article><span>VOICE STATE</span><strong id="state">--</strong></article>
@@ -226,5 +239,6 @@ DEBUG_PAGE = """<!doctype html>
     text("assistantResponse",r?.text || "아직 응답이 없습니다.");
   };
   const refresh=async()=>{try{const response=await fetch("/api/snapshot",{cache:"no-store"});if(!response.ok)throw new Error(String(response.status));render(await response.json());text("connection","LIVE");byId("connection").classList.remove("offline")}catch(_){text("connection","연결 끊김");byId("connection").classList.add("offline")}};
+  byId("wakeBtn").addEventListener("click",async()=>{const b=byId("wakeBtn");b.disabled=true;const original=b.textContent;try{const response=await fetch("/api/wake",{method:"POST"});const data=await response.json();b.textContent=data.accepted?"트리거됨":`무시됨 (${data.state})`;}catch(_){b.textContent="실패";}finally{setTimeout(()=>{b.textContent=original;b.disabled=false;},1200);}});
   refresh();setInterval(refresh,250);
 </script></body></html>"""
