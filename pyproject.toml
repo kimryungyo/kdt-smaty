@@ -13,6 +13,8 @@ dependencies = [
     "aiortc>=1.15,<2",
     "fastapi>=0.139,<1",
     "httpx>=0.28,<1",
+    # 라즈베리파이 GPIO로 relay와 tilt를 직접 구동할 때 쓴다.
+    "lgpio>=0.2.2,<1",
     "numpy>=2.2,<3",
     "opencv-python-headless>=4.11,<5",
     "pydantic-settings>=2.10,<3",
