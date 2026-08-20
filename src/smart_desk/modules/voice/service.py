@@ -76,6 +76,8 @@ class VoiceService:
         self._announce_lock = asyncio.Lock()
         self._announcement_done = asyncio.Event()
         self._announcement_done.set()
+        # 디버그/원격 강제 웨이크. 세워지면 main loop가 실제 감지와 똑같이 turn을 연다.
+        self._manual_wake = asyncio.Event()
 
     async def start(self) -> None:
         if self._main_task is not None and not self._main_task.done():
@@ -124,6 +126,26 @@ class VoiceService:
 
     def get_snapshot(self) -> VoiceSnapshot:
         return self._snapshot
+
+    def trigger_wake(self) -> bool:
+        """디버그/원격용으로 웨이크워드 인식과 동일한 turn을 강제로 시작한다.
+
+        실제 감지가 하던 것과 똑같은 경로(`_run_turn`)를 타도록 main loop에 신호만
+        넘긴다. 스피커로 다시 소리를 내지 않으므로 자기 인식 위험이 없다. 말할
+        자리가 아니면(대기 중이 아니거나 이미 turn이 도는 중이면) 조용히 무시하고
+        False를 돌려준다.
+        """
+
+        if self._stopping:
+            return False
+        if self._state is not VoiceState.WAITING_WAKE or self._turn_task is not None:
+            return False
+        self._manual_wake.set()
+        LOGGER.info(
+            "수동 웨이크 트리거를 접수했습니다.",
+            extra={"component": "voice", "event": "manual_wake_requested"},
+        )
+        return True
 
     async def announce(self, chunks: AsyncIterator[bytes]) -> bool:
         """호출한 쪽이 만든 음성을 스피커로 먼저 들려준다.
@@ -207,11 +229,7 @@ class VoiceService:
     async def _run(self) -> None:
         while not self._stopping:
             if self._state is VoiceState.WAITING_WAKE:
-                try:
-                    chunk = await self._audio.read(timeout_seconds=1.0)
-                except TimeoutError:
-                    continue
-                if await self._wakeword.detect(chunk.pcm):
+                if await self._wait_for_wake():
                     await self._run_turn((), speech_already_started=False)
             elif self._state is VoiceState.WAITING_FOLLOWUP:
                 initial = await self._wait_for_followup_candidate()
@@ -224,6 +242,35 @@ class VoiceService:
                 await self._announcement_done.wait()
             else:
                 raise VoiceFatalError("voice_state_invalid")
+
+    async def _wait_for_wake(self) -> bool:
+        """마이크 감지와 수동 트리거를 함께 기다린다. 둘 중 무엇이든 turn을 연다."""
+        read_task = asyncio.ensure_future(self._audio.read(timeout_seconds=1.0))
+        wake_task = asyncio.ensure_future(self._manual_wake.wait())
+        try:
+            await asyncio.wait({read_task, wake_task}, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            for task in (read_task, wake_task):
+                task.cancel()
+            await asyncio.gather(read_task, wake_task, return_exceptions=True)
+            raise
+        # 수동 트리거를 우선한다. 같은 tick에 마이크 청크가 왔더라도 그 청크는 버린다.
+        if self._manual_wake.is_set():
+            self._manual_wake.clear()
+            read_task.cancel()
+            await asyncio.gather(read_task, return_exceptions=True)
+            LOGGER.info(
+                "수동 트리거로 turn을 시작합니다.",
+                extra={"component": "voice", "event": "manual_wake_activated"},
+            )
+            return True
+        wake_task.cancel()
+        await asyncio.gather(wake_task, return_exceptions=True)
+        try:
+            chunk = read_task.result()
+        except TimeoutError:
+            return False
+        return await self._wakeword.detect(chunk.pcm)
 
     async def _run_turn(self, initial: tuple[AudioChunk, ...], *, speech_already_started: bool) -> None:
         self._transition(VoiceState.RECORDING)
@@ -446,6 +493,8 @@ class VoiceService:
         if clear_followup:
             self._followup_deadline = None
             self._followup_expires_at = None
+        # 대기 밖에서 접수되었거나 stop으로 소비되지 못한 트리거는 여기서 버린다.
+        self._manual_wake.clear()
         self._audio.discard_pending()
         self._audio.set_accepting(True)
         self._wakeword.reset()

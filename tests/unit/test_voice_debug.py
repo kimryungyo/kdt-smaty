@@ -15,6 +15,10 @@ NOW = datetime(2026, 8, 11, tzinfo=timezone.utc)
 
 
 class FakeVoice:
+    def __init__(self, *, wake_accepted: bool = True) -> None:
+        self.wake_accepted = wake_accepted
+        self.wake_calls = 0
+
     def get_snapshot(self) -> VoiceSnapshot:
         return VoiceSnapshot(
             state=VoiceState.WAITING_FOLLOWUP,
@@ -22,6 +26,10 @@ class FakeVoice:
             followup_expires_at=NOW,
             last_error=None,
         )
+
+    def trigger_wake(self) -> bool:
+        self.wake_calls += 1
+        return self.wake_accepted
 
 
 class FakeWakeWord:
@@ -80,14 +88,17 @@ class FakeAssistantTurns:
         )
 
 
-def make_application():
-    view = VoiceDebugView(
-        voice=FakeVoice(),  # type: ignore[arg-type]
+def make_view(voice: FakeVoice | None = None) -> VoiceDebugView:
+    return VoiceDebugView(
+        voice=voice or FakeVoice(),  # type: ignore[arg-type]
         wakeword=FakeWakeWord(),  # type: ignore[arg-type]
         audio_input=FakeAudioInput(),  # type: ignore[arg-type]
         assistant_turns=FakeAssistantTurns(),  # type: ignore[arg-type]
     )
-    return create_voice_debug_application(view)
+
+
+def make_application():
+    return create_voice_debug_application(make_view())
 
 
 async def test_debug_snapshot_combines_voice_observability_without_provider_secret() -> None:
@@ -108,6 +119,33 @@ async def test_debug_snapshot_combines_voice_observability_without_provider_secr
     assert payload["assistant_response"]["status"] == "SUCCEEDED"
     assert "transcript" not in response.text.lower()
     assert "api_key" not in response.text.lower()
+
+
+async def test_wake_endpoint_forwards_to_voice_and_reports_result() -> None:
+    voice = FakeVoice(wake_accepted=True)
+    app = create_voice_debug_application(make_view(voice))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post("/api/wake")
+
+    assert response.status_code == 200
+    assert voice.wake_calls == 1
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["state"] == "WAITING_FOLLOWUP"
+
+
+async def test_wake_endpoint_reports_ignored_trigger() -> None:
+    voice = FakeVoice(wake_accepted=False)
+    app = create_voice_debug_application(make_view(voice))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post("/api/wake")
+
+    assert response.status_code == 200
+    assert response.json()["accepted"] is False
 
 
 async def test_debug_page_is_no_store_and_polls_snapshot() -> None:

@@ -183,6 +183,28 @@ async def test_runtime_error_fails_and_playback_failure_never_hangs_under_queue_
     await voice.stop()
 
 
+async def test_trigger_wake_starts_turn_like_real_detection() -> None:
+    voice, audio, playback, runtime = service([])
+    await voice.start(); await wait_accepting(audio)
+    assert voice.get_snapshot().state is VoiceState.WAITING_WAKE
+    # 마이크에 아무것도 넣지 않아도 수동 트리거만으로 turn이 열린다.
+    assert voice.trigger_wake() is True
+    await wait_state(voice, VoiceState.RECORDING)
+    assert EffectName.ACKNOWLEDGEMENT in playback.effects
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    await voice.stop()
+
+
+async def test_trigger_wake_ignored_outside_waiting_wake() -> None:
+    voice, audio, _, _ = service([])
+    assert voice.trigger_wake() is False  # 시작 전 DISABLED
+    await voice.start(); await wait_accepting(audio)
+    assert voice.trigger_wake() is True
+    await wait_state(voice, VoiceState.RECORDING)
+    assert voice.trigger_wake() is False  # turn이 도는 중이면 무시
+    await voice.stop()
+
+
 async def test_stop_is_idempotent_and_partial_start_cancellation_cleans_resources() -> None:
     voice, _, _, runtime = service([])
     await voice.start(); await voice.stop(); await voice.stop()
