@@ -38,8 +38,9 @@ class GpioRelayClient:
     """RelayClient와 같은 계약을 GPIO 출력으로 구현한다."""
 
     def __init__(self, up_pin: int, down_pin: int, chip: int = 0) -> None:
-        import lgpio
+        from smart_desk.modules.gpio_runtime import import_lgpio
 
+        lgpio = import_lgpio()
         self._lgpio = lgpio
         self._up_pin = up_pin
         self._down_pin = down_pin

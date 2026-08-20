@@ -38,8 +38,9 @@ class GpioTiltMotion:
         on_timeout: Callable[[], None],
         chip: int = 0,
     ) -> None:
-        import lgpio
+        from smart_desk.modules.gpio_runtime import import_lgpio
 
+        lgpio = import_lgpio()
         self._lgpio = lgpio
         self._r_en = r_en_pin
         self._l_en = l_en_pin
