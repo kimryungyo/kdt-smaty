@@ -206,8 +206,6 @@ void setup() {
   WiFi.persistent(false);
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(false);
-  // relay 보드에서 출력을 단계별로 낮춰가며 실측한 값이다.
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.onEvent(onWifiEvent);
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMqttMessage);
