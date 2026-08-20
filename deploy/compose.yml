@@ -98,6 +98,10 @@ services:
       SMART_DESK_AUTOMATION__EXECUTE_AUTOMATIC_MOVEMENTS: "true"
     volumes:
       - ../data:/app/data
+      # 틸트 20kHz는 lgpio 소프트웨어 PWM 상한(10kHz)을 넘어 하드웨어 PWM이
+      # 필요하다. sysfs 노드를 그대로 열어 준다.
+      - /sys/class/pwm:/sys/class/pwm
+      - /sys/devices/platform:/sys/devices/platform
     devices:
       - "${SMART_DESK_SERIAL__PORT}:/dev/desk-height"
       # relay와 tilt는 ESP32 대신 라즈베리파이 GPIO로 직접 구동한다. Pi 5의

@@ -23,6 +23,8 @@ LOGGER = logging.getLogger(__name__)
 
 MIN_DUTY_PERCENT = 1
 MAX_DUTY_PERCENT = 100
+# lgpio tx_pwm이 받는 최대 주파수. 그 이상은 'bad PWM frequency'로 거부된다.
+SOFTWARE_PWM_MAX_HZ = 10000
 
 
 class GpioTiltMotion:
@@ -38,7 +40,7 @@ class GpioTiltMotion:
         on_timeout: Callable[[], None],
         chip: int = 0,
     ) -> None:
-        from smart_desk.modules.gpio_runtime import import_lgpio
+        from smart_desk.modules.gpio_runtime import import_lgpio, open_hardware_pwm
 
         lgpio = import_lgpio()
         self._lgpio = lgpio
@@ -49,9 +51,34 @@ class GpioTiltMotion:
         self._frequency = pwm_frequency_hz
         self._on_timeout = on_timeout
         self._handle = lgpio.gpiochip_open(chip)
+
+        # 20kHz는 lgpio 소프트웨어 PWM 상한(10kHz)을 넘으므로 하드웨어 PWM을
+        # 먼저 시도한다. overlay가 없는 환경에서는 소프트웨어로 물러서되, 그때는
+        # 상한에 맞춰 주파수를 낮춰야 tx_pwm이 거부하지 않는다.
+        self._hardware_pwm = {
+            pin: open_hardware_pwm(pin, pwm_frequency_hz)
+            for pin in (self._r_pwm, self._l_pwm)
+        }
+        if all(self._hardware_pwm.values()):
+            claimed = (self._r_en, self._l_en)
+        else:
+            self._hardware_pwm = {self._r_pwm: None, self._l_pwm: None}
+            if pwm_frequency_hz > SOFTWARE_PWM_MAX_HZ:
+                LOGGER.warning(
+                    "하드웨어 PWM을 쓸 수 없어 소프트웨어 PWM 상한으로 낮춥니다.",
+                    extra={
+                        "component": "tilt_gpio",
+                        "event": "tilt_gpio_pwm_downgraded",
+                        "requested_hz": pwm_frequency_hz,
+                        "applied_hz": SOFTWARE_PWM_MAX_HZ,
+                    },
+                )
+                self._frequency = SOFTWARE_PWM_MAX_HZ
+            claimed = (self._r_en, self._l_en, self._r_pwm, self._l_pwm)
+
         # enable을 먼저 LOW로 확정한 뒤 PWM 선을 잡는다. 순서가 뒤집히면
         # PWM이 붙는 순간 모터가 튈 수 있다.
-        for pin in (self._r_en, self._l_en, self._r_pwm, self._l_pwm):
+        for pin in claimed:
             lgpio.gpio_claim_output(self._handle, pin, 0)
 
         self._direction = TiltDirection.STOP
@@ -126,6 +153,10 @@ class GpioTiltMotion:
         self._direction = TiltDirection.STOP
 
     def _write_pwm(self, pin: int, duty_percent: int) -> None:
+        hardware = self._hardware_pwm.get(pin)
+        if hardware is not None:
+            hardware.set_duty_percent(duty_percent)
+            return
         # lgpio는 duty를 퍼센트(0~100)로 받는다.
         self._lgpio.tx_pwm(self._handle, pin, self._frequency, duty_percent)
 
@@ -146,6 +177,9 @@ class GpioTiltMotion:
         self._force_off_safely()
         self._closed = True
         atexit.unregister(self._force_off_safely)
+        for hardware in self._hardware_pwm.values():
+            if hardware is not None:
+                hardware.close()
         try:
             self._lgpio.gpiochip_close(self._handle)
         except Exception:  # noqa: BLE001 - 종료 경로에서 실패를 삼킨다.

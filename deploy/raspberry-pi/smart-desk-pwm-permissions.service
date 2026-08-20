@@ -1,0 +1,13 @@
+[Unit]
+Description=SMART DESK hardware PWM permissions for the tilt driver
+DefaultDependencies=no
+After=sysinit.target
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/smart-desk-pwm-permissions
+
+[Install]
+WantedBy=multi-user.target
