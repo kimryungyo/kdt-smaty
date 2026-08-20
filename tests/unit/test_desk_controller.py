@@ -10,6 +10,7 @@ import pytest
 from smart_desk.config.settings import DeskSettings
 from smart_desk.core.task_manager import TaskManager
 from smart_desk.modules.desk.controller import (
+    SUPPORTED_RELAY_FIRMWARES,
     DeskCommandRejectedError,
     DeskController,
 )
@@ -975,3 +976,26 @@ async def test_user_target_cancels_startup_wake_pending_before_late_heartbeat() 
     assert not any(call[0] == "wake" for call in relay.calls)
     await controller.stop()
     await tasks.shutdown()
+
+
+def test_supported_firmwares_cover_the_shipped_firmware_version() -> None:
+    """펌웨어가 보고하는 이름이 허용 목록에 없으면 모든 이동이 거부된다.
+
+    통합 펌웨어로 바꾸면서 FIRMWARE_VERSION만 고치고 이 목록을 빠뜨려,
+    대시보드 제어가 "승인되지 않은 릴레이 펌웨어"로 전부 막혔던 적이 있다.
+    실제 헤더에서 값을 읽어 두 곳이 어긋나면 여기서 먼저 깨지게 한다.
+    """
+
+    import re
+    from pathlib import Path
+
+    header = Path("firmware/desk-controller/include/config.h")
+    if not header.exists():  # 펌웨어를 함께 두지 않는 환경에서는 건너뛴다.
+        return
+    text = header.read_text(encoding="utf-8")
+    # SmartDeskConfig(relay)의 FIRMWARE_VERSION이 이 검사의 대상이다.
+    match = re.search(
+        r'constexpr char FIRMWARE_VERSION\[\]\s*=\s*"([^"]+)"', text
+    )
+    assert match is not None, "config.h에서 FIRMWARE_VERSION을 찾지 못했습니다."
+    assert match.group(1) in SUPPORTED_RELAY_FIRMWARES
