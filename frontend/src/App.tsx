@@ -48,9 +48,18 @@ const modeSubtitle = (mode: ActivityMode) => {
   return mode.tiltLevel === null ? base : `${base} · 틸트 ${mode.tiltLevel}단계`;
 };
 
+// 409는 세션 변동 외에도 릴레이 정지 실패 같은 이유로 난다. 전부 세션 문제로
+// 표시하면 실제 원인(대개 장치 쪽)을 가려 진단이 어려워진다.
+const CONFLICT_TEXT: Record<string, string> = {
+  SESSION_MISMATCH: "현재 사용자 session이 변경되었습니다. 최신 상태를 다시 확인해 주세요.",
+  DESK_STOP_FAILED: "책상을 정지시키지 못했습니다. 릴레이 연결을 확인해 주세요.",
+  ACTIVE_ACTIVITY_MODE: "지금 사용 중인 작업 모드는 삭제할 수 없습니다.",
+  ACTIVITY_MODE_OWNERSHIP: "다른 프로필의 작업 모드는 선택할 수 없습니다.",
+};
+
 const errorText = (error: unknown) => {
   if (error instanceof ApiError) {
-    if (error.status === 409) return "현재 사용자 session이 변경되었습니다. 최신 상태를 다시 확인해 주세요.";
+    if (error.status === 409) return CONFLICT_TEXT[error.message] ?? error.message;
     if (error.status === 503) return "연결된 장치 또는 서비스가 아직 준비되지 않았습니다.";
     return error.message;
   }

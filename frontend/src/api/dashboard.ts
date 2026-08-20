@@ -87,7 +87,15 @@ async function request<Response>(path: string, init?: RequestInit): Promise<Resp
   });
   const body = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
-    const detail = body && typeof body.detail === "string" ? body.detail : "요청을 처리하지 못했습니다.";
+    // WLED route는 detail을 {code, ...} 객체로 준다. 그 code를 잃으면 호출자가
+    // 실제 사유를 구분할 수 없으므로 문자열 detail과 같은 자리로 꺼낸다.
+    const raw = body?.detail;
+    const detail =
+      typeof raw === "string"
+        ? raw
+        : typeof raw?.code === "string"
+          ? raw.code
+          : "요청을 처리하지 못했습니다.";
     throw new ApiError(detail, response.status);
   }
   return body as Response;
