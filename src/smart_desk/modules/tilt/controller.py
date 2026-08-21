@@ -239,6 +239,27 @@ class TiltController:
                     critical=False,
                 )
 
+        # 틸트 명령 경로는 그동안 아무 것도 남기지 않아, 대시보드에서 거절을
+        # 받아도 서버 로그만으로는 어떤 상태가 원인이었는지 알 수 없었다.
+        # 수락/거절과 그 판단에 쓰인 상태를 함께 남긴다.
+        LOGGER.info(
+            "틸팅 단계 이동 요청을 처리했습니다.",
+            extra={
+                "component": "tilt",
+                "event": "tilt_goto_rejected" if detail else "tilt_goto_accepted",
+                "detail": detail or "",
+                "requested_level": command.level,
+                "source": command.source,
+                "state": snapshot.state.value,
+                "level": snapshot.level,
+                "target_level": snapshot.target_level,
+                "position_valid": snapshot.position_valid,
+                "position_mm": snapshot.position_mm,
+                "link_generation": self._link.connection_generation,
+                "synced_generation": self._synced_generation,
+            },
+        )
+
         if detail is None:
             await self._publish_status()
         elif detail:
