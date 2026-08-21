@@ -179,6 +179,24 @@ class ProcessingRuntime(Runtime):
         )
 
 
+class ClosableErrorRuntime(Runtime):
+    def __init__(self) -> None:
+        super().__init__([])
+        self.closed_stream = asyncio.Event()
+
+    async def run_audio(self, chunks: AsyncIterable[bytes]) -> AsyncIterator[VoiceRuntimeEvent]:
+        iterator = chunks.__aiter__()
+        self.received.append(await anext(iterator))
+        try:
+            yield VoiceRuntimeEvent(
+                1,
+                VoiceRuntimeEventType.ERROR,
+                error_code="voice_pipeline_failed",
+            )
+        finally:
+            self.closed_stream.set()
+
+
 async def wait_state(service: VoiceService, state: VoiceState) -> None:
     async with asyncio.timeout(1):
         while service.get_snapshot().state is not state:
@@ -445,6 +463,17 @@ async def test_runtime_error_fails_and_playback_failure_never_hangs_under_queue_
     await voice.stop()
 
 
+async def test_runtime_stream_is_closed_immediately_after_error_event() -> None:
+    runtime = ClosableErrorRuntime()
+    voice, audio, _, _ = service([], runtime=runtime)
+
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+
+    assert runtime.closed_stream.is_set()
+    await voice.stop()
+
+
 async def test_trigger_wake_starts_turn_like_real_detection() -> None:
     voice, audio, playback, runtime = service([])
     await voice.start(); await wait_accepting(audio)
@@ -497,6 +526,13 @@ class DeadSpeaker(Playback):
         await super().play_effect(effect)
 
 
+class DeadAnnouncementSpeaker(DeadSpeaker):
+    async def play_speech(self, chunks: AsyncIterator[bytes]) -> None:
+        if self.opens <= self.heal_after:
+            raise VoiceFatalError("speaker_failed")
+        await super().play_speech(chunks)
+
+
 async def test_dead_speaker_during_wake_effect_reopens_device_instead_of_stopping(monkeypatch) -> None:
     monkeypatch.setattr("smart_desk.modules.voice.service.DEVICE_RETRY_INTERVAL_SECONDS", 0.01)
     events = [VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT), VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"), VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED)]
@@ -530,6 +566,69 @@ async def test_speaker_loss_inside_turn_reaches_device_retry(monkeypatch) -> Non
     # turn은 실패로 마감되고, 같은 stream으로 되돌아가는 대신 장치를 다시 연다.
     assert runtime.outcomes == [("FAILED", "speaker_failed")]
     assert playback.starts >= 2
+    await voice.stop()
+
+
+async def test_speaker_loss_during_announcement_reopens_device(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "smart_desk.modules.voice.service.DEVICE_RETRY_INTERVAL_SECONDS", 0.01
+    )
+    playback = DeadAnnouncementSpeaker(heal_after=1)
+    voice, audio, _, _ = service([], playback=playback)
+    await voice.start()
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+
+    async def spoken():
+        yield b"\x01\x00"
+
+    assert await voice.announce(spoken()) is False
+    assert voice.get_snapshot().state is VoiceState.ERROR
+    # main loop의 이미 대기 중인 read를 깨워도 늦은 wake로 turn이 열리면 안 된다.
+    audio.q.put_nowait(AudioChunk(pcm(500), time.monotonic()))
+    await wait_reopen(playback, 2)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    assert await voice.announce(spoken()) is True
+    await voice.stop()
+
+
+async def test_inflight_wake_detection_cannot_open_turn_after_announcement() -> None:
+    class SlowWake(Wake):
+        def __init__(self) -> None:
+            super().__init__()
+            self.detecting = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def detect(self, _pcm: bytes) -> bool:
+            self.detecting.set()
+            await self.release.wait()
+            return True
+
+    audio, wake, playback, runtime = Audio(), SlowWake(), Playback(), Runtime([])
+    voice = VoiceService(
+        audio_input=audio,
+        wakeword=wake,
+        runtime=runtime,
+        playback=playback,
+        settings=VoiceSettings(
+            speech_start_timeout_seconds=.1,
+            post_playback_guard_seconds=0,
+            followup_timeout_seconds=.2,
+        ),
+        task_manager=TaskManager(),
+    )
+    await voice.start()
+    audio.feed(500)
+    await wake.detecting.wait()
+
+    async def spoken():
+        yield b"\x01\x00"
+
+    assert await voice.announce(spoken()) is True
+    wake.release.set()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert voice.get_snapshot().state is VoiceState.WAITING_WAKE
+    assert playback.effects == []
     await voice.stop()
 
 

@@ -110,6 +110,19 @@ async def test_a_skipped_greeting_retries_later_not_immediately(tmp_path: Path) 
     assert ready.spoken == 1
 
 
+async def test_stop_blocks_new_greeting_tasks(tmp_path: Path) -> None:
+    service = service_for(
+        tmp_path / "greeting_state.json",
+        FakeVoice(),
+        lambda: datetime(2026, 8, 19, 9, 0, tzinfo=UTC),
+    )
+
+    await service.stop()
+    service.greet(PROFILE)
+
+    assert service._task is None
+
+
 def test_weather_uses_the_local_date_not_utc(tmp_path: Path) -> None:
     """컨테이너가 UTC로 돌아도 현지 날짜로 찾아야 한다.
 

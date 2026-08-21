@@ -48,6 +48,19 @@ class OpenAiSpeechSynthesizer:
         self._model = model
         self._voice = voice
         self._client = client
+        self._owns_client = client is None
+
+    async def start(self) -> None:
+        """Client는 첫 합성까지 만들지 않는다."""
+
+    async def stop(self) -> None:
+        """직접 만든 OpenAI client와 연결 pool을 닫는다."""
+        if not self._owns_client:
+            return
+        client, self._client = self._client, None
+        close = getattr(client, "close", None)
+        if callable(close):
+            await close()
 
     def _require_client(self) -> Any:
         if self._client is not None:

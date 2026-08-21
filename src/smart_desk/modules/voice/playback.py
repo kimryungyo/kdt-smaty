@@ -95,9 +95,16 @@ class PlaybackCoordinator:
 
     async def play_effect(self, effect: EffectName) -> None:
         self._require_playable()
-        async with self._output_lock:
-            await self._output.write(self._effects[effect])
-            await self._output.drain()
+        try:
+            async with self._output_lock:
+                await self._output.write(self._effects[effect])
+                await self._output.drain()
+        except asyncio.CancelledError:
+            await self._output.abort()
+            raise
+        except Exception:
+            await self._output.abort()
+            raise
 
     async def play_speech(self, chunks: AsyncIterator[bytes]) -> None:
         self._require_playable()
@@ -122,6 +129,8 @@ class PlaybackCoordinator:
                     remainder = combined[aligned_length:]
                 if remainder:
                     raise ValueError("TTS PCM stream이 불완전한 sample로 끝났습니다.")
+                if byte_count == 0:
+                    raise VoiceFatalError("voice_response_audio_missing")
                 LOGGER.info(
                     "로컬 스피커 drain을 시작합니다.",
                     extra={

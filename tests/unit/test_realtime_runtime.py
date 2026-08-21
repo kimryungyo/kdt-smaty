@@ -14,6 +14,7 @@ from smart_desk.modules.assistant.realtime_runtime import (
     RealtimeVoiceRuntime,
 )
 from smart_desk.modules.assistant.turns import TurnStatus
+from smart_desk.modules.voice.models import VoiceFatalError
 from tests.unit.test_agents_tools import _context
 
 
@@ -45,6 +46,12 @@ class BlockingTransport(Transport):
 async def chunks(*items: bytes) -> AsyncIterable[bytes]:
     for item in items:
         yield item
+
+
+async def failing_microphone_chunks() -> AsyncIterable[bytes]:
+    yield b"\x02\x00"
+    await asyncio.sleep(0)
+    raise VoiceFatalError("microphone_inactive")
 
 
 async def test_realtime_runtime_streams_transcript_audio_and_final_turn() -> None:
@@ -141,6 +148,56 @@ async def test_realtime_runtime_fails_when_final_transcript_never_arrives() -> N
         (VoiceRuntimeEventType.ERROR, "voice_pipeline_failed"),
     ]
     assert transport.closed is True
+
+
+async def test_realtime_runtime_reports_microphone_failure_while_receive_is_blocked() -> None:
+    transport = BlockingTransport([])
+
+    async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("tool should not run")
+
+    runtime = RealtimeVoiceRuntime(
+        lambda: _transport(transport),
+        handler,
+        config=RealtimeVoiceConfig(episode_max_seconds=10),
+    )
+    async with asyncio.timeout(0.5):
+        events = [
+            event
+            async for event in runtime.run_audio(failing_microphone_chunks())
+        ]
+
+    assert [(event.type, event.error_code) for event in events] == [
+        (VoiceRuntimeEventType.ERROR, "microphone_inactive")
+    ]
+    assert transport.closed is True
+
+
+async def test_realtime_runtime_rejects_invalid_pcm_before_immediate_response() -> None:
+    transport = Transport([
+        {
+            "type": "response.output_audio.delta",
+            "delta": base64.b64encode(b"\x01\x00").decode(),
+        },
+        {
+            "type": "response.done",
+            "response": {"status": "completed", "output": []},
+        },
+    ])
+
+    async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("tool should not run")
+
+    events = [
+        event
+        async for event in RealtimeVoiceRuntime(
+            lambda: _transport(transport), handler
+        ).run_audio(chunks(b"\x01"))
+    ]
+
+    assert [(event.type, event.error_code) for event in events] == [
+        (VoiceRuntimeEventType.ERROR, "voice_pipeline_failed")
+    ]
 
 
 async def test_realtime_runtime_maps_server_vad_boundaries_to_lifecycle() -> None:
@@ -252,6 +309,7 @@ async def test_realtime_runtime_retries_one_empty_response_then_requires_audio()
         if event.get("type") == "response.create" and "response" in event
     )
     assert "spoken final answer" in retry["response"]["instructions"]  # type: ignore[index]
+    assert retry["response"]["tools"] == []  # type: ignore[index]
 
 
 async def test_realtime_runtime_fails_after_repeated_empty_audio_response() -> None:

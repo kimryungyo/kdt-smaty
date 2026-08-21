@@ -584,6 +584,32 @@ def build_container(settings: Settings) -> AppContainer:
                     shutdown_order=90,
                 )
             )
+            container.register(
+                ResourceRegistration(
+                    name="voice-speech-synthesizer",
+                    resource=synthesizer,
+                    startup_order=91,
+                    shutdown_order=91,
+                )
+            )
+            if container.announcer is not None:
+                container.register(
+                    ResourceRegistration(
+                        name="voice-announcer",
+                        resource=container.announcer,
+                        startup_order=92,
+                        shutdown_order=92,
+                    )
+                )
+            if container.greeting is not None:
+                container.register(
+                    ResourceRegistration(
+                        name="voice-greeting",
+                        resource=container.greeting,
+                        startup_order=93,
+                        shutdown_order=93,
+                    )
+                )
             if settings.voice_debug.enabled:
                 voice_debug = VoiceDebugServer(
                     VoiceDebugView(
@@ -600,8 +626,8 @@ def build_container(settings: Settings) -> AppContainer:
                     ResourceRegistration(
                         name="voice-debug-http",
                         resource=voice_debug,
-                        startup_order=91,
-                        shutdown_order=91,
+                        startup_order=94,
+                        shutdown_order=94,
                     )
                 )
     return container

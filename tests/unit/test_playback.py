@@ -106,6 +106,30 @@ async def test_partial_stream_failure_aborts_output(tmp_path: Path) -> None:
     assert output.events[-1] == "abort"
 
 
+async def test_empty_speech_is_not_reported_as_success(tmp_path: Path) -> None:
+    playback, output = make_playback(tmp_path)
+    await playback.start()
+
+    with pytest.raises(VoiceFatalError, match="voice_response_audio_missing"):
+        await playback.play_speech(chunks())
+
+    assert output.events[-1] == "abort"
+
+
+async def test_effect_failure_aborts_output(tmp_path: Path) -> None:
+    playback, output = make_playback(tmp_path)
+    await playback.start()
+
+    async def fail_drain() -> None:
+        raise VoiceFatalError("speaker_failed")
+
+    output.drain = fail_drain  # type: ignore[method-assign]
+    with pytest.raises(VoiceFatalError, match="speaker_failed"):
+        await playback.play_effect(EffectName.ACKNOWLEDGEMENT)
+
+    assert output.events[-1] == "abort"
+
+
 async def test_stop_cancels_current_speech_and_is_idempotent(tmp_path: Path) -> None:
     playback, output = make_playback(tmp_path)
     await playback.start()

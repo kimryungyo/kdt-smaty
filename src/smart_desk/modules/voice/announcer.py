@@ -40,12 +40,16 @@ class SpeechAnnouncer:
         self._voice = voice
         self._synthesizer = synthesizer
         self._task: asyncio.Task[bool] | None = None
+        self._stopping = False
+
+    async def start(self) -> None:
+        self._stopping = False
 
     async def say(self, text: str) -> bool:
         """말하고, 말했는지를 돌려준다."""
 
         spoken = text.strip()
-        if not spoken:
+        if self._stopping or not spoken:
             return False
         try:
             return await self._voice.announce(self._synthesizer.stream(spoken))
@@ -69,11 +73,14 @@ class SpeechAnnouncer:
     def say_soon(self, text: str) -> None:
         """부르는 쪽을 붙잡지 않고 말한다. 앞말이 아직이면 이번 말은 건너뛴다."""
 
+        if self._stopping:
+            return
         if self._task is not None and not self._task.done():
             return
         self._task = asyncio.create_task(self.say(text), name="voice-announce")
 
     async def stop(self) -> None:
+        self._stopping = True
         task, self._task = self._task, None
         if task is not None and not task.done():
             task.cancel()

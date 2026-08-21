@@ -269,9 +269,12 @@ def test_build_container_registers_voice_at_order_90_when_enabled(
     container = build_container(settings)
 
     assert container.voice is not None
-    assert container.resources[-1].name == "voice"
-    assert container.resources[-1].startup_order == 90
-    assert container.resources[-1].shutdown_order == 90
+    voice_resources = {resource.name: resource for resource in container.resources}
+    assert voice_resources["voice"].startup_order == 90
+    assert voice_resources["voice"].shutdown_order == 90
+    assert voice_resources["voice-speech-synthesizer"].shutdown_order == 91
+    assert voice_resources["voice-announcer"].shutdown_order == 92
+    assert voice_resources["voice-greeting"].shutdown_order == 93
     config = received["config"]
     assert config.model == "configured-realtime-model"  # type: ignore[union-attr]
     assert config.input_transcription_model == "gpt-transcribe"  # type: ignore[union-attr]
@@ -296,12 +299,15 @@ def test_build_container_registers_voice_debug_after_voice(
     container = build_container(settings)
 
     assert container.voice_debug is not None
-    assert [resource.name for resource in container.resources[-2:]] == [
+    assert [resource.name for resource in container.resources[-5:]] == [
         "voice",
+        "voice-speech-synthesizer",
+        "voice-announcer",
+        "voice-greeting",
         "voice-debug-http",
     ]
-    assert container.resources[-1].startup_order == 91
-    assert container.resources[-1].shutdown_order == 91
+    assert container.resources[-1].startup_order == 94
+    assert container.resources[-1].shutdown_order == 94
 
 
 @pytest.mark.parametrize("failure", [ImportError("agents missing"), ValueError("bad runtime config")])

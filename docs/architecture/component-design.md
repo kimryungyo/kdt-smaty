@@ -292,7 +292,7 @@ Wake Word 없는 follow-up 횟수를 제한하지 않는다.
 
 ### `VoiceService` (현재 실행)
 
-`VoiceService`는 `LocalAudioInput`, `LiveKitWakeWordOnnxDetector`, `AgentsVoiceRuntime`,
+`VoiceService`는 `LocalAudioInput`, `LiveKitWakeWordOnnxDetector`, `RealtimeVoiceRuntime`,
 `PlaybackCoordinator`를 연결해 `WAITING_WAKE`, `ACKNOWLEDGING`, `RECORDING`,
 `PROCESSING`, `SPEAKING`, `WAITING_FOLLOWUP` 상태를 하나의 `voice-main` task에서 순차
 진행한다. ACK 효과음을 내는 동안에는 입력을 닫고 `ACKNOWLEDGING`으로 표시하며, 실제 입력을
@@ -302,12 +302,15 @@ server VAD의 발화 종료 event를 받으면 입력을 닫고 `PROCESSING`으�
 Realtime의 `response.done`은 종료 상태와 무관하게 오므로 `status=completed`만 정상 처리한다.
 audio-only 응답은 PCM delta를 하나 이상 로컬 speaker에서 drain한 뒤에만 성공이다. 완료됐지만
 음성이 비어 있으면 한 번만 다시 생성을 요청하고, 재시도도 비면 오류 효과음과 진단 code를
-남긴 뒤 Wake Word 대기로 돌아간다.
+남긴 뒤 Wake Word 대기로 돌아간다. 빈 응답 재생성에는 도구를 노출하지 않아 새 call id로
+물리 명령이 중복 실행되지 않게 한다.
 
-Voice는 half-duplex다. TTS 중 입력을 폐기하고 정상 drain 뒤 250ms guard를 거쳐 4초
+Voice는 half-duplex다. TTS 중 입력을 폐기하고 정상 drain 뒤 설정된 guard(기본 1초)를 거쳐 4초
 follow-up을 연다. 정상 후속 응답마다 새 4초 창을 만들며 횟수 제한은 없다. microphone,
 speaker와 Wake Word 오류만 Voice `ERROR`이고 OpenAI turn 오류는 local error effect 뒤
-`WAITING_WAKE`로 복귀한다.
+`WAITING_WAKE`로 복귀한다. 발화 중 microphone callback도 유한 간격으로 감시하며,
+인사·높이 안내 중 speaker가 죽어도 같은 장치 재연결 supervisor로 전달한다. 먼저 말하기용
+인사·알림 작업과 공유 TTS client는 Voice보다 먼저 종료해 shutdown 뒤 재생과 연결 누수를 막는다.
 
 ### `SQLiteDatabase`와 `ProfileRepository`
 

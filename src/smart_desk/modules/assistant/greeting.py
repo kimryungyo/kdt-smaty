@@ -105,13 +105,17 @@ class GreetingService:
         self._state_file = state_file
         self._last_greeted: dict[str, datetime] = self._load_state()
         self._task: asyncio.Task[None] | None = None
+        self._stopping = False
         # 찾아 둔 날씨 문장과 찾은 시각. 잠시 재사용해 인사가 늦어지지 않게 한다.
         self._weather_cache: tuple[str, datetime] | None = None
+
+    async def start(self) -> None:
+        self._stopping = False
 
     def greet(self, profile_id: str | None) -> None:
         """인사를 예약한다. 부르는 쪽을 붙잡지 않는다."""
 
-        if not profile_id or not self._should_greet(profile_id):
+        if self._stopping or not profile_id or not self._should_greet(profile_id):
             return
         if self._task is not None and not self._task.done():
             # 앞선 인사가 아직 말하는 중이다. 겹쳐 말하지 않는다.
@@ -163,6 +167,7 @@ class GreetingService:
             )
 
     async def stop(self) -> None:
+        self._stopping = True
         task, self._task = self._task, None
         if task is not None and not task.done():
             task.cancel()

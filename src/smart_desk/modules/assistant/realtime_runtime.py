@@ -22,6 +22,7 @@ from smart_desk.modules.assistant.agents_runtime import (
     VoiceRuntimeEventType,
     VoiceRuntimeLifecycle,
 )
+from smart_desk.modules.voice.models import VoiceFatalError
 
 
 PRIMARY_INSTRUCTIONS = """You are a concise Korean Smart Desk voice assistant.
@@ -317,7 +318,11 @@ class RealtimeVoiceRuntime:
                 await context.finish(TurnStatus(outcome), error_code=error_code)
 
         async def connect() -> RealtimeTransport:
-            return await OpenAIWebSocketTransport.connect(api_key=api_key, model=config.model)
+            return await OpenAIWebSocketTransport.connect(
+                api_key=api_key,
+                model=config.model,
+                timeout_seconds=config.connect_timeout_seconds,
+            )
 
         return cls(
             transport_factory or connect,
@@ -407,13 +412,40 @@ class RealtimeVoiceRuntime:
             # Real sockets suspend in receive(); yielding once also makes fake transports
             # exercise the same feeder ordering in unit tests.
             await asyncio.sleep(0)
+            feeder_observed = False
             while not self._stopping:
+                if not feeder_observed and feeder.done():
+                    feeder.result()
+                    feeder_observed = True
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     raise TimeoutError("realtime_episode_timeout")
-                event = await asyncio.wait_for(transport.receive_json(), timeout=remaining)
-                if feeder.done():
-                    feeder.result()
+                receive_task = asyncio.create_task(transport.receive_json())
+                try:
+                    while not receive_task.done():
+                        wait_for: set[asyncio.Task[Any]] = {receive_task}
+                        if not feeder_observed:
+                            wait_for.add(feeder)
+                        done, _ = await asyncio.wait(
+                            wait_for,
+                            timeout=max(
+                                0.0,
+                                deadline - asyncio.get_running_loop().time(),
+                            ),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if not done:
+                            raise TimeoutError("realtime_episode_timeout")
+                        if feeder in done:
+                            # 정상 입력 종료는 server의 남은 응답을 계속 기다린다.
+                            # microphone/PCM 오류만 socket receive보다 먼저 올린다.
+                            feeder.result()
+                            feeder_observed = True
+                    event = receive_task.result()
+                finally:
+                    if not receive_task.done():
+                        receive_task.cancel()
+                        await asyncio.gather(receive_task, return_exceptions=True)
                 event_type = event.get("type")
                 if event_type == "input_audio_buffer.speech_started":
                     if not speech_started_yielded:
@@ -524,7 +556,10 @@ class RealtimeVoiceRuntime:
                                 "response": {
                                     "instructions": (
                                         "Give the user one brief spoken final answer in Korean now."
-                                    )
+                                    ),
+                                    # 빈 응답 복구는 말만 다시 만드는 단계다. 새 call_id로
+                                    # 물리 도구가 중복 실행될 여지를 없앤다.
+                                    "tools": [],
                                 },
                             })
                             continue
@@ -591,6 +626,8 @@ class RealtimeVoiceRuntime:
                 if isinstance(error, RealtimeResponseAudioMissing)
                 else "voice_response_not_completed"
                 if isinstance(error, RealtimeResponseStatusError)
+                else error.code
+                if isinstance(error, VoiceFatalError)
                 else "voice_pipeline_failed"
             )
             sequence += 1

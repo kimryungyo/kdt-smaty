@@ -34,6 +34,7 @@ LOGGER = logging.getLogger(__name__)
 # The deployment normally recovers the microphone with one planned restart.
 # A slow fallback retry avoids flooding logs while the configured device is unplugged.
 DEVICE_RETRY_INTERVAL_SECONDS = 30.0
+AUDIO_READ_POLL_SECONDS = 0.5
 # 장치를 다시 열면 회복되는 오류들. USB 재연결처럼 이미 열어 둔 stream이
 # 도중에 죽는 경우도 여기에 든다. 열 때 실패한 것만 복구 대상으로 두면
 # 재연결 뒤 첫 재생에서 서비스가 영구히 멈춘다.
@@ -82,6 +83,12 @@ class VoiceService:
         self._announcement_done.set()
         # 디버그/원격 강제 웨이크. 세워지면 main loop가 실제 감지와 똑같이 turn을 연다.
         self._manual_wake = asyncio.Event()
+        # 대기 중 시작한 read/inference가 announce 이후 늦게 완료되어 가짜 turn을
+        # 열지 못하게 하는 세대 번호다.
+        self._wake_epoch = 0
+        # announce()는 main supervisor 밖에서 실행된다. 그 자리에서 발견한
+        # speaker 장애를 supervisor에 넘겨 장치를 다시 열게 한다.
+        self._announced_device_error: VoiceFatalError | None = None
 
     async def start(self) -> None:
         if self._main_task is not None and not self._main_task.done():
@@ -180,6 +187,7 @@ class VoiceService:
             ):
                 return False
             self._announcement_done.clear()
+            self._wake_epoch += 1
             # 스피커가 내는 소리를 마이크가 다시 듣고 깨어나지 않도록 입력을 닫는다.
             self._audio.set_accepting(False)
             self._audio.discard_pending()
@@ -189,6 +197,19 @@ class VoiceService:
                 return True
             except asyncio.CancelledError:
                 raise
+            except VoiceFatalError as error:
+                if error.code in RECOVERABLE_DEVICE_ERRORS:
+                    self._announced_device_error = error
+                    self._transition(VoiceState.ERROR, last_error=error.code)
+                LOGGER.warning(
+                    "먼저 건네는 말을 재생하지 못했습니다.",
+                    extra={
+                        "component": "voice",
+                        "event": "announcement_failed",
+                        "error_code": error.code,
+                    },
+                )
+                return False
             except Exception as error:
                 LOGGER.warning(
                     "먼저 건네는 말을 재생하지 못했습니다.",
@@ -202,8 +223,14 @@ class VoiceService:
             finally:
                 self._audio.discard_pending()
                 self._wakeword.reset()
-                self._audio.set_accepting(True)
-                if not self._stopping and self._state is VoiceState.SPEAKING:
+                self._audio.set_accepting(
+                    not self._stopping and self._announced_device_error is None
+                )
+                if (
+                    not self._stopping
+                    and self._announced_device_error is None
+                    and self._state is VoiceState.SPEAKING
+                ):
                     self._enter_waiting_wake(clear_followup=True)
                 self._announcement_done.set()
 
@@ -244,6 +271,12 @@ class VoiceService:
 
     async def _run(self) -> None:
         while not self._stopping:
+            if self._announced_device_error is not None:
+                error, self._announced_device_error = (
+                    self._announced_device_error,
+                    None,
+                )
+                raise error
             if self._state is VoiceState.WAITING_WAKE:
                 if await self._wait_for_wake():
                     await self._run_turn((), speech_already_started=False)
@@ -261,6 +294,7 @@ class VoiceService:
 
     async def _wait_for_wake(self) -> bool:
         """마이크 감지와 수동 트리거를 함께 기다린다. 둘 중 무엇이든 turn을 연다."""
+        wake_epoch = self._wake_epoch
         read_task = asyncio.ensure_future(self._audio.read(timeout_seconds=1.0))
         wake_task = asyncio.ensure_future(self._manual_wake.wait())
         try:
@@ -286,7 +320,17 @@ class VoiceService:
             chunk = read_task.result()
         except TimeoutError:
             return False
-        return await self._wakeword.detect(chunk.pcm)
+        if (
+            wake_epoch != self._wake_epoch
+            or self._state is not VoiceState.WAITING_WAKE
+        ):
+            return False
+        detected = await self._wakeword.detect(chunk.pcm)
+        return (
+            detected
+            and wake_epoch == self._wake_epoch
+            and self._state is VoiceState.WAITING_WAKE
+        )
 
     async def _run_turn(self, initial: tuple[AudioChunk, ...], *, speech_already_started: bool) -> None:
         if not initial:
@@ -354,6 +398,7 @@ class VoiceService:
         input_ended_wait: asyncio.Task[bool] | None = None
         speech_started_wait: asyncio.Task[bool] | None = None
         event_wait: asyncio.Task[object] | None = None
+        runtime_iterator: AsyncIterator[object] | None = None
 
         async def tracked_audio_chunks() -> AsyncIterator[bytes]:
             try:
@@ -597,6 +642,24 @@ class VoiceService:
                 *(task for task in wait_tasks if task is not None),
                 return_exceptions=True,
             )
+            # ERROR event를 받은 직후에는 다음 anext가 없다. Realtime async
+            # generator를 명시적으로 닫아 socket/feeder finally를 즉시 실행한다.
+            if runtime_iterator is not None:
+                close_iterator = getattr(runtime_iterator, "aclose", None)
+                if callable(close_iterator):
+                    try:
+                        await close_iterator()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        LOGGER.warning(
+                            "Voice runtime stream을 닫지 못했습니다.",
+                            extra={
+                                "component": "voice",
+                                "event": "runtime_stream_close_failed",
+                                "error_code": "runtime_stream_close_failed",
+                            },
+                        )
             if playback_task is not None and not playback_task.done():
                 playback_task.cancel()
             if playback_task is not None:
@@ -628,13 +691,26 @@ class VoiceService:
             ):
                 speech_started = True
                 deadline = None
-            timeout = None if speech_started else max(0.0, (deadline or 0.0) - time.monotonic())
-            if timeout is not None and timeout <= 0:
+            remaining = (
+                None
+                if speech_started
+                else max(0.0, (deadline or 0.0) - time.monotonic())
+            )
+            if remaining is not None and remaining <= 0:
                 return
+            # 발화가 시작된 뒤에도 유한 timeout으로 read해야 callback 정지와
+            # input_stop을 확인할 수 있다. 건강한 stream은 80ms마다 frame을 준다.
+            timeout = (
+                AUDIO_READ_POLL_SECONDS
+                if remaining is None
+                else min(AUDIO_READ_POLL_SECONDS, remaining)
+            )
             try:
                 chunk = await self._audio.read(timeout_seconds=timeout)
             except TimeoutError:
-                return
+                if not speech_started and time.monotonic() >= (deadline or 0.0):
+                    return
+                continue
             yield chunk.pcm
             if not speech_started and calculate_rms(chunk.pcm) >= self._settings.silence_rms_threshold:
                 speech_started = True
@@ -672,7 +748,30 @@ class VoiceService:
     async def _recover_turn_error(self, code: str) -> None:
         self._audio.set_accepting(False)
         self._audio.discard_pending()
-        await self._cleanup_call(lambda: self._playback.play_effect(EffectName.ERROR), "error_effect_failed")
+        try:
+            await self._playback.play_effect(EffectName.ERROR)
+        except asyncio.CancelledError:
+            raise
+        except VoiceFatalError as error:
+            if error.code in RECOVERABLE_DEVICE_ERRORS:
+                raise
+            LOGGER.warning(
+                "Voice 오류 효과음을 재생하지 못했습니다.",
+                extra={
+                    "component": "voice",
+                    "event": "error_effect_failed",
+                    "error_code": error.code,
+                },
+            )
+        except Exception:
+            LOGGER.warning(
+                "Voice 오류 효과음을 재생하지 못했습니다.",
+                extra={
+                    "component": "voice",
+                    "event": "error_effect_failed",
+                    "error_code": "error_effect_failed",
+                },
+            )
         self._enter_waiting_wake(clear_followup=True, last_error=code)
 
     def _open_followup_window(self) -> None:
