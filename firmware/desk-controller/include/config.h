@@ -64,7 +64,6 @@ constexpr uint32_t BREAK_BEFORE_MAKE_MS = 30;
 constexpr uint32_t STATUS_HEARTBEAT_MS = 5000;
 constexpr uint32_t WIFI_RETRY_MS = 15000;
 constexpr uint32_t MQTT_RETRY_MS = 5000;
-constexpr uint8_t MQTT_SOCKET_RECOVERY_FAILURES = 3;
 constexpr uint16_t MQTT_KEEPALIVE_SECONDS = 15;
 constexpr uint16_t MQTT_SOCKET_TIMEOUT_SECONDS = 1;
 constexpr size_t MAX_CONTROL_PAYLOAD_BYTES = 160;

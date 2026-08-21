@@ -458,10 +458,13 @@ class AutomationService:
         while self._running:
             try:
                 await self._observe_once()
+                await self._clear_observation_error()
             except asyncio.CancelledError:
                 raise
             except Exception:
-                await self._mark_blocked("AUTOMATION_OBSERVATION_ERROR")
+                # 프로필 DB나 Vision snapshot을 한 번 읽지 못한 것은 진행 중인
+                # 물리 이동을 취소할 이유가 아니다. 다음 관측에서 자연 복구한다.
+                await self._record_observation_error()
             try:
                 await asyncio.wait_for(self._wake.wait(), timeout=0.1)
             except TimeoutError:
@@ -470,11 +473,18 @@ class AutomationService:
 
     async def _observe_once(self) -> None:
         self._tick_led_schedule()
+        await self._recover_stop_failure_if_confirmed()
+        await self._recover_desk_error_if_ready()
         current = await self._users.snapshot()
         vision = self._vision.get_snapshot()
         snapshot = self._snapshot
         if current is None:
             if snapshot.session_id is not None:
+                # 얼굴/재실 session은 이동 의도를 고르는 데만 사용한다. 이미
+                # DeskController가 받은 목표는 얼굴이 사라져도 끝까지 수행한다.
+                await self._finish_automatic_if_idle(snapshot.session_id)
+                if self._automatic_desk_in_progress():
+                    return
                 await self._end_session(snapshot.session_id)
             await self._observe_park(vision)
             return
@@ -503,7 +513,46 @@ class AutomationService:
                 # initial candidate.  An anonymous upgrade instead schedules
                 # its Identity-stabilized posture in _install_session.
                 return
+        if current.kind is SessionKind.REGISTERED and self._snapshot.activity_mode is None:
+            await self._recover_activity_mode(current)
+            if self._snapshot.activity_mode is None:
+                return
         await self._observe_auto(current, vision)
+
+    async def _recover_activity_mode(self, current: CurrentUserSnapshot) -> None:
+        """Retry a transient profile-mode read without leaving AUTO blocked forever."""
+
+        remembered = self._recall_mode(current.profile_id)
+        selected: EffectiveActivityMode | None = None
+        for key in ([remembered] if remembered else []) + ["default"]:
+            try:
+                selected = await self._read_mode(current.profile_id or "", key)
+                break
+            except Exception:
+                continue
+        if selected is None or not await self._users.is_current(current.session_id):
+            return
+        async with self._state_lock:
+            snapshot = self._snapshot
+            if snapshot.session_id != current.session_id or snapshot.activity_mode is not None:
+                return
+            codes = tuple(
+                code for code in snapshot.blocked_reason_codes
+                if code != "DEFAULT_ACTIVITY_MODE_UNAVAILABLE"
+            )
+            self._replace_locked(
+                activity_mode=selected,
+                state=(AutomationState.BLOCKED if "DESK_STOP_FAILED" in codes
+                       else AutomationState.MANUAL
+                       if snapshot.control_mode is ControlMode.MANUAL
+                       else AutomationState.OBSERVING),
+                blocked_reason_codes=codes,
+            )
+            generation = self._snapshot.generation
+        lighting = self._install_mode_lighting(selected)
+        self._remember_mode(current.profile_id, selected.key)
+        await self._begin_usage(current.profile_id, selected)
+        await self._queue_install_led(current.session_id, generation, *lighting)
 
     async def _install_session(self, current: CurrentUserSnapshot,
                                activity: EffectiveActivityMode | None, failure: str | None,
@@ -526,9 +575,10 @@ class AutomationService:
             blocked_codes = self._with_stop_failure((failure,) if failure else ())
             if unusable_upgrade:
                 blocked_codes = self._with_stop_failure(self._vision_codes(vision))
+            hard_blocked = "DESK_STOP_FAILED" in blocked_codes
             self._replace_locked(session_id=current.session_id, control_mode=control,
                                  activity_mode=activity,
-                                 state=(AutomationState.BLOCKED if blocked_codes else
+                                 state=(AutomationState.BLOCKED if hard_blocked else
                                         AutomationState.MANUAL if control is ControlMode.MANUAL else
                                         AutomationState.OBSERVING),
                                  height_policy=(HeightPolicy.PROFILE_ACTIVITY_MODE if current.kind is SessionKind.REGISTERED
@@ -654,8 +704,6 @@ class AutomationService:
         snapshot = self._snapshot
         if snapshot.session_id != current.session_id or snapshot.control_mode is not ControlMode.AUTO:
             return
-        if current.kind is SessionKind.REGISTERED and snapshot.activity_mode is None:
-            return
         if "DESK_STOP_FAILED" in snapshot.blocked_reason_codes:
             return
         await self._finish_automatic_if_idle(current.session_id)
@@ -671,7 +719,6 @@ class AutomationService:
         # READY로 끝나므로 무한 재시도가 되지 않는다.
         if {
             "DESK_ERROR",
-            "DESK_HEIGHT_UNAVAILABLE_AFTER_STOP",
         }.intersection(self._snapshot.blocked_reason_codes):
             return
         if not self._auto_usable(vision):
@@ -765,34 +812,27 @@ class AutomationService:
 
     async def _block_auto(self, vision: VisionSnapshot) -> None:
         codes = self._vision_codes(vision)
-        # 이동이 이미 진행 중이면, 사람이 잠깐 둘로 보이거나 자세 판정이
-        # 흔들렸다는 이유만으로 멈추지 않는다. 목표는 이동을 시작할 때의 관측으로
-        # 이미 정해졌고, 중간에 끊으면 목표와 다른 높이에 멈춘 채 남는다.
-        # 카메라가 실제로 끊기거나 오래된 프레임인 경우는 아래 코드로 걸러
-        # 그대로 정지시킨다.
-        if (self._live_automatic
-                and not self._vision_hard_failure(vision)
-                and "DESK_STOP_FAILED" not in self._snapshot.blocked_reason_codes):
+        # 목표를 고른 뒤에는 얼굴, 재실, 자세, 카메라 연결이 물리 이동의
+        # 수명주기를 소유하지 않는다. 어떤 Vision 변화도 이미 시작한 이동을
+        # 중간 높이에서 끊지 않는다. 높이/relay 오류는 DeskController가 맡는다.
+        if self._live_automatic:
             return
-        # 자동 dispatch와 같은 command lock을 사용한다. vision이 불확실해진 뒤에는
-        # 이미 생성된 dispatch가 STOP 뒤에 set_target()을 실행할 수 없어야 한다.
-        async with self._command_lock:
-            async with self._state_lock:
-                snapshot = self._snapshot
-                merged_codes = self._with_stop_failure(codes)
-                if (snapshot.control_mode is not ControlMode.AUTO
-                        or snapshot.state is AutomationState.BLOCKED
-                        and snapshot.blocked_reason_codes == merged_codes):
-                    return
-                live = self._invalidate_locked("VISION_BLOCKED")
-                self._reset_candidate_locked()
-                self._vision_recovery_baseline_required = True
-                self._replace_locked(
-                    state=AutomationState.BLOCKED,
-                    blocked_reason_codes=merged_codes,
-                )
-            if live:
-                await self._safe_stop("Vision 불확실성 안전 정지")
+        async with self._state_lock:
+            snapshot = self._snapshot
+            merged_codes = self._with_stop_failure(codes)
+            if (snapshot.control_mode is not ControlMode.AUTO
+                    or snapshot.state is AutomationState.OBSERVING
+                    and snapshot.blocked_reason_codes == merged_codes):
+                return
+            self._reset_candidate_locked()
+            self._vision_recovery_baseline_required = True
+            self._replace_locked(
+                state=(AutomationState.BLOCKED
+                       if "DESK_STOP_FAILED" in merged_codes
+                       else AutomationState.OBSERVING),
+                blocked_reason_codes=merged_codes,
+                last_transition_reason="VISION_UNCERTAIN",
+            )
 
     async def _finish_automatic_if_idle(self, session_id: str | None) -> None:
         """Finish AUTO/PARK only after a fresh measurement confirms its target."""
@@ -846,7 +886,7 @@ class AutomationService:
                     else "DESK_HEIGHT_UNAVAILABLE_AFTER_STOP"
                 )
                 self._replace_locked(
-                    state=AutomationState.BLOCKED,
+                    state=AutomationState.OBSERVING,
                     blocked_reason_codes=self._with_stop_failure((code,)),
                 )
                 return
@@ -959,8 +999,6 @@ class AutomationService:
         if (desk.state is DeskState.MOVING and self._live_automatic
                 and self._snapshot.intent_source is IntentSource.PARK):
             return True, None
-        if desk.state is DeskState.ERROR:
-            return False, "DESK_ERROR"
         # A WAKE needs a last measurement to choose a bounded direction.  This
         # is not a freshness check: STALE and SENSOR_SLEEPING values continue
         # to DeskController, while a true cold start simply waits for a basis.
@@ -1035,7 +1073,10 @@ class AutomationService:
                 async with self._state_lock:
                     if generation == self._snapshot.generation:
                         self._live_automatic = False
-                        self._replace_locked(state=AutomationState.BLOCKED, blocked_reason_codes=("DESK_COMMAND_REJECTED",))
+                        self._replace_locked(
+                            state=AutomationState.OBSERVING,
+                            blocked_reason_codes=("DESK_COMMAND_REJECTED",),
+                        )
 
     async def _dispatch_valid(self, generation: int, session_id: str | None, source: IntentSource) -> bool:
         async with self._state_lock:
@@ -1086,6 +1127,111 @@ class AutomationService:
             )
         if live:
             await self._safe_stop("자동화 관측 오류 안전 정지")
+
+    async def _record_observation_error(self) -> None:
+        """Expose a transient loop error without cancelling accepted Desk work."""
+
+        async with self._state_lock:
+            codes = tuple(dict.fromkeys(
+                (*self._snapshot.blocked_reason_codes, "AUTOMATION_OBSERVATION_ERROR")
+            ))
+            if self._live_automatic:
+                self._replace_locked(blocked_reason_codes=codes)
+                return
+            state = (
+                AutomationState.BLOCKED
+                if "DESK_STOP_FAILED" in codes
+                else AutomationState.MANUAL
+                if self._snapshot.control_mode is ControlMode.MANUAL
+                else AutomationState.OBSERVING
+                if self._snapshot.session_id is not None
+                else AutomationState.WAITING_USER
+            )
+            self._replace_locked(state=state, blocked_reason_codes=codes)
+
+    async def _clear_observation_error(self) -> None:
+        if "AUTOMATION_OBSERVATION_ERROR" not in self._snapshot.blocked_reason_codes:
+            return
+        async with self._state_lock:
+            if "AUTOMATION_OBSERVATION_ERROR" in self._snapshot.blocked_reason_codes:
+                self._replace_locked(blocked_reason_codes=tuple(
+                    code for code in self._snapshot.blocked_reason_codes
+                    if code != "AUTOMATION_OBSERVATION_ERROR"
+                ))
+
+    def _automatic_desk_in_progress(self) -> bool:
+        if not self._live_automatic or self._snapshot.intent_source is not IntentSource.AUTO:
+            return False
+        try:
+            return self._desk.get_snapshot().state in {DeskState.MOVING, DeskState.WAKING}
+        except Exception:
+            # A transient snapshot failure must not turn absence into STOP.
+            return True
+
+    async def _recover_stop_failure_if_confirmed(self) -> None:
+        """Clear a STOP failure latch after a newer live relay STOP arrives."""
+
+        snapshot = self._snapshot
+        if "DESK_STOP_FAILED" not in snapshot.blocked_reason_codes:
+            return
+        try:
+            relay = self._desk.get_snapshot().relay
+        except Exception:
+            return
+        if (
+            relay.last_error is not None
+            or relay.state is not RelayState.STOP
+            or relay.event not in {RelayEvent.ONLINE, RelayEvent.HEARTBEAT, RelayEvent.STOPPED}
+            or relay.received_at is None
+            or relay.received_at <= snapshot.last_transition_at
+        ):
+            return
+        async with self._state_lock:
+            if "DESK_STOP_FAILED" not in self._snapshot.blocked_reason_codes:
+                return
+            codes = self._without_stop_failure()
+            state = (
+                AutomationState.MANUAL
+                if self._snapshot.control_mode is ControlMode.MANUAL
+                else AutomationState.OBSERVING
+                if self._snapshot.session_id is not None
+                else AutomationState.WAITING_USER
+            )
+            self._replace_locked(
+                state=state,
+                blocked_reason_codes=codes,
+                last_transition_reason="DESK_STOP_RECOVERED",
+            )
+
+    async def _recover_desk_error_if_ready(self) -> None:
+        """Retry after an ESP32/MQTT interruption once relay and height recover."""
+
+        if "DESK_ERROR" not in self._snapshot.blocked_reason_codes:
+            return
+        try:
+            desk = self._desk.get_snapshot()
+        except Exception:
+            return
+        if not self._desk_relay_recoverable(desk):
+            return
+        async with self._state_lock:
+            if "DESK_ERROR" not in self._snapshot.blocked_reason_codes:
+                return
+            codes = tuple(
+                code for code in self._snapshot.blocked_reason_codes if code != "DESK_ERROR"
+            )
+            state = (
+                AutomationState.MANUAL
+                if self._snapshot.control_mode is ControlMode.MANUAL
+                else AutomationState.OBSERVING
+                if self._snapshot.session_id is not None
+                else AutomationState.WAITING_USER
+            )
+            self._replace_locked(
+                state=state,
+                blocked_reason_codes=codes,
+                last_transition_reason="DESK_RECOVERED",
+            )
 
     def _invalidate_locked(self, reason: str) -> bool:
         live = self._live_automatic
@@ -1407,29 +1553,6 @@ class AutomationService:
             code for code in self._snapshot.blocked_reason_codes
             if code != "DESK_STOP_FAILED"
         )
-
-    @staticmethod
-    def _vision_hard_failure(vision: VisionSnapshot) -> bool:
-        """관측 자체를 믿을 수 없어 이동을 즉시 끊어야 하는지 본다.
-
-        카메라가 끊기거나 프레임이 오래됐거나 모델이 죽은 경우는 지금 무엇이
-        보이는지 알 수 없으므로 그대로 정지한다. 반대로 사람이 둘로 보이거나
-        자세가 잠깐 흔들리는 것은 관측은 살아 있는 상태라, 이미 시작한 이동을
-        끊을 이유가 되지 않는다.
-        """
-
-        if not vision.usable:
-            return True
-        hard = {
-            BlockCode.UPPER_CAMERA_UNAVAILABLE,
-            BlockCode.LOWER_CAMERA_UNAVAILABLE,
-            BlockCode.UPPER_FRAME_STALE,
-            BlockCode.LOWER_FRAME_STALE,
-            BlockCode.MODEL_UNAVAILABLE,
-            BlockCode.MODEL_ERROR,
-            BlockCode.CAMERA_TIMESTAMP_MISMATCH,
-        }
-        return any(code in hard for code in vision.reason_codes)
 
     @staticmethod
     def _vision_codes(vision: VisionSnapshot) -> tuple[str, ...]:

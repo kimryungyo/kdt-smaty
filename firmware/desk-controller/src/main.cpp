@@ -36,7 +36,6 @@ uint32_t lastTiltStatusAt = 0;
 bool wifiWasConnected = false;
 bool mqttWasConnected = false;
 int lastWifiStatus = -1;
-uint8_t consecutiveMqttSocketFailures = 0;
 
 // 틸트 이벤트 한 줄이 완성될 때마다 불린다. MQTT가 본선이고, 시리얼은 Wi-Fi가
 // 끊겼을 때도 보드를 들여다볼 수 있게 항상 같이 내보낸다.
@@ -133,20 +132,8 @@ void connectMqtt(uint32_t now) {
     // behind.  PubSubClient will retry later, but only after the underlying
     // WiFiClient is explicitly closed can the next attempt start cleanly.
     network.stop();
-    if (mqttState == MQTT_CONNECT_FAILED &&
-        ++consecutiveMqttSocketFailures >= MQTT_SOCKET_RECOVERY_FAILURES) {
-      // 관측된 C3 Wi-Fi stack wedge는 재기동으로만 풀렸다. 재기동 전에 두
-      // 장치를 먼저 세우고, 이동 중이면 다음 기회로 미룬다.
-      relay.stop();
-      motion.stop();
-      if (everythingStopped()) {
-        Serial.println("MQTT TCP 재연결 실패 누적으로 ESP32를 안전 재기동합니다.");
-        ESP.restart();
-      }
-    }
     return;
   }
-  consecutiveMqttSocketFailures = 0;
   Serial.printf("MQTT 연결 성공 (%s:%u)\n", MQTT_HOST, MQTT_PORT);
 
   control.beginSession(now);

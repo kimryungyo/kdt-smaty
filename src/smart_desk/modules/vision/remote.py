@@ -73,10 +73,14 @@ class RemoteVisionService:
         *,
         monotonic: Callable[[], float] = time.monotonic,
         utc_now: Callable[[], datetime] = _utc_now,
+        http_client_factory: Callable[[], httpx.AsyncClient] | None = None,
     ) -> None:
         self._settings = settings
         self._monotonic = monotonic
         self._utc_now = utc_now
+        self._http_client_factory = http_client_factory or (
+            lambda: httpx.AsyncClient(timeout=self._settings.request_timeout_seconds)
+        )
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._last_success: float | None = None
@@ -87,6 +91,14 @@ class RemoteVisionService:
             "lower": VisionDebugCameraResponse(error=self._last_error),
         })
         self._face: RemoteFaceObservation | None = None
+        self._camera_observed_at: dict[str, datetime | None] = {
+            "upper": None,
+            "lower": None,
+        }
+        self._camera_capture_marker: dict[str, float | None] = {
+            "upper": None,
+            "lower": None,
+        }
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -107,10 +119,22 @@ class RemoteVisionService:
         self._last_error = "vision service stopped"
         self._snapshot = self._unknown_snapshot(self._last_error)
         self._face = None
+        for camera in self._camera_observed_at:
+            self._camera_observed_at[camera] = None
+            self._camera_capture_marker[camera] = None
 
     async def _run(self) -> None:
         while not self._stop.is_set():
-            await self.process_once()
+            try:
+                await self.process_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                # 한 번의 malformed 응답이나 보조 처리 오류가 poll task 자체를
+                # 죽이면 Vision은 다시 연결돼도 영구 stale이 된다.
+                self._last_error = type(error).__name__
+                if self._expired():
+                    self._snapshot = self._unknown_snapshot(self._last_error)
             try:
                 await asyncio.wait_for(self._stop.wait(), self._settings.poll_interval_seconds)
             except TimeoutError:
@@ -123,34 +147,50 @@ class RemoteVisionService:
                 f"Bearer {self._settings.api_token.get_secret_value()}"
             )
         try:
-            async with httpx.AsyncClient(timeout=self._settings.request_timeout_seconds) as client:
+            async with self._http_client_factory() as client:
                 response = await client.post(
                     f"{self._settings.base_url}/v1/analyze",
                     json={"schemaVersion": 1},
                     headers=headers,
                 )
                 response.raise_for_status()
-                debug_response = await client.get(
-                    f"{self._settings.base_url}/v1/debug", headers=headers
-                )
-                debug_response.raise_for_status()
-                face_response = await client.get(
-                    f"{self._settings.base_url}/v1/face-embedding", headers=headers
-                )
-                face_response.raise_for_status()
-            status = VisionStatusResponse.model_validate(response.json())
-            debug = VisionDebugResponse.model_validate(debug_response.json())
-            face = FaceEmbeddingResponse.model_validate(face_response.json())
+                status = VisionStatusResponse.model_validate(response.json())
+                # 자동화에 필요한 상태 응답은 여기서 즉시 반영한다. 아래 debug와
+                # face endpoint는 보조 기능이므로 하나가 실패해도 정상 자세·재실
+                # 결과의 freshness를 잃어서는 안 된다.
+                self._last_success = self._monotonic()
+                self._last_error = None
+                self._snapshot = self._from_response(status)
+
+                try:
+                    debug_response = await client.get(
+                        f"{self._settings.base_url}/v1/debug", headers=headers
+                    )
+                    debug_response.raise_for_status()
+                    self._debug = VisionDebugResponse.model_validate(debug_response.json())
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+
+                try:
+                    face_response = await client.get(
+                        f"{self._settings.base_url}/v1/face-embedding", headers=headers
+                    )
+                    face_response.raise_for_status()
+                    face = FaceEmbeddingResponse.model_validate(face_response.json())
+                    self._face = self._face_from_response(face)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # 오래된 얼굴 결과로 새 identity 후보를 진행하지 않는다. 현재
+                    # session 자체는 FaceIdentityService가 그대로 유지한다.
+                    self._face = None
         except (httpx.HTTPError, ValueError) as error:
             self._last_error = type(error).__name__
             if self._expired():
                 self._snapshot = self._unknown_snapshot(self._last_error)
             return
-        self._last_success = self._monotonic()
-        self._last_error = None
-        self._snapshot = self._from_response(status)
-        self._debug = debug
-        self._face = self._face_from_response(face)
 
     def get_snapshot(self) -> VisionSnapshot:
         if self._expired():
@@ -244,9 +284,11 @@ class RemoteVisionService:
     def _from_response(self, response: VisionStatusResponse) -> VisionSnapshot:
         now_mono, now_wall = self._monotonic(), self._utc_now()
         upper_status, lower_status = response.cameras["upper"], response.cameras["lower"]
+        upper_capture = self._capture_marker("upper", upper_status.observed_at, now_mono)
+        lower_capture = self._capture_marker("lower", lower_status.observed_at, now_mono)
         upper = CameraObservation(
             upper_status.status is CameraStatus.ONLINE,
-            now_mono,
+            upper_capture,
             now_mono,
             upper_status.observed_at or now_wall,
             upper_status.error,
@@ -254,7 +296,7 @@ class RemoteVisionService:
         )
         lower = CameraObservation(
             lower_status.status is CameraStatus.ONLINE,
-            now_mono,
+            lower_capture,
             now_mono,
             lower_status.observed_at or now_wall,
             lower_status.error,
@@ -273,6 +315,19 @@ class RemoteVisionService:
             usable=response.association.usable,
             reason_codes=tuple(response.association.reason_codes),
         )
+
+    def _capture_marker(
+        self, camera: str, observed_at: datetime | None, now_mono: float
+    ) -> float:
+        """Map a remote frame timestamp to a process-local ordering marker."""
+
+        previous_observed = self._camera_observed_at[camera]
+        marker = self._camera_capture_marker[camera]
+        if marker is None or observed_at is None or observed_at != previous_observed:
+            marker = now_mono
+            self._camera_capture_marker[camera] = marker
+            self._camera_observed_at[camera] = observed_at
+        return marker
 
     def _unknown_snapshot(self, error: str | None) -> VisionSnapshot:
         observation = CameraObservation(False, None, None, None, error)
