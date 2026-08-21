@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -281,6 +281,11 @@ async def test_registered_default_and_default_failure_recover_without_loop_death
     modes.fail = True
     await observe(service, camera, (4, 4), clock)
     assert "DEFAULT_ACTIVITY_MODE_UNAVAILABLE" in service.get_snapshot().blocked_reason_codes
+    assert service.get_snapshot().state is AutomationState.OBSERVING
+    modes.fail = False
+    await observe(service, camera, (5, 5), clock)
+    assert service.get_snapshot().activity_mode == mode()
+    assert "DEFAULT_ACTIVITY_MODE_UNAVAILABLE" not in service.get_snapshot().blocked_reason_codes
 
 
 async def test_anonymous_manual_upgrade_preserves_manual_and_only_applies_mode_led() -> None:
@@ -886,7 +891,39 @@ async def test_live_dispatch_rejects_a_session_that_changed_before_side_effect()
     assert not [call for call in desk.calls if call[0] == "target"]
 
 
-async def test_vision_block_stops_live_auto_once_and_resets_candidate() -> None:
+async def test_vacant_session_end_waits_for_the_running_target_to_finish() -> None:
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
+    await observe(service, camera, (1, 1), clock)
+    await observe(service, camera, (2, 2), clock)
+    await observe(service, camera, (3, 3), clock, 2)
+    await flush_background_tasks()
+    assert service.get_snapshot().state is AutomationState.MOVING
+
+    users.current = None
+    await observe(service, camera, (4, 4), clock, vacant=True)
+    assert service.get_snapshot().session_id == "session-a"
+    assert service.get_snapshot().state is AutomationState.MOVING
+    assert not [call for call in desk.calls if call[0] == "stop"]
+
+    desk.snapshot = DeskSnapshot(
+        DeskState.STOPPED,
+        HeightSnapshot(75.0, NOW, HeightStatus.ONLINE, HeightProvenance.LIVE),
+        desk.snapshot.relay,
+        None,
+        None,
+        "target reached",
+        None,
+        NOW,
+    )
+    await observe(service, camera, (5, 5), clock, vacant=True)
+    assert service.get_snapshot().session_id is None
+    assert service.get_snapshot().state is AutomationState.PARK_WAITING
+    assert not [call for call in desk.calls if call[0] == "stop"]
+
+
+async def test_vision_uncertainty_does_not_stop_a_live_automatic_target() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
     service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
@@ -899,12 +936,11 @@ async def test_vision_block_stops_live_auto_once_and_resets_candidate() -> None:
                   reasons=(BlockCode.MULTIPLE_PEOPLE,))
     await observe(service, camera, (5, 5), clock, usable=False,
                   reasons=(BlockCode.MULTIPLE_PEOPLE,))
-    assert len([call for call in desk.calls if call[0] == "stop"]) == 1
-    assert service.get_snapshot().posture_candidate is None
+    assert not [call for call in desk.calls if call[0] == "stop"]
+    assert service.get_snapshot().state is AutomationState.MOVING
 
 
-async def test_vision_block_serializes_with_inflight_auto_dispatch_and_finishes_blocked() -> None:
-    """A vision STOP cannot be overtaken by a queued automatic target command."""
+async def test_vision_uncertainty_during_dispatch_keeps_the_accepted_target() -> None:
 
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
@@ -925,10 +961,10 @@ async def test_vision_block_serializes_with_inflight_auto_dispatch_and_finishes_
     await dispatch
     await blocked
 
-    assert desk.calls[:2] == [("target", 75.0), ("stop", "Vision 불확실성 안전 정지")]
+    assert desk.calls == [("target", 75.0)]
     snapshot = service.get_snapshot()
-    assert snapshot.state is AutomationState.BLOCKED
-    assert snapshot.blocked_reason_codes == ("MULTIPLE_PEOPLE",)
+    assert snapshot.state is AutomationState.MOVING
+    assert snapshot.blocked_reason_codes == ()
 
 
 async def test_live_automatic_desk_error_is_reflected_as_blocked_not_moving() -> None:
@@ -992,6 +1028,30 @@ async def test_desk_error_stays_blocked_when_the_relay_is_not_recoverable() -> N
     assert snapshot.state is AutomationState.BLOCKED
     assert snapshot.blocked_reason_codes == ("DESK_ERROR",)
 
+    desk.snapshot = DeskSnapshot(
+        DeskState.ERROR,
+        desk.snapshot.height,
+        RelaySnapshot(
+            RelayEvent.HEARTBEAT,
+            RelayState.STOP,
+            "1",
+            "ready",
+            None,
+            NOW + timedelta(seconds=1),
+            None,
+        ),
+        None,
+        None,
+        "relay recovered",
+        None,
+        NOW + timedelta(seconds=1),
+    )
+    await observe(service, camera, (5, 5), clock)
+    snapshot = service.get_snapshot()
+    assert snapshot.state is AutomationState.OBSERVING
+    assert "DESK_ERROR" not in snapshot.blocked_reason_codes
+    assert snapshot.last_transition_reason == "DESK_RECOVERED"
+
 
 async def test_vision_recovery_uses_first_usable_pair_only_as_baseline() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
@@ -1009,7 +1069,7 @@ async def test_vision_recovery_uses_first_usable_pair_only_as_baseline() -> None
     assert service.get_snapshot().target_height_cm == 75
 
 
-async def test_vision_recovery_redispatches_same_interrupted_target() -> None:
+async def test_vision_loss_does_not_duplicate_or_interrupt_the_live_target() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
     service = service_for(
@@ -1028,11 +1088,10 @@ async def test_vision_recovery_redispatches_same_interrupted_target() -> None:
     await asyncio.sleep(0)
 
     targets = [call for call in desk.calls if call[0] == "target"]
-    assert len(targets) == 2
-    assert targets[-1] == ("target", 75.0)
+    assert targets == [("target", 75.0)]
 
 
-async def test_background_stop_failure_is_visible_without_undoing_manual_intent() -> None:
+async def test_vision_loss_never_calls_stop_even_if_stop_transport_is_down() -> None:
     clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
     camera = FakeVision(vision((1, 1)))
     service = service_for(users=users, camera=camera, desk=desk, clock=clock, execute=True)
@@ -1044,7 +1103,8 @@ async def test_background_stop_failure_is_visible_without_undoing_manual_intent(
     await observe(service, camera, (4, 4), clock, usable=False)
     snapshot = service.get_snapshot()
     assert snapshot.control_mode is ControlMode.AUTO
-    assert "DESK_STOP_FAILED" in snapshot.blocked_reason_codes
+    assert snapshot.state is AutomationState.MOVING
+    assert snapshot.blocked_reason_codes == ()
 
 
 async def test_stop_failure_latches_across_vision_and_only_successful_user_stop_clears_it() -> None:
@@ -1056,7 +1116,8 @@ async def test_stop_failure_latches_across_vision_and_only_successful_user_stop_
     await observe(service, camera, (3, 3), clock, 2)
     await asyncio.sleep(0)
     desk.raise_stop = True
-    await observe(service, camera, (4, 4), clock, usable=False)
+    users.current = user("session-b")
+    await observe(service, camera, (4, 4), clock)
     await observe(service, camera, (5, 5), clock)
     snapshot = service.get_snapshot()
     assert snapshot.state is AutomationState.BLOCKED
@@ -1091,6 +1152,42 @@ async def test_sessionless_user_stop_recovers_stop_latch_to_waiting() -> None:
     assert snapshot.state is AutomationState.WAITING_USER
     assert snapshot.height_policy is None
     assert "DESK_STOP_FAILED" not in snapshot.blocked_reason_codes
+
+
+async def test_newer_live_relay_stop_automatically_recovers_stop_latch() -> None:
+    clock, desk, users = Clock(), FakeDesk(), FakeUsers(user())
+    camera = FakeVision(vision((1, 1)))
+    service = service_for(users=users, camera=camera, desk=desk, clock=clock)
+    await observe(service, camera, (1, 1), clock)
+    desk.raise_stop = True
+    with pytest.raises(RuntimeError, match="stop failed"):
+        await service.stop_motion()
+    assert "DESK_STOP_FAILED" in service.get_snapshot().blocked_reason_codes
+
+    desk.raise_stop = False
+    desk.snapshot = DeskSnapshot(
+        DeskState.STOPPED,
+        desk.snapshot.height,
+        RelaySnapshot(
+            RelayEvent.HEARTBEAT,
+            RelayState.STOP,
+            "1",
+            "ready",
+            None,
+            NOW + timedelta(seconds=1),
+            None,
+        ),
+        None,
+        None,
+        "stopped",
+        None,
+        NOW + timedelta(seconds=1),
+    )
+    await observe(service, camera, (2, 2), clock)
+    snapshot = service.get_snapshot()
+    assert snapshot.state is AutomationState.MANUAL
+    assert "DESK_STOP_FAILED" not in snapshot.blocked_reason_codes
+    assert snapshot.last_transition_reason == "DESK_STOP_RECOVERED"
 
 
 async def test_sessionless_stop_failure_latch_blocks_fresh_vacant_park() -> None:

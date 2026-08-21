@@ -172,6 +172,35 @@ async def test_vacant_ends_but_no_face_and_multiple_preserve_session() -> None:
     assert await sessions.snapshot() is None
 
 
+async def test_brief_vacancy_does_not_end_the_current_session() -> None:
+    clock = Clock()
+    vision = Vision()
+    sessions = CurrentUserSessionService()
+    service = FaceIdentityService(
+        vision=vision,
+        repository=Repository(),
+        current_user=sessions,
+        monotonic=clock.monotonic,
+        vacant_grace_seconds=30.0,
+    )
+    await sessions.select(SessionKind.REGISTERED, "a", "TEST")
+    vision.presence = PresenceStatus.VACANT
+
+    await service.process_once()
+    clock.value = 29.9
+    await service.process_once()
+    assert (await sessions.snapshot()).profile_id == "a"
+
+    vision.presence = PresenceStatus.PRESENT_SINGLE
+    await service.process_once()
+    vision.presence = PresenceStatus.VACANT
+    clock.value = 100.0
+    await service.process_once()
+    clock.value = 130.0
+    await service.process_once()
+    assert await sessions.snapshot() is None
+
+
 async def test_candidate_resets_on_no_face_and_same_capture_never_advances_it() -> None:
     clock = Clock()
     vision = Vision()
