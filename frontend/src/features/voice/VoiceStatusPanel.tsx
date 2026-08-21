@@ -7,6 +7,7 @@ const stateText: Record<VoiceStatus["state"], string> = {
   DISABLED: "음성 기능이 비활성화되어 있습니다.",
   WAITING_WAKE: "호출어를 기다리고 있습니다.",
   WAITING_FOLLOWUP: "추가 발화를 기다리고 있습니다.",
+  ACKNOWLEDGING: "호출어를 확인하고 녹음을 준비하고 있습니다.",
   RECORDING: "음성을 듣고 있습니다.",
   PROCESSING: "음성 요청을 처리하고 있습니다.",
   SPEAKING: "음성으로 응답하고 있습니다.",

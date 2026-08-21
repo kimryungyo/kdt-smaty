@@ -293,9 +293,16 @@ Wake Word 없는 follow-up 횟수를 제한하지 않는다.
 ### `VoiceService` (현재 실행)
 
 `VoiceService`는 `LocalAudioInput`, `LiveKitWakeWordOnnxDetector`, `AgentsVoiceRuntime`,
-`PlaybackCoordinator`를 연결해 `WAITING_WAKE`, `RECORDING`,
+`PlaybackCoordinator`를 연결해 `WAITING_WAKE`, `ACKNOWLEDGING`, `RECORDING`,
 `PROCESSING`, `SPEAKING`, `WAITING_FOLLOWUP` 상태를 하나의 `voice-main` task에서 순차
-진행한다. wake 뒤 원본 24kHz PCM을 `run_audio`에 직접 넘기며 발화 종료는 server VAD가 정한다.
+진행한다. ACK 효과음을 내는 동안에는 입력을 닫고 `ACKNOWLEDGING`으로 표시하며, 실제 입력을
+다시 연 뒤에만 `RECORDING`으로 전환한다. wake 뒤 원본 24kHz PCM을 `run_audio`에 직접 넘기고,
+server VAD의 발화 종료 event를 받으면 입력을 닫고 `PROCESSING`으로 전환한다.
+
+Realtime의 `response.done`은 종료 상태와 무관하게 오므로 `status=completed`만 정상 처리한다.
+audio-only 응답은 PCM delta를 하나 이상 로컬 speaker에서 drain한 뒤에만 성공이다. 완료됐지만
+음성이 비어 있으면 한 번만 다시 생성을 요청하고, 재시도도 비면 오류 효과음과 진단 code를
+남긴 뒤 Wake Word 대기로 돌아간다.
 
 Voice는 half-duplex다. TTS 중 입력을 폐기하고 정상 drain 뒤 250ms guard를 거쳐 4초
 follow-up을 연다. 정상 후속 응답마다 새 4초 창을 만들며 횟수 제한은 없다. microphone,

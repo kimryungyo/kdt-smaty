@@ -60,6 +60,19 @@ class Playback:
             self.audio.append(chunk)
 
 
+class BlockingAcknowledgementPlayback(Playback):
+    def __init__(self) -> None:
+        super().__init__()
+        self.ack_started = asyncio.Event()
+        self.release_ack = asyncio.Event()
+
+    async def play_effect(self, effect: EffectName) -> None:
+        self.effects.append(effect)
+        if effect is EffectName.ACKNOWLEDGEMENT:
+            self.ack_started.set()
+            await self.release_ack.wait()
+
+
 class Runtime:
     def __init__(self, events: list[VoiceRuntimeEvent]) -> None:
         self.events = events
@@ -136,6 +149,36 @@ class SlowTranscriptRuntime(Runtime):
                                 lifecycle=VoiceRuntimeLifecycle.TURN_ENDED)
 
 
+class ProcessingRuntime(Runtime):
+    def __init__(self) -> None:
+        super().__init__([])
+        self.processing = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def run_audio(self, chunks: AsyncIterable[bytes]) -> AsyncIterator[VoiceRuntimeEvent]:
+        iterator = chunks.__aiter__()
+        self.received.append(await anext(iterator))
+        yield VoiceRuntimeEvent(
+            1,
+            VoiceRuntimeEventType.LIFECYCLE,
+            lifecycle=VoiceRuntimeLifecycle.SPEECH_STARTED,
+        )
+        yield VoiceRuntimeEvent(
+            2,
+            VoiceRuntimeEventType.LIFECYCLE,
+            lifecycle=VoiceRuntimeLifecycle.PROCESSING_STARTED,
+        )
+        self.processing.set()
+        await self.release.wait()
+        yield VoiceRuntimeEvent(3, VoiceRuntimeEventType.TRANSCRIPT, transcript="처리 중")
+        yield VoiceRuntimeEvent(4, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00")
+        yield VoiceRuntimeEvent(
+            5,
+            VoiceRuntimeEventType.LIFECYCLE,
+            lifecycle=VoiceRuntimeLifecycle.TURN_ENDED,
+        )
+
+
 async def wait_state(service: VoiceService, state: VoiceState) -> None:
     async with asyncio.timeout(1):
         while service.get_snapshot().state is not state:
@@ -176,6 +219,38 @@ async def start_wake_turn(voice: VoiceService, audio: Audio) -> None:
     audio.feed(500)
 
 
+async def test_acknowledgement_is_not_reported_as_recording() -> None:
+    playback = BlockingAcknowledgementPlayback()
+    voice, audio, _, _ = service([], playback=playback)
+    await voice.start()
+    await wait_accepting(audio)
+    audio.feed(0)
+    await playback.ack_started.wait()
+
+    assert voice.get_snapshot().state is VoiceState.ACKNOWLEDGING
+    assert audio.accepting is False
+    assert voice.trigger_wake() is False
+
+    playback.release_ack.set()
+    await wait_state(voice, VoiceState.RECORDING)
+    assert audio.accepting is True
+    await voice.stop()
+
+
+async def test_provider_vad_moves_recording_to_processing_before_transcript() -> None:
+    runtime = ProcessingRuntime()
+    voice, audio, _, _ = service([], runtime=runtime)
+    await start_wake_turn(voice, audio)
+    await runtime.processing.wait()
+
+    assert voice.get_snapshot().state is VoiceState.PROCESSING
+    assert audio.accepting is False
+
+    runtime.release.set()
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+    await voice.stop()
+
+
 async def test_original_pcm_reaches_runtime_without_wav_and_turn_ended_succeeds() -> None:
     events = [VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT, transcript="hidden"), VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"), VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED)]
     voice, audio, playback, runtime = service(events)
@@ -204,6 +279,30 @@ async def test_speech_start_deadline_does_not_end_speech_after_rms_evidence() ->
     await chunks.aclose()
 
 
+async def test_provider_speech_started_keeps_quiet_input_open() -> None:
+    voice, audio, _, _ = service([])
+    voice._input_stop = asyncio.Event()  # noqa: SLF001
+    provider_speech_started = asyncio.Event()
+    chunks = voice._audio_chunks(  # noqa: SLF001
+        (),
+        speech_already_started=False,
+        speech_started_event=provider_speech_started,
+    )
+    first = asyncio.create_task(anext(chunks))
+    await asyncio.sleep(0)
+    audio.set_accepting(True)
+    audio.feed(500)
+    assert await first == pcm(500)
+
+    provider_speech_started.set()
+    await asyncio.sleep(.12)
+    following = asyncio.create_task(anext(chunks))
+    await asyncio.sleep(0)
+    audio.feed(500)
+    assert await following == pcm(500)
+    await chunks.aclose()
+
+
 async def test_audio_before_transcript_plays_and_finishes_after_late_transcript() -> None:
     voice, audio, playback, runtime = service([
         VoiceRuntimeEvent(1, VoiceRuntimeEventType.AUDIO, audio=b"\0\0"),
@@ -222,7 +321,7 @@ async def test_audio_before_transcript_plays_and_finishes_after_late_transcript(
 
 
 async def test_followup_opens_only_after_turn_ended_request() -> None:
-    events = [VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT), VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED, followup_requested=True)]
+    events = [VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT), VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"), VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED, followup_requested=True)]
     voice, audio, _, runtime = service(events)
     await start_wake_turn(voice, audio)
     await wait_state(voice, VoiceState.WAITING_FOLLOWUP)
@@ -316,6 +415,24 @@ async def test_final_transcript_without_turn_ended_fails_closed() -> None:
     await wait_state(voice, VoiceState.WAITING_WAKE)
     assert playback.audio == [b"\x01\x00"]
     assert runtime.outcomes == [("FAILED", "voice_pipeline_failed")]
+    await voice.stop()
+
+
+async def test_turn_ended_without_response_audio_is_not_marked_successful() -> None:
+    voice, audio, playback, runtime = service([
+        VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT, transcript="대답해줘"),
+        VoiceRuntimeEvent(
+            2,
+            VoiceRuntimeEventType.LIFECYCLE,
+            lifecycle=VoiceRuntimeLifecycle.TURN_ENDED,
+        ),
+    ])
+    await start_wake_turn(voice, audio)
+    await wait_state(voice, VoiceState.WAITING_WAKE)
+
+    assert runtime.outcomes == [("FAILED", "voice_response_audio_missing")]
+    assert playback.effects[-1] is EffectName.ERROR
+    assert voice.get_snapshot().last_error == "voice_response_audio_missing"
     await voice.stop()
 
 
@@ -420,7 +537,8 @@ async def test_followup_opens_without_request_and_expires_into_waiting_wake() ->
     """AI가 request_followup을 부르지 않아도 창이 열리고, 발화가 없으면 대기로 돌아간다."""
     events = [
         VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
-        VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"),
+        VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
     ]
     voice, audio, _, runtime = service(events)
     await start_wake_turn(voice, audio)
@@ -436,7 +554,8 @@ async def test_followup_disabled_returns_straight_to_waiting_wake() -> None:
     """followup_enabled=False면 창을 열지 않고 곧바로 웨이크 대기로 돌아간다."""
     events = [
         VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
-        VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"),
+        VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
     ]
     voice, audio, _, _ = service(events, settings=VoiceSettings(
         speech_start_timeout_seconds=.1, post_playback_guard_seconds=0,
@@ -451,7 +570,8 @@ async def test_followup_ignores_single_frame_noise_spike() -> None:
     """단일 프레임 잡음 스파이크로는 follow-up turn이 열리지 않는다."""
     events = [
         VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
-        VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"),
+        VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
     ]
     voice, audio, _, _ = service(events, settings=VoiceSettings(
         speech_start_timeout_seconds=.1, post_playback_guard_seconds=0,
@@ -472,7 +592,8 @@ async def test_followup_opens_on_sustained_speech() -> None:
     """연속 프레임이 임계값을 넘으면 follow-up turn이 열린다."""
     events = [
         VoiceRuntimeEvent(1, VoiceRuntimeEventType.TRANSCRIPT),
-        VoiceRuntimeEvent(2, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
+        VoiceRuntimeEvent(2, VoiceRuntimeEventType.AUDIO, audio=b"\x01\x00"),
+        VoiceRuntimeEvent(3, VoiceRuntimeEventType.LIFECYCLE, lifecycle=VoiceRuntimeLifecycle.TURN_ENDED),
     ]
     voice, audio, _, _ = service(events, settings=VoiceSettings(
         speech_start_timeout_seconds=.1, post_playback_guard_seconds=0,

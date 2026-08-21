@@ -58,6 +58,22 @@ class RealtimeProviderError(RuntimeError):
         super().__init__("realtime_provider_error")
 
 
+class RealtimeResponseStatusError(RuntimeError):
+    """완료되지 않은 response.done의 비민감 상태만 보존한다."""
+
+    def __init__(self, response: dict[str, Any]) -> None:
+        details = response.get("status_details")
+        status_details = details if isinstance(details, dict) else {}
+        self.status = _safe_provider_field(response.get("status"))
+        self.detail_type = _safe_provider_field(status_details.get("type"))
+        self.detail_reason = _safe_provider_field(status_details.get("reason"))
+        super().__init__("realtime_response_not_completed")
+
+
+class RealtimeResponseAudioMissing(RuntimeError):
+    """audio-only response가 PCM delta 없이 끝난 경우다."""
+
+
 def _safe_provider_field(value: object) -> str | None:
     """로그 구조를 깨지 않는 짧은 provider 식별자만 보존한다."""
     if not isinstance(value, str):
@@ -79,6 +95,7 @@ class RealtimeVoiceConfig:
     direct_tool_timeout_seconds: float = 2.0
     episode_max_seconds: float = 120.0
     transcription_grace_seconds: float = 10.0
+    empty_response_retries: int = 1
 
 
 class RealtimeTransport(Protocol):
@@ -366,9 +383,12 @@ class RealtimeVoiceRuntime:
         transport: RealtimeTransport | None = None
         feeder: asyncio.Task[None] | None = None
         sequence = 0
-        saw_response = False
         saw_transcript = False
         pending_turn_end = False
+        speech_started_yielded = False
+        processing_started_yielded = False
+        response_audio_chunks = 0
+        empty_response_retries = 0
         ledger: OrderedDict[str, dict[str, object]] = OrderedDict()
         deadline = asyncio.get_running_loop().time() + self._config.episode_max_seconds
         try:
@@ -395,7 +415,25 @@ class RealtimeVoiceRuntime:
                 if feeder.done():
                     feeder.result()
                 event_type = event.get("type")
-                if event_type == "conversation.item.input_audio_transcription.completed":
+                if event_type == "input_audio_buffer.speech_started":
+                    if not speech_started_yielded:
+                        speech_started_yielded = True
+                        sequence += 1
+                        yield VoiceRuntimeEvent(
+                            sequence,
+                            VoiceRuntimeEventType.LIFECYCLE,
+                            lifecycle=VoiceRuntimeLifecycle.SPEECH_STARTED,
+                        )
+                elif event_type == "input_audio_buffer.speech_stopped":
+                    if not processing_started_yielded:
+                        processing_started_yielded = True
+                        sequence += 1
+                        yield VoiceRuntimeEvent(
+                            sequence,
+                            VoiceRuntimeEventType.LIFECYCLE,
+                            lifecycle=VoiceRuntimeLifecycle.PROCESSING_STARTED,
+                        )
+                elif event_type == "conversation.item.input_audio_transcription.completed":
                     transcript = event.get("transcript")
                     if isinstance(transcript, str) and transcript.strip():
                         saw_transcript = True
@@ -427,6 +465,7 @@ class RealtimeVoiceRuntime:
                         except ValueError:
                             raise RuntimeError("realtime_audio_invalid") from None
                         if audio:
+                            response_audio_chunks += 1
                             sequence += 1
                             yield VoiceRuntimeEvent(sequence, VoiceRuntimeEventType.AUDIO, audio=audio)
                 elif event_type == "response.output_audio_transcript.delta":
@@ -434,6 +473,11 @@ class RealtimeVoiceRuntime:
                     if isinstance(transcript_delta, str) and self._on_response_text is not None:
                         self._on_response_text(transcript_delta)
                 elif event_type == "response.done":
+                    response = event.get("response")
+                    if not isinstance(response, dict) or response.get("status") != "completed":
+                        raise RealtimeResponseStatusError(
+                            response if isinstance(response, dict) else {}
+                        )
                     function_calls = self._function_calls(event)
                     if function_calls:
                         for call_id, name, arguments in function_calls:
@@ -461,8 +505,32 @@ class RealtimeVoiceRuntime:
                                 "tool_status": result.get("ok") is True,
                             })
                         await transport.send_json({"type": "response.create"})
+                        # 다음 response가 실제 최종 음성을 냈는지 별도로 확인한다.
+                        response_audio_chunks = 0
                         continue
-                    saw_response = True
+                    if response_audio_chunks == 0:
+                        if empty_response_retries < self._config.empty_response_retries:
+                            empty_response_retries += 1
+                            LOGGER.warning(
+                                "Realtime 응답에 음성이 없어 한 번 더 생성을 요청합니다.",
+                                extra={
+                                    "component": "assistant.realtime",
+                                    "event": "empty_response_retry",
+                                    "retry": empty_response_retries,
+                                },
+                            )
+                            await transport.send_json({
+                                "type": "response.create",
+                                "response": {
+                                    "instructions": (
+                                        "Give the user one brief spoken final answer in Korean now."
+                                    )
+                                },
+                            })
+                            continue
+                        raise RealtimeResponseAudioMissing(
+                            "realtime_response_audio_missing"
+                        )
                     if not saw_transcript:
                         # Input transcription is asynchronous and can complete after
                         # response audio and response.done. Keep the socket open briefly
@@ -508,13 +576,29 @@ class RealtimeVoiceRuntime:
                     "provider_error_code": error.provider_code,
                     "provider_error_param": error.provider_param,
                 })
+            elif isinstance(error, RealtimeResponseStatusError):
+                log_fields.update({
+                    "response_status": error.status,
+                    "response_status_type": error.detail_type,
+                    "response_status_reason": error.detail_reason,
+                })
             LOGGER.warning(
                 "Realtime 음성 episode가 실패했습니다.",
                 extra=log_fields,
             )
-            if not saw_response or pending_turn_end:
-                sequence += 1
-                yield VoiceRuntimeEvent(sequence, VoiceRuntimeEventType.ERROR, error_code="voice_pipeline_failed")
+            error_code = (
+                "voice_response_audio_missing"
+                if isinstance(error, RealtimeResponseAudioMissing)
+                else "voice_response_not_completed"
+                if isinstance(error, RealtimeResponseStatusError)
+                else "voice_pipeline_failed"
+            )
+            sequence += 1
+            yield VoiceRuntimeEvent(
+                sequence,
+                VoiceRuntimeEventType.ERROR,
+                error_code=error_code,
+            )
         finally:
             if feeder is not None and not feeder.done():
                 feeder.cancel()

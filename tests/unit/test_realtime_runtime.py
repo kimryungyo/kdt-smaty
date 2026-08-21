@@ -51,7 +51,7 @@ async def test_realtime_runtime_streams_transcript_audio_and_final_turn() -> Non
     transport = Transport([
         {"type": "conversation.item.input_audio_transcription.completed", "transcript": "불 꺼줘"},
         {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x01\x00").decode()},
-        {"type": "response.done", "response": {"output": []}},
+        {"type": "response.done", "response": {"status": "completed", "output": []}},
     ])
 
     async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
@@ -71,9 +71,10 @@ async def test_realtime_runtime_streams_transcript_audio_and_final_turn() -> Non
 
 async def test_realtime_runtime_returns_tool_output_then_continues_response() -> None:
     transport = Transport([
-        {"type": "response.done", "response": {"output": [{"type": "function_call", "call_id": "call-1", "name": "turn_wled_off", "arguments": "{}"}]}},
+        {"type": "response.done", "response": {"status": "completed", "output": [{"type": "function_call", "call_id": "call-1", "name": "turn_wled_off", "arguments": "{}"}]}},
         {"type": "conversation.item.input_audio_transcription.completed", "transcript": "불 꺼줘"},
-        {"type": "response.done", "response": {"output": []}},
+        {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x01\x00").decode()},
+        {"type": "response.done", "response": {"status": "completed", "output": []}},
     ])
     calls: list[str] = []
 
@@ -87,6 +88,7 @@ async def test_realtime_runtime_returns_tool_output_then_continues_response() ->
     assert calls == ["turn_wled_off"]
     assert [event.type for event in events] == [
         VoiceRuntimeEventType.TRANSCRIPT,
+        VoiceRuntimeEventType.AUDIO,
         VoiceRuntimeEventType.LIFECYCLE,
     ]
     assert events[-1].lifecycle is VoiceRuntimeLifecycle.TURN_ENDED
@@ -97,7 +99,7 @@ async def test_realtime_runtime_returns_tool_output_then_continues_response() ->
 async def test_realtime_runtime_waits_for_late_transcript_after_response() -> None:
     transport = Transport([
         {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x01\x00").decode()},
-        {"type": "response.done", "response": {"output": []}},
+        {"type": "response.done", "response": {"status": "completed", "output": []}},
         {"type": "conversation.item.input_audio_transcription.completed", "transcript": "늦은 전사"},
     ])
 
@@ -120,7 +122,8 @@ async def test_realtime_runtime_waits_for_late_transcript_after_response() -> No
 
 async def test_realtime_runtime_fails_when_final_transcript_never_arrives() -> None:
     transport = BlockingTransport([
-        {"type": "response.done", "response": {"output": []}},
+        {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x01\x00").decode()},
+        {"type": "response.done", "response": {"status": "completed", "output": []}},
     ])
 
     async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
@@ -134,9 +137,153 @@ async def test_realtime_runtime_fails_when_final_transcript_never_arrives() -> N
     events = [event async for event in runtime.run_audio(chunks(b"\x02\x00"))]
 
     assert [(event.type, event.error_code) for event in events] == [
+        (VoiceRuntimeEventType.AUDIO, None),
         (VoiceRuntimeEventType.ERROR, "voice_pipeline_failed"),
     ]
     assert transport.closed is True
+
+
+async def test_realtime_runtime_maps_server_vad_boundaries_to_lifecycle() -> None:
+    transport = Transport([
+        {"type": "input_audio_buffer.speech_started"},
+        {"type": "input_audio_buffer.speech_stopped"},
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "책상 올려줘",
+        },
+        {
+            "type": "response.output_audio.delta",
+            "delta": base64.b64encode(b"\x01\x00").decode(),
+        },
+        {
+            "type": "response.done",
+            "response": {"status": "completed", "output": []},
+        },
+    ])
+
+    async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("tool should not run")
+
+    events = [
+        event
+        async for event in RealtimeVoiceRuntime(
+            lambda: _transport(transport), handler
+        ).run_audio(chunks(b"\x02\x00"))
+    ]
+
+    assert [event.lifecycle for event in events if event.lifecycle is not None] == [
+        VoiceRuntimeLifecycle.SPEECH_STARTED,
+        VoiceRuntimeLifecycle.PROCESSING_STARTED,
+        VoiceRuntimeLifecycle.TURN_ENDED,
+    ]
+
+
+async def test_realtime_runtime_rejects_non_completed_response_before_tool_call() -> None:
+    transport = Transport([{
+        "type": "response.done",
+        "response": {
+            "status": "failed",
+            "status_details": {"type": "failed", "reason": "provider_reason"},
+            "output": [{
+                "type": "function_call",
+                "call_id": "call-unsafe",
+                "name": "turn_wled_off",
+                "arguments": "{}",
+            }],
+        },
+    }])
+    calls: list[str] = []
+
+    async def handler(name: str, _arguments: dict[str, object]) -> dict[str, object]:
+        calls.append(name)
+        return {"ok": True}
+
+    events = [
+        event
+        async for event in RealtimeVoiceRuntime(
+            lambda: _transport(transport), handler
+        ).run_audio(chunks(b"\x02\x00"))
+    ]
+
+    assert calls == []
+    assert [(event.type, event.error_code) for event in events] == [
+        (VoiceRuntimeEventType.ERROR, "voice_response_not_completed")
+    ]
+
+
+async def test_realtime_runtime_retries_one_empty_response_then_requires_audio() -> None:
+    transport = Transport([
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "오늘 날씨 알려줘",
+        },
+        {
+            "type": "response.done",
+            "response": {"status": "completed", "output": []},
+        },
+        {
+            "type": "response.output_audio.delta",
+            "delta": base64.b64encode(b"\x01\x00").decode(),
+        },
+        {
+            "type": "response.done",
+            "response": {"status": "completed", "output": []},
+        },
+    ])
+
+    async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("tool should not run")
+
+    events = [
+        event
+        async for event in RealtimeVoiceRuntime(
+            lambda: _transport(transport), handler
+        ).run_audio(chunks(b"\x02\x00"))
+    ]
+
+    assert [event.type for event in events] == [
+        VoiceRuntimeEventType.TRANSCRIPT,
+        VoiceRuntimeEventType.AUDIO,
+        VoiceRuntimeEventType.LIFECYCLE,
+    ]
+    retry = next(
+        event
+        for event in transport.sent
+        if event.get("type") == "response.create" and "response" in event
+    )
+    assert "spoken final answer" in retry["response"]["instructions"]  # type: ignore[index]
+
+
+async def test_realtime_runtime_fails_after_repeated_empty_audio_response() -> None:
+    transport = Transport([
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "대답해줘",
+        },
+        {
+            "type": "response.done",
+            "response": {"status": "completed", "output": []},
+        },
+        {
+            "type": "response.done",
+            "response": {"status": "completed", "output": []},
+        },
+    ])
+
+    async def handler(_name: str, _arguments: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("tool should not run")
+
+    events = [
+        event
+        async for event in RealtimeVoiceRuntime(
+            lambda: _transport(transport), handler
+        ).run_audio(chunks(b"\x02\x00"))
+    ]
+
+    assert [(event.type, event.error_code) for event in events] == [
+        (VoiceRuntimeEventType.TRANSCRIPT, None),
+        (VoiceRuntimeEventType.ERROR, "voice_response_audio_missing"),
+    ]
 
 
 async def test_realtime_runtime_hides_provider_error(caplog) -> None:
@@ -167,10 +314,11 @@ async def test_realtime_service_binding_exposes_direct_tools_and_invokes_wled() 
     context, _users, automation, wled, memory, turns = await _context()
     transport = Transport([
         {"type": "conversation.item.input_audio_transcription.completed", "transcript": "불 꺼줘"},
-        {"type": "response.done", "response": {"output": [
+        {"type": "response.done", "response": {"status": "completed", "output": [
             {"type": "function_call", "call_id": "call-1", "name": "turn_wled_off", "arguments": "{}"},
         ]}},
-        {"type": "response.done", "response": {"output": []}},
+        {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x01\x00").decode()},
+        {"type": "response.done", "response": {"status": "completed", "output": []}},
     ])
     runtime = RealtimeVoiceRuntime.build_for_services(
         api_key="test-key", sessions=context.sessions, memory=memory, turns=turns,
@@ -191,11 +339,12 @@ async def test_realtime_service_binding_exposes_direct_tools_and_invokes_wled() 
 async def test_realtime_service_binding_routes_delegate_as_a_read_only_tool() -> None:
     context, _users, automation, wled, memory, turns = await _context()
     transport = Transport([
-        {"type": "response.done", "response": {"output": [
+        {"type": "response.done", "response": {"status": "completed", "output": [
             {"type": "function_call", "call_id": "call-1", "name": "delegate_complex_request", "arguments": '{"task":"내일 날씨"}'},
         ]}},
         {"type": "conversation.item.input_audio_transcription.completed", "transcript": "내일 날씨"},
-        {"type": "response.done", "response": {"output": []}},
+        {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x01\x00").decode()},
+        {"type": "response.done", "response": {"status": "completed", "output": []}},
     ])
 
     class Delegate:

@@ -142,7 +142,11 @@ class VoiceService:
 
         if self._stopping:
             return False
-        if self._state is not VoiceState.WAITING_WAKE or self._turn_task is not None:
+        if (
+            self._state is not VoiceState.WAITING_WAKE
+            or self._turn_task is not None
+            or self._manual_wake.is_set()
+        ):
             return False
         self._manual_wake.set()
         LOGGER.info(
@@ -161,11 +165,19 @@ class VoiceService:
 
         if self._stopping or not self._playback_started:
             return False
-        if self._state is not VoiceState.WAITING_WAKE or self._turn_task is not None:
+        if (
+            self._state is not VoiceState.WAITING_WAKE
+            or self._turn_task is not None
+            or self._manual_wake.is_set()
+        ):
             return False
         async with self._announce_lock:
             # 잠금을 기다리는 사이에 사용자가 말을 걸었을 수 있다.
-            if self._state is not VoiceState.WAITING_WAKE or self._turn_task is not None:
+            if (
+                self._state is not VoiceState.WAITING_WAKE
+                or self._turn_task is not None
+                or self._manual_wake.is_set()
+            ):
                 return False
             self._announcement_done.clear()
             # 스피커가 내는 소리를 마이크가 다시 듣고 깨어나지 않도록 입력을 닫는다.
@@ -277,13 +289,16 @@ class VoiceService:
         return await self._wakeword.detect(chunk.pcm)
 
     async def _run_turn(self, initial: tuple[AudioChunk, ...], *, speech_already_started: bool) -> None:
-        self._transition(VoiceState.RECORDING)
         if not initial:
+            # ACK 재생 중에는 microphone frame을 폐기한다. 이 구간을 RECORDING으로
+            # 공개하면 화면은 듣는 중이라고 표시하지만 실제 입력은 닫혀 있게 된다.
+            self._transition(VoiceState.ACKNOWLEDGING)
             self._audio.set_accepting(False)
             self._audio.discard_pending()
             await self._playback.play_effect(EffectName.ACKNOWLEDGEMENT)
             self._audio.discard_pending()
             self._audio.set_accepting(True)
+        self._transition(VoiceState.RECORDING)
         self._turn_task = asyncio.create_task(
             self._consume_runtime(initial, speech_already_started=speech_already_started)
         )
@@ -325,6 +340,7 @@ class VoiceService:
     async def _consume_runtime(self, initial: tuple[AudioChunk, ...], *, speech_already_started: bool) -> None:
         input_stopped = False
         saw_transcript = False
+        saw_processing = False
         saw_turn_ended = False
         followup_requested = False
         queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=4)
@@ -386,12 +402,16 @@ class VoiceService:
                     wait_for_event: set[asyncio.Task[object]] = {event_wait}
                     if not saw_transcript and not speech_started.is_set():
                         wait_for_event.update((input_ended_wait, speech_started_wait))
+                    if playback_task is not None:
+                        # 출력 stream이 죽으면 다음 provider event나 전체 turn timeout까지
+                        # SPEAKING에 고착시키지 않고 즉시 장치 복구 경로로 올린다.
+                        wait_for_event.add(playback_task)
                     # 녹음 제한은 "사용자 발화가 STT로 확정되기를 기다리는" 한계다.
                     # 응답 재생이 시작되었다면 그 기다림은 이미 끝난 것이므로,
                     # 입력 전사가 늦게 오더라도 진행 중인 응답을 끊지 않는다.
                     remaining = (
                         max(0.0, recording_deadline - time.monotonic())
-                        if not saw_transcript and playback_task is None
+                        if not saw_transcript and not saw_processing and playback_task is None
                         else None
                     )
                     done, _ = await asyncio.wait(
@@ -409,6 +429,14 @@ class VoiceService:
                             },
                         )
                         raise VoiceFatalError("voice_recording_timeout")
+                    if playback_task is not None and playback_task in done:
+                        await playback_task
+                        raise VoiceFatalError("voice_playback_ended_early")
+                    # provider event가 input 종료와 같은 tick에 도착했다면 provider
+                    # event를 먼저 처리한다. 특히 SPEECH_STARTED를 빈 발화로 오인해
+                    # 정상 turn을 취소하지 않아야 한다.
+                    if event_wait in done:
+                        continue
                     if input_ended_wait in done and not speech_started.is_set():
                         # The SDK keeps its STT websocket open after StreamedAudioInput
                         # receives None. Close our one-turn consumer explicitly instead of
@@ -429,7 +457,8 @@ class VoiceService:
                 event_type = getattr(event, "type", None)
                 if event_type is VoiceRuntimeEventType.TRANSCRIPT:
                     saw_transcript = True
-                    if playback_task is None:
+                    saw_processing = True
+                    if playback_task is None and self._state is not VoiceState.PROCESSING:
                         self._transition(VoiceState.PROCESSING)
                     self._input_stop.set()
                     self._audio.set_accepting(False)
@@ -461,7 +490,31 @@ class VoiceService:
                             )
                         await enqueue(audio)
                 elif event_type is VoiceRuntimeEventType.ERROR:
-                    raise VoiceFatalError("voice_pipeline_failed")
+                    error_code = getattr(event, "error_code", None)
+                    raise VoiceFatalError(
+                        error_code if isinstance(error_code, str) else "voice_pipeline_failed"
+                    )
+                elif (
+                    event_type is VoiceRuntimeEventType.LIFECYCLE
+                    and getattr(event, "lifecycle", None)
+                    is VoiceRuntimeLifecycle.SPEECH_STARTED
+                ):
+                    # 고정 RMS 문턱보다 provider VAD가 먼저 실제 발화를 확인할 수 있다.
+                    # 그 경우 local speech-start timeout이 조용한 발화를 끊지 않게 한다.
+                    speech_started.set()
+                elif (
+                    event_type is VoiceRuntimeEventType.LIFECYCLE
+                    and getattr(event, "lifecycle", None)
+                    is VoiceRuntimeLifecycle.PROCESSING_STARTED
+                ):
+                    saw_processing = True
+                    if not input_stopped:
+                        self._input_stop.set()
+                        self._audio.set_accepting(False)
+                        self._audio.discard_pending()
+                        input_stopped = True
+                    if playback_task is None and self._state is not VoiceState.PROCESSING:
+                        self._transition(VoiceState.PROCESSING)
                 elif (
                     event_type is VoiceRuntimeEventType.LIFECYCLE
                     and getattr(event, "lifecycle", None) is VoiceRuntimeLifecycle.TURN_ENDED
@@ -483,11 +536,21 @@ class VoiceService:
                 ):
                     raise asyncio.CancelledError
 
-            # No final transcript is an empty/no-speech turn, not provider failure.
+            # No final transcript is an empty/no-speech turn only when no response
+            # started. Playing audio and then silently cancelling would truncate a
+            # provider response and falsify the public state.
             if not saw_transcript:
+                if playback_task is not None or audio_chunk_count:
+                    raise VoiceFatalError("voice_pipeline_failed")
                 await self._finalize("CANCELLED")
                 self._enter_waiting_wake(clear_followup=True, clear_error=True)
                 return
+            if not saw_turn_ended:
+                raise VoiceFatalError("voice_pipeline_failed")
+            if audio_chunk_count == 0:
+                # An audio-only Realtime session is not successful until at least one
+                # audible PCM chunk exists. Never mark a silent response SUCCEEDED.
+                raise VoiceFatalError("voice_response_audio_missing")
             if playback_task is not None:
                 LOGGER.info(
                     "TTS stream 종료 후 스피커 drain을 기다립니다.",
@@ -507,8 +570,6 @@ class VoiceService:
                         "tts_audio_chunks": audio_chunk_count,
                     },
                 )
-            if not saw_turn_ended:
-                raise VoiceFatalError("voice_pipeline_failed")
             await self._finalize("SUCCEEDED")
             # This guard remains inside the registered public turn task.  There is no
             # parent await between speaker drain and opening the follow-up window.
@@ -557,6 +618,16 @@ class VoiceService:
         for chunk in initial:
             yield chunk.pcm
         while not self._stopping and not (self._input_stop and self._input_stop.is_set()):
+            # provider VAD의 SPEECH_STARTED도 local RMS와 동등한 발화 증거다.
+            # 조용하지만 provider가 알아들은 긴 발화를 3초 local timeout으로
+            # 자르지 않도록 외부 event를 내부 deadline에 반영한다.
+            if (
+                not speech_started
+                and speech_started_event is not None
+                and speech_started_event.is_set()
+            ):
+                speech_started = True
+                deadline = None
             timeout = None if speech_started else max(0.0, (deadline or 0.0) - time.monotonic())
             if timeout is not None and timeout <= 0:
                 return

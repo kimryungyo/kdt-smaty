@@ -161,7 +161,7 @@ export type AssistantTurn = {
 export type AssistantLatest = { turn: AssistantTurn | null };
 export const getAssistantLatest = (signal?: AbortSignal) => request<AssistantLatest>("/api/assistant/latest", { signal });
 
-export type VoiceState = "DISABLED" | "WAITING_WAKE" | "WAITING_FOLLOWUP" | "RECORDING" | "PROCESSING" | "SPEAKING" | "ERROR";
+export type VoiceState = "DISABLED" | "WAITING_WAKE" | "WAITING_FOLLOWUP" | "ACKNOWLEDGING" | "RECORDING" | "PROCESSING" | "SPEAKING" | "ERROR";
 export type VoiceStatus = { state: VoiceState; lastTransitionAt: string | null; followupExpiresAt: string | null; lastError: string | null };
 export const getVoiceStatus = (signal?: AbortSignal) => request<VoiceStatus>("/api/voice/status", { signal });
 

@@ -60,6 +60,8 @@ class VoiceRuntimeEventType(StrEnum):
 
 
 class VoiceRuntimeLifecycle(StrEnum):
+    SPEECH_STARTED = "speech_started"
+    PROCESSING_STARTED = "processing_started"
     TURN_STARTED = "turn_started"
     TURN_ENDED = "turn_ended"
     SESSION_ENDED = "session_ended"
