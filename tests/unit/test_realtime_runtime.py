@@ -15,7 +15,7 @@ from smart_desk.modules.assistant.realtime_runtime import (
 )
 from smart_desk.modules.assistant.turns import TurnStatus
 from smart_desk.modules.voice.models import VoiceFatalError
-from tests.unit.test_agents_tools import _context
+from tests.unit.test_agents_tools import _ActivityModes, _Dashboard, _ModeUsage, _context
 
 
 class Transport:
@@ -381,6 +381,8 @@ async def test_realtime_service_binding_exposes_direct_tools_and_invokes_wled() 
     runtime = RealtimeVoiceRuntime.build_for_services(
         api_key="test-key", sessions=context.sessions, memory=memory, turns=turns,
         automation=automation, wled=wled, transport_factory=lambda: _transport(transport),
+        activity_modes=_ActivityModes(), dashboard=_Dashboard(),
+        mode_usage=_ModeUsage(),
     )
 
     events = [event async for event in runtime.run_audio(chunks(b"\x02\x00"))]
@@ -388,7 +390,13 @@ async def test_realtime_service_binding_exposes_direct_tools_and_invokes_wled() 
 
     session = transport.sent[0]["session"]  # type: ignore[index]
     tool_names = {tool["name"] for tool in session["tools"]}  # type: ignore[index]
-    assert "turn_wled_off" in tool_names and "hold_desk" not in tool_names
+    assert {
+        "turn_wled_off",
+        "get_desk_status",
+        "adjust_desk_height",
+        "get_activity_usage",
+    } <= tool_names
+    assert "hold_desk" not in tool_names
     assert wled.calls[0][0] == "turn_off"
     assert events[-1].lifecycle is VoiceRuntimeLifecycle.TURN_ENDED
     assert (await turns.latest()).status is TurnStatus.SUCCEEDED  # type: ignore[union-attr]

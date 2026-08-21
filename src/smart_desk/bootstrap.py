@@ -512,6 +512,7 @@ def build_container(settings: Settings) -> AppContainer:
                 memory=container.profile_memory, turns=container.assistant_turns,
                 automation=automation, wled=container.wled,
                 tilt=container.tilt, activity_modes=activity_modes,
+                dashboard=container.dashboard, mode_usage=mode_usage,
                 tilt_level_range=(settings.tilt.min_level, settings.tilt.max_level),
                 recent_user=container.recent_user,
                 config=RealtimeVoiceConfig(
