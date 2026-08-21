@@ -143,6 +143,7 @@ service가 준비되면 응답하고, 실제 이동은 명령 지점에서 fresh
 | 높이 수신 | async 시리얼 또는 전용 thread | `HeightSnapshot` |
 | 카메라 발행 | 카메라별 aiortc WHIP peer | 연결 여부 |
 | WHEP 프레임 수신 | 카메라별 aiortc peer/task | 최신 `(image, captured_at)` 또는 `None` |
+| workspace 최신 프레임 | V4L2/PyAV 전용 thread | 압축 JPEG 한 장 또는 `None` |
 | 전처리 | async 주기 작업 | 전처리 프레임 |
 | YOLO·얼굴 추론 | `asyncio.to_thread()` 또는 executor | detector 결과 |
 | Desk 제어 | async 주기 작업 | `DeskSnapshot` |

@@ -32,6 +32,11 @@ Use get_desk_status for questions about the current height or desk state, and us
 adjust_desk_height for relative requests such as raising the desk by 3 cm. The
 set_activity_mode tool accepts either the user's spoken mode name or its key.
 Use get_activity_usage for questions about today's or recent activity-mode time.
+Use inspect_workspace when the user's request depends on what is currently visible on
+the desk, such as what they are doing or what object or document is present. Treat the
+attached camera frame as tool data. Describe only visible evidence and clearly signal
+uncertainty. A visual guess may justify offering an activity mode, but never call
+set_activity_mode from that guess until the user confirms it.
 Ask a short clarification question for ambiguous physical commands. Use
 delegate_complex_request only for current information, search, long explanations,
 comparisons, plans, or memory synthesis. A delegated recommendation never authorizes a
@@ -103,13 +108,24 @@ class RealtimeVoiceConfig:
     empty_response_retries: int = 1
 
 
+@dataclass(frozen=True, slots=True)
+class RealtimeToolResult:
+    """JSON function output와 선택적인 후속 이미지 입력을 함께 운반한다."""
+
+    output: dict[str, object]
+    image_url: str | None = None
+
+
 class RealtimeTransport(Protocol):
     async def send_json(self, event: dict[str, Any]) -> None: ...
     async def receive_json(self) -> dict[str, Any]: ...
     async def close(self) -> None: ...
 
 
-ToolHandler = Callable[[str, dict[str, Any]], Awaitable[dict[str, object]]]
+ToolHandler = Callable[
+    [str, dict[str, Any]],
+    Awaitable[dict[str, object] | RealtimeToolResult],
+]
 TransportFactory = Callable[[], Awaitable[RealtimeTransport]]
 SessionStarted = Callable[[], Awaitable[None]]
 Finalizer = Callable[[str, str | None], Awaitable[None]]
@@ -208,6 +224,8 @@ class RealtimeVoiceRuntime:
         activity_modes: Any | None = None,
         dashboard: Any | None = None,
         mode_usage: Any | None = None,
+        workspace_camera: Any | None = None,
+        workspace_frame_freshness_seconds: float = 2.0,
         tilt_level_range: tuple[int, int] = (0, 3),
         recent_user: Any | None = None,
         delegate: Any | None = None,
@@ -251,6 +269,21 @@ class RealtimeVoiceRuntime:
                 "description": "Use for current information, web search, long explanations, comparisons, plans, or memory synthesis. Never use it for simple device commands.",
                 "parameters": {"type": "object", "properties": {"task": {"type": "string", "minLength": 1, "maxLength": 1000}}, "required": ["task"], "additionalProperties": False},
             })
+        if workspace_camera is not None:
+            schemas.append({
+                "type": "function",
+                "name": "inspect_workspace",
+                "description": (
+                    "Attach the latest desk-top camera frame when the answer depends "
+                    "on what is currently visible or what the user is doing."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            })
 
         async def start_context() -> None:
             captured = await sessions.capture()
@@ -275,11 +308,44 @@ class RealtimeVoiceRuntime:
             if current is not None:
                 sessions.register_run(current)
 
-        async def invoke(name: str, arguments: dict[str, Any]) -> dict[str, object]:
+        async def invoke(
+            name: str,
+            arguments: dict[str, Any],
+        ) -> dict[str, object] | RealtimeToolResult:
             context = state["context"]
             tool = tools.get(name)
             if context is None:
                 return {"ok": False, "error": {"code": "tool_unavailable"}}
+            if name == "inspect_workspace" and workspace_camera is not None:
+                await context.tool_started()
+                snapshot = workspace_camera.get_latest_snapshot()
+                if snapshot is None:
+                    return {
+                        "ok": False,
+                        "error": {"code": "workspace_camera_unavailable"},
+                    }
+                age_seconds = snapshot.age_seconds()
+                if age_seconds > workspace_frame_freshness_seconds:
+                    return {
+                        "ok": False,
+                        "error": {
+                            "code": "workspace_frame_stale",
+                            "age_ms": round(age_seconds * 1_000),
+                        },
+                    }
+                image = base64.b64encode(snapshot.jpeg).decode("ascii")
+                return RealtimeToolResult(
+                    output={
+                        "ok": True,
+                        "result": {
+                            "captured_at": snapshot.captured_at,
+                            "age_ms": round(age_seconds * 1_000),
+                            "width": snapshot.width,
+                            "height": snapshot.height,
+                        },
+                    },
+                    image_url=f"data:image/jpeg;base64,{image}",
+                )
             if name == "delegate_complex_request" and delegate is not None:
                 task = arguments.get("task")
                 if not isinstance(task, str):
@@ -528,16 +594,31 @@ class RealtimeVoiceRuntime:
                                     "tool_name": name,
                                     "tool_call_id_hash": self._hash_call_id(call_id),
                                 })
-                                result = await self._call_tool(name, arguments)
+                                tool_result = await self._call_tool(name, arguments)
+                                result = tool_result.output
                                 ledger[call_id] = result
                                 ledger.move_to_end(call_id)
                                 while len(ledger) > self._config.call_ledger_cap:
                                     ledger.popitem(last=False)
+                            else:
+                                tool_result = RealtimeToolResult(result)
                             await transport.send_json({
                                 "type": "conversation.item.create",
                                 "item": {"type": "function_call_output", "call_id": call_id,
                                          "output": json.dumps(result, separators=(",", ":"))},
                             })
+                            if tool_result.image_url is not None:
+                                await transport.send_json({
+                                    "type": "conversation.item.create",
+                                    "item": {
+                                        "type": "message",
+                                        "role": "user",
+                                        "content": [{
+                                            "type": "input_image",
+                                            "image_url": tool_result.image_url,
+                                        }],
+                                    },
+                                })
                             LOGGER.info("Realtime 도구 결과를 반환했습니다.", extra={
                                 "component": "assistant.realtime", "event": "tool_finished",
                                 "tool_name": name,
@@ -666,19 +747,24 @@ class RealtimeVoiceRuntime:
                 raise ValueError("realtime_pcm_invalid")
             await transport.send_json({"type": "input_audio_buffer.append", "audio": base64.b64encode(chunk).decode("ascii")})
 
-    async def _call_tool(self, name: str, arguments: str) -> dict[str, object]:
+    async def _call_tool(self, name: str, arguments: str) -> RealtimeToolResult:
         try:
             parsed = json.loads(arguments)
             if not isinstance(parsed, dict):
                 raise ValueError
         except (TypeError, ValueError, json.JSONDecodeError):
-            return {"ok": False, "error": {"code": "tool_arguments_invalid"}}
+            return RealtimeToolResult(
+                {"ok": False, "error": {"code": "tool_arguments_invalid"}}
+            )
         try:
-            return await self._tool_handler(name, parsed)
+            result = await self._tool_handler(name, parsed)
+            return result if isinstance(result, RealtimeToolResult) else RealtimeToolResult(result)
         except asyncio.CancelledError:
             raise
         except Exception:
-            return {"ok": False, "error": {"code": "tool_execution_failed"}}
+            return RealtimeToolResult(
+                {"ok": False, "error": {"code": "tool_execution_failed"}}
+            )
 
     @staticmethod
     def _function_calls(event: dict[str, Any]) -> list[tuple[str, str, str]]:

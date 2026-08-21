@@ -10,33 +10,17 @@ services:
   mjpeg-user-cam:
     hostname: smart-desk-user-cam
 
-  mjpeg-workspace-cam:
-    image: mkuf/ustreamer:v6.52-2-g3bb1ed3
-    hostname: smart-desk-workspace-cam
-    user: "0:0"
-    restart: unless-stopped
-    command:
-      - --device=/dev/workspace-cam
-      - --format=MJPEG
-      - --resolution=1920x1080
-      - --desired-fps=2
-      - --encoder=HW
-      - --workers=1
-      - --host=0.0.0.0
-      - --port=8080
-    devices:
-      - "${SMART_DESK_MEDIA__WORKSPACE__DEVICE}:/dev/workspace-cam"
-    ports:
-      - "10002:8080"
-    networks: [fin-internal]
-
   main:
     hostname: smart-desk-main
     user: "1000:1000"
     environment:
       SMART_DESK_VOICE__INPUT_DEVICE_NAME: ${SMART_DESK_VOICE__INPUT_DEVICE_NAME:?set the Raspberry Pi PortAudio input device}
       SMART_DESK_VOICE__OUTPUT_DEVICE_NAME: ${SMART_DESK_VOICE__OUTPUT_DEVICE_NAME:?set the Raspberry Pi PortAudio output device}
+      SMART_DESK_MEDIA__WORKSPACE__ENABLED: "true"
+    devices:
+      - "${SMART_DESK_MEDIA__WORKSPACE__DEVICE}:/dev/workspace-cam"
     group_add:
+      - "44"
       - "46"
     healthcheck:
       test:

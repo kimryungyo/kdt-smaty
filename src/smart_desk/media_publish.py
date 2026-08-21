@@ -15,8 +15,8 @@ from smart_desk.modules.media import WebRtcCameraPublisher
 
 
 LOGGER = logging.getLogger(__name__)
-CameraName = Literal["user", "workspace"]
-CAMERA_NAMES: tuple[CameraName, ...] = ("user", "workspace")
+CameraName = Literal["user"]
+CAMERA_NAMES: tuple[CameraName, ...] = ("user",)
 PROCESS_CHECK_INTERVAL_SECONDS = 0.5
 
 
@@ -28,7 +28,6 @@ def build_publishers(
 
     configurations: dict[CameraName, CameraMediaSettings] = {
         "user": settings.media.user,
-        "workspace": settings.media.workspace,
     }
     selected_names = tuple(dict.fromkeys(requested_names)) or CAMERA_NAMES
     explicitly_disabled = [
