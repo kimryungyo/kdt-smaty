@@ -157,7 +157,7 @@ def test_build_container_registers_media_roles_independently() -> None:
         Settings(
             media={
                 "user": {"receive_enabled": True},
-                "workspace": {"publish_enabled": True},
+                "workspace": {"enabled": True},
             },
             _env_file=None,
         )
@@ -177,17 +177,16 @@ def test_build_container_registers_media_roles_independently() -> None:
         "desk-automation",
     ]
     assert disabled.user_camera_publisher is None
-    assert disabled.workspace_camera_publisher is None
+    assert disabled.workspace_camera is None
     assert disabled.posture_camera_publisher is None
     assert disabled.user_frame_source is None
-    assert disabled.workspace_frame_source is None
     assert disabled.posture_frame_source is None
     assert [registration.name for registration in split.resources] == [
         "sqlite",
         "mqtt",
         "desk-height-monitor",
         "desk-controller",
-        "webrtc-camera-publisher-workspace",
+        "workspace-camera",
         "webrtc-frame-source-user",
         "vision",
         "face-identity",
@@ -198,10 +197,9 @@ def test_build_container_registers_media_roles_independently() -> None:
         "desk-automation",
     ]
     assert split.user_camera_publisher is None
-    assert split.workspace_camera_publisher is not None
+    assert split.workspace_camera is not None
     assert split.posture_camera_publisher is None
     assert split.user_frame_source is not None
-    assert split.workspace_frame_source is None
     assert split.posture_frame_source is None
 
 
@@ -211,17 +209,26 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             media={
                 "user": {"publish_enabled": True, "receive_enabled": True},
                 "posture": {"receive_enabled": True},
-                "workspace": {"publish_enabled": True, "receive_enabled": True},
+                "workspace": {"enabled": True},
             },
             _env_file=None,
         )
     )
 
-    assert [registration.startup_order for registration in enabled.resources][-11:] == [
-        42, 50, 51, 52, 60, 70, 72, 74, 75, 76, 80
+    media_resources = [
+        registration
+        for registration in enabled.resources
+        if registration.name.startswith("webrtc-")
+        or registration.name == "workspace-camera"
     ]
-    assert [registration.shutdown_order for registration in enabled.resources][-11:] == [
-        42, 50, 51, 52, 60, 70, 72, 74, 75, 76, 80
+    assert [
+        (registration.name, registration.startup_order, registration.shutdown_order)
+        for registration in media_resources
+    ] == [
+        ("webrtc-camera-publisher-user", 40, 40),
+        ("workspace-camera", 42, 42),
+        ("webrtc-frame-source-user", 50, 50),
+        ("webrtc-frame-source-posture", 51, 51),
     ]
     assert [
         registration.name
@@ -230,7 +237,7 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
             key=lambda registration: registration.shutdown_order,
             reverse=True,
         )
-    ][:12] == [
+    ][:11] == [
         "desk-automation",
         "assistant-turns",
         "assistant-context",
@@ -238,10 +245,9 @@ def test_build_container_preserves_media_startup_and_shutdown_order() -> None:
         "profile-memory",
         "face-identity",
         "vision",
-        "webrtc-frame-source-workspace",
         "webrtc-frame-source-posture",
         "webrtc-frame-source-user",
-        "webrtc-camera-publisher-workspace",
+        "workspace-camera",
         "webrtc-camera-publisher-user",
     ]
 
@@ -279,6 +285,8 @@ def test_build_container_registers_voice_at_order_90_when_enabled(
     assert config.model == "configured-realtime-model"  # type: ignore[union-attr]
     assert config.input_transcription_model == "gpt-transcribe"  # type: ignore[union-attr]
     assert config.reasoning_effort == "medium"  # type: ignore[union-attr]
+    assert received["workspace_camera"] is None
+    assert received["workspace_frame_freshness_seconds"] == 2.0
 
 
 def test_build_container_registers_voice_debug_after_voice(

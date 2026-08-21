@@ -220,10 +220,10 @@ class WebRtcFrameSource:
 | `is_connected()` | 현재 reader 연결 여부를 반환한다. |
 | `get_last_error()` | 마지막 연결·read 오류 문자열 또는 `None`을 반환한다. |
 
-사용자·책상 전체·자세 카메라는 각자의 receive 설정이 활성화됐을 때만 같은 클래스를
-하나씩 생성한다. 프레임을 누적하지 않고 최신 프레임 하나만 교체하며 소비자는 반환된
-이미지를 수정하지 않는다. `FrameSnapshot`, `CameraSnapshot`과 `FrameSource` Protocol은
-실제 소비 요구가 생길 때까지 만들지 않는다.
+사용자·자세 카메라는 각자의 receive 설정이 활성화됐을 때만 이 클래스를 하나씩 생성한다.
+책상 상단 카메라는 MediaMTX를 거치지 않고 `WorkspaceCameraSource`가 V4L2 MJPEG packet을
+계속 읽는다. JPEG를 디코딩하지 않고 최신 한 장과 촬영 시각만 교체하며,
+`inspect_workspace`가 fresh frame만 Realtime `input_image`로 첨부한다.
 
 ### WebRTC와 MediaMTX
 

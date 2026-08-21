@@ -88,8 +88,7 @@ services:
       SMART_DESK_MEDIA__USER__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__USER__RECEIVE_ENABLED: "false"
       SMART_DESK_MEDIA__USER__DEVICE: /dev/user-cam
-      SMART_DESK_MEDIA__WORKSPACE__PUBLISH_ENABLED: "false"
-      SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED: "false"
+      SMART_DESK_MEDIA__WORKSPACE__ENABLED: "false"
       SMART_DESK_MEDIA__WORKSPACE__DEVICE: /dev/workspace-cam
       SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED: "false"
       # Host PipeWire aliases are not visible in the container; use the
@@ -133,8 +132,7 @@ services:
       SMART_DESK_MEDIA__USER__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__USER__RECEIVE_ENABLED: "true"
       SMART_DESK_MEDIA__USER__RECEIVE_URL: http://mjpeg-user-cam:8080/stream
-      SMART_DESK_MEDIA__WORKSPACE__PUBLISH_ENABLED: "false"
-      SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED: "false"
+      SMART_DESK_MEDIA__WORKSPACE__ENABLED: "false"
       SMART_DESK_MEDIA__POSTURE__PUBLISH_ENABLED: "false"
       SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED: "false"
       SMART_DESK_FACE__DETECTOR_MODEL_PATH: /app/assets/vision/models/face_detection_yunet_2023mar.onnx

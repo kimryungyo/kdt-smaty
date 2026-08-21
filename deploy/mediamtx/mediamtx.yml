@@ -9,5 +9,4 @@ webrtcAdditionalHosts: []
 record: false
 paths:
   user-cam: {}
-  workspace-cam: {}
   bottom-cam: {}

@@ -262,11 +262,8 @@ def test_camera_media_settings_are_loaded(monkeypatch: pytest.MonkeyPatch) -> No
         "SMART_DESK_MEDIA__USER__PUBLISH_URL", "https://media/user/whip"
     )
     monkeypatch.setenv("SMART_DESK_MEDIA__USER__WIDTH", "640")
-    monkeypatch.setenv("SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED", "true")
-    monkeypatch.setenv(
-        "SMART_DESK_MEDIA__WORKSPACE__RECEIVE_URL",
-        "https://media/workspace-cam/whep",
-    )
+    monkeypatch.setenv("SMART_DESK_MEDIA__WORKSPACE__ENABLED", "true")
+    monkeypatch.setenv("SMART_DESK_MEDIA__WORKSPACE__FRESHNESS_SECONDS", "3.5")
     monkeypatch.setenv(
         "SMART_DESK_MEDIA__RECONNECT_INTERVAL_SECONDS", "2.5"
     )
@@ -278,8 +275,8 @@ def test_camera_media_settings_are_loaded(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.media.user.device == "/dev/test-user"
     assert settings.media.user.publish_url == "https://media/user/whip"
     assert settings.media.user.width == 640
-    assert settings.media.workspace.receive_enabled is True
-    assert settings.media.workspace.receive_url == "https://media/workspace-cam/whep"
+    assert settings.media.workspace.enabled is True
+    assert settings.media.workspace.freshness_seconds == 3.5
     assert settings.media.reconnect_interval_seconds == 2.5
 
 
@@ -293,7 +290,7 @@ def test_default_camera_roles_match_connected_device_capabilities() -> None:
         2592,
         1944,
     )
-    assert settings.media.workspace.publish_url.endswith("/workspace-cam/whip")
+    assert settings.media.workspace.enabled is False
     assert settings.media.posture.device == "/dev/posture-cam"
 
 
@@ -301,7 +298,8 @@ def test_default_camera_roles_match_connected_device_capabilities() -> None:
     "media",
     [
         {"user": {"device": " "}},
-        {"workspace": {"publish_url": "http://media/workspace/whep"}},
+        {"workspace": {"device": " "}},
+        {"workspace": {"freshness_seconds": 0}},
         {"posture": {"receive_url": "http://media/posture/whip"}},
         {"user": {"width": 0}},
         {"posture": {"fps": True}},

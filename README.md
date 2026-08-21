@@ -41,7 +41,7 @@ relay 분리 bench용 ESP32 serial 명령은 이 운영 transport와 별개의 �
 사용자: "현재 풀고 있는 문제집의 1번 문제를 해설해 줘"
   ↓ microphone → STT
 AI: "책상 위 문제를 확인해 해설해 드릴게요."                 (짧은 음성)
-  ↓ 후속 camera context 연결 (미설계)
+  ↓ `inspect_workspace`가 최신 camera frame 연결
 책상 frame에서 문제집·1번 문제를 확인하고 분석
   ↓ Assistant가 하나의 응답을 음성용 요약과 화면용 상세 콘텐츠로 구성
 AI: 후속 Dashboard 연결을 통해 단계별 풀이와 필요한 자료 제공 (미설계)
@@ -66,21 +66,22 @@ Microphone → VoiceService → AgentsVoiceRuntime (STT → Agent tools → TTS)
 
 Dashboard AI 응답은 현재 사용자 session의 최신 Assistant turn 하나를 HTTP polling으로
 전달한다. SSE·WebSocket이나 범용 chat history 구조는 이번 범위에 추가하지 않는다.
-workspace camera의 문제집·문서·화면 분석과 그 분석을 Assistant tool/camera context로
-전달하는 기능은 아직 구현하지 않은 최종 제품 방향이다.
+workspace camera의 최신 JPEG는 `inspect_workspace` 도구가 Realtime 대화에 이미지 입력으로
+첨부한다. Dashboard에 상세 풀이를 표시하는 후속 화면 연결은 아직 구현하지 않았다.
 
-카메라는 현재 다음 구조를 사용한다.
+사용자·자세 카메라는 기존 WebRTC 구조를 사용하고, AI 전용 workspace 카메라는 물리
+장치를 계속 열어 둔 채 압축 JPEG 한 장만 메모리에 유지한다.
 
 ```text
-물리 camera → WebRtcCameraPublisher/WHIP → MediaMTX → WHEP/WebRtcFrameSource
-                                                               ↓
-                                           (image, captured_at) 최신값
+user/posture camera → WHIP → MediaMTX → WHEP/WebRtcFrameSource
+workspace camera → V4L2 MJPEG → WorkspaceCameraSource → 최신 JPEG 한 장
+                                                        ↓
+                                      inspect_workspace → Realtime input_image
 ```
 
-향후 AI camera context는 요청마다 MediaMTX에 새로 연결하거나 물리 camera를 다시 여는
-방식보다 기존 `WebRtcFrameSource.get_latest_frame()`을 재사용하는 것이 현재 구조에
-적합하다. freshness 기준, crop·변환, AI 전송 방식과 MCP 사용 여부는 후속 설계에서
-결정한다.
+workspace 카메라는 요청마다 다시 열지 않으므로 자동 노출·화이트밸런스 콜드부트가 없다.
+H.264 변환이나 상시 네트워크 송출도 하지 않으며, freshness 기준을 넘긴 프레임은 AI에
+전달하지 않는다.
 
 `VoiceService`는 microphone, STT와 wake word를 담당하고, `PlaybackCoordinator`는
 TTS·효과음의 순서, 중지와 local speaker 출력을 관리한다. 로컬 microphone과 speaker는
@@ -240,8 +241,9 @@ curl http://127.0.0.1:9090/health/ready
 
 ## 카메라 실행 전제
 
-카메라 WHIP publish와 WHEP frame 수신은 카메라별로 독립적으로 활성화한다. 모든 역할은
-기본적으로 비활성화되어 있어 장치 없이 개발·테스트할 수 있다. 실제 실행 전에는
+user/posture의 WHIP publish와 WHEP frame 수신은 카메라별로 독립적으로 활성화한다.
+workspace 직접 capture도 기본적으로 비활성화되어 있어 장치 없이 개발·테스트할 수 있다.
+WebRTC 역할을 실행하기 전에는
 호스트에서 MediaMTX WebRTC listener `:8889`가 실행 중이어야 한다. FastAPI는 MediaMTX를
 설치·시작·종료하지 않는다.
 
@@ -250,16 +252,16 @@ curl http://127.0.0.1:9090/health/ready
 사용한다. posture 카메라는 아직 연결된 장치가 없어 `/dev/posture-cam`을 자리표시자로
 두며, 해당 symlink 또는 환경변수 장치 경로를 구성하기 전에는 publish를 켜지 않는다.
 
-| 역할 | 장치 | 기본 해상도 | MediaMTX path |
+| 역할 | 장치 | 기본 해상도 | 입력 경로 |
 | --- | --- | --- | --- |
 | `user` | Alcorlink USB 2.0 Camera | 1920x1080 | `user-cam` |
-| `workspace` | ABKO APC930 QHD Webcam | 2592x1944 | `workspace-cam` |
+| `workspace` | ABKO APC930 QHD Webcam | 2592x1944 | Main의 V4L2 직접 capture |
 | `posture` | 미지정 | 1280x720 후보 | `posture-cam` |
 
 장치를 바꾸면 실제 capture index, input format, 해상도와 FPS를 먼저 확인한 뒤 `.env`에
-안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. 현재 `workspace`는 application-owned
-publish만 등록되어 있고 server-side receiver는 없다. 업무 영역 AI 분석과 receiver 연결은
-별도 작업에서 다룬다.
+안정적인 `/dev/v4l/by-id/...` 경로와 값을 설정한다. `workspace`는 Main이 장치를 한 번
+열고 MJPEG packet을 계속 소비하면서 최신 JPEG만 유지한다. 최고 해상도의 실제 최저 FPS는
+Pi에서 장치 포맷을 다시 조회해 설정한다.
 `posture` 하단 Vision은 선택 ONNX 모델을 설정하면 full-frame 자세/인원수 adapter와
 snapshot을 실행할 수 있지만, 실제 `/bottom-cam/whep`, ROI와 threshold/CPU 보정은 완료되지 않았다.
 
@@ -269,31 +271,29 @@ ffmpeg -hide_banner -f v4l2 -list_formats all -i /dev/v4l/by-id/<camera-device>
 ss -ltn | rg ':8889\b'
 ```
 
-현재 topology에서 user는 publish+receive, workspace는 publish-only, posture는 external
+현재 topology에서 user는 publish+receive, workspace는 direct capture, posture는 external
 `/bottom-cam` receive-only로 설정한다.
 
 ```text
 SMART_DESK_MEDIA__USER__PUBLISH_ENABLED=true
 SMART_DESK_MEDIA__USER__RECEIVE_ENABLED=true
-SMART_DESK_MEDIA__WORKSPACE__PUBLISH_ENABLED=true
-SMART_DESK_MEDIA__WORKSPACE__RECEIVE_ENABLED=false
+SMART_DESK_MEDIA__WORKSPACE__ENABLED=true
+SMART_DESK_MEDIA__WORKSPACE__FRESHNESS_SECONDS=2
 SMART_DESK_MEDIA__POSTURE__PUBLISH_ENABLED=false
 SMART_DESK_MEDIA__POSTURE__RECEIVE_ENABLED=true
 ```
 
-publish가 활성화된 카메라는 FFmpeg 자식 process를 시작하며 장치 또는 FFmpeg가 없으면
-애플리케이션 시작을 실패 처리한다. receive만 활성화한 카메라는 로컬 장치를 열지 않고
-설정된 `RECEIVE_URL`에 연결하며, stream이 아직 없어도 background에서 재연결한다. 종료
-시 reader를 먼저 닫고 자신이 시작한 FFmpeg만 종료한다. MediaMTX는 계속 실행된다.
+workspace capture는 PyAV/V4L2 background thread에서 재연결하며 packet을 JPEG 상태로
+보관한다. 프레임을 BGR로 상시 디코딩하거나 디스크에 저장하지 않는다.
 
 ### 원격 카메라 송출
 
-원격 개발 컴퓨터에서 전체 Desk 서버를 실행하지 않고 `fin`의 publisher 전용 진입점을
-사용할 수 있다. 원격 컴퓨터의 `.env`에서 해당 카메라의 `PUBLISH_ENABLED=true`,
+원격 개발 컴퓨터에서 전체 Desk 서버를 실행하지 않고 user camera publisher 전용 진입점을
+사용할 수 있다. 원격 컴퓨터의 `.env`에서 user 카메라의 `PUBLISH_ENABLED=true`,
 `PUBLISH_URL=http://<MediaMTX-host>:8889/<path>/whip`와 로컬 장치 경로를 설정한다.
 
 ```bash
-.venv/bin/python -m smart_desk.media_publish --camera workspace
+.venv/bin/python -m smart_desk.media_publish --camera user
 ```
 
 MediaMTX 호스트에서는 같은 카메라의 publish를 끄고 receive만 켠다. 하나의 path에는

@@ -11,16 +11,15 @@ from smart_desk.media_publish import build_publishers, run_publishers
 def test_build_publishers_uses_only_enabled_camera_configuration() -> None:
     settings = Settings(media={
         "user": {"publish_enabled": True, "publish_url": "https://media.example/user-cam/whip"},
-        "workspace": {"publish_enabled": True, "publish_url": "https://media.example/workspace-cam/whip"},
     }, _env_file=None)
     publishers = build_publishers(settings)
-    assert list(publishers) == ["user", "workspace"]
+    assert list(publishers) == ["user"]
     assert publishers["user"]._endpoint.endswith("/user-cam/whip")  # noqa: SLF001
 
 
 def test_build_publishers_rejects_explicitly_disabled_camera() -> None:
     with pytest.raises(RuntimeError, match="비활성화된 카메라"):
-        build_publishers(Settings(_env_file=None), ("workspace",))
+        build_publishers(Settings(_env_file=None), ("user",))
 
 
 async def test_run_publishers_stops_every_started_publisher(monkeypatch: pytest.MonkeyPatch) -> None:

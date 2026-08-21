@@ -41,10 +41,16 @@ docker compose --env-file .env \
 
 The Pi host exposes Main on `:9090`, voice debug on `:10000`, EMQX on `:1883`,
 MediaMTX WebRTC on TCP `:8889` and UDP `:8189`, `user-cam` MJPEG on `:10001`,
-and `workspace-cam` MJPEG on `:10002`. Main opens the CH340 height reader by
-its stable `/dev/serial/by-id` path. Both ESP32 controllers use MQTT in
+and no public workspace-camera stream. Main keeps `/dev/workspace-cam` open and
+retains only its latest compressed JPEG for the Realtime `inspect_workspace` tool.
+Main also opens the CH340 height reader by its stable `/dev/serial/by-id` path.
+Both ESP32 controllers use MQTT in
 production; their USB serial paths remain available for diagnostics and
 firmware upload, but are not the production control transport.
+
+The Pi override adds Main to numeric group `44`, the appliance's `video` group,
+so its non-root process can open `/dev/workspace-cam`. Reconfirm the device GID
+with `stat -c '%g' /dev/workspace-cam` if the Pi image is rebuilt.
 
 Keep both UVC cameras connected directly to the Pi USB ports on separate USB
 2.0 root controllers. Connect the AKG microphone, AB13X speaker, CH340 height

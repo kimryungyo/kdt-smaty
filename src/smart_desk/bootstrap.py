@@ -14,7 +14,11 @@ from smart_desk.modules.desk.relay import RelayClient
 from smart_desk.modules.desk.segment import SegmentDecoder
 from smart_desk.modules.mqtt.client import MqttClient
 from smart_desk.modules.mqtt.topics import ESP32_STATUS_TOPIC, TILT_COMMAND_TOPIC
-from smart_desk.modules.media import WebRtcCameraPublisher, WebRtcFrameSource
+from smart_desk.modules.media import (
+    WebRtcCameraPublisher,
+    WebRtcFrameSource,
+    WorkspaceCameraSource,
+)
 from smart_desk.modules.profiles.repository import ProfileRepository
 from smart_desk.modules.profiles.activity_modes import ActivityModeRepository
 from smart_desk.modules.profiles.usage import ActivityModeUsageRepository
@@ -283,22 +287,20 @@ def build_container(settings: Settings) -> AppContainer:
                 shutdown_order=41,
             )
         )
-    if settings.media.workspace.publish_enabled:
-        workspace_camera_publisher = WebRtcCameraPublisher(
-            name="workspace",
+    if settings.media.workspace.enabled:
+        workspace_camera = WorkspaceCameraSource(
             device=settings.media.workspace.device,
-            whip_url=settings.media.workspace.publish_url,
             input_format=settings.media.workspace.input_format,
             width=settings.media.workspace.width,
             height=settings.media.workspace.height,
             fps=settings.media.workspace.fps,
             reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
         )
-        container.workspace_camera_publisher = workspace_camera_publisher
+        container.workspace_camera = workspace_camera
         container.register(
             ResourceRegistration(
-                name="webrtc-camera-publisher-workspace",
-                resource=workspace_camera_publisher,
+                name="workspace-camera",
+                resource=workspace_camera,
                 startup_order=42,
                 shutdown_order=42,
             )
@@ -331,21 +333,6 @@ def build_container(settings: Settings) -> AppContainer:
                 resource=posture_frame_source,
                 startup_order=51,
                 shutdown_order=51,
-            )
-        )
-    if not settings.vision_client.enabled and settings.media.workspace.receive_enabled:
-        workspace_frame_source = WebRtcFrameSource(
-            name="workspace",
-            whep_url=settings.media.workspace.receive_url,
-            reconnect_interval_seconds=settings.media.reconnect_interval_seconds,
-        )
-        container.workspace_frame_source = workspace_frame_source
-        container.register(
-            ResourceRegistration(
-                name="webrtc-frame-source-workspace",
-                resource=workspace_frame_source,
-                startup_order=52,
-                shutdown_order=52,
             )
         )
     if settings.vision_client.enabled:
@@ -515,6 +502,10 @@ def build_container(settings: Settings) -> AppContainer:
                 automation=automation, wled=container.wled,
                 tilt=container.tilt, activity_modes=activity_modes,
                 dashboard=container.dashboard, mode_usage=mode_usage,
+                workspace_camera=container.workspace_camera,
+                workspace_frame_freshness_seconds=(
+                    settings.media.workspace.freshness_seconds
+                ),
                 tilt_level_range=(settings.tilt.min_level, settings.tilt.max_level),
                 recent_user=container.recent_user,
                 config=RealtimeVoiceConfig(

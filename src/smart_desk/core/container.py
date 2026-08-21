@@ -18,7 +18,11 @@ if TYPE_CHECKING:
     from smart_desk.modules.desk.controller import DeskController
     from smart_desk.modules.desk.height_monitor import DeskHeightMonitor
     from smart_desk.modules.desk.relay import RelayClient
-    from smart_desk.modules.media import WebRtcCameraPublisher, WebRtcFrameSource
+    from smart_desk.modules.media import (
+        WebRtcCameraPublisher,
+        WebRtcFrameSource,
+        WorkspaceCameraSource,
+    )
     from smart_desk.modules.vision.service import VisionService
     from smart_desk.modules.vision.remote import RemoteVisionService
     from smart_desk.modules.identity.service import FaceIdentityService
@@ -82,11 +86,10 @@ class AppContainer:
     announcer: SpeechAnnouncer | None = None
     wled: WledClient | None = None
     user_camera_publisher: WebRtcCameraPublisher | None = None
-    workspace_camera_publisher: WebRtcCameraPublisher | None = None
     posture_camera_publisher: WebRtcCameraPublisher | None = None
     user_frame_source: WebRtcFrameSource | None = None
-    workspace_frame_source: WebRtcFrameSource | None = None
     posture_frame_source: WebRtcFrameSource | None = None
+    workspace_camera: WorkspaceCameraSource | None = None
     vision: VisionService | RemoteVisionService | None = None
     face_embeddings: FaceEmbeddingRepository | None = None
     current_user: CurrentUserSessionService | None = None

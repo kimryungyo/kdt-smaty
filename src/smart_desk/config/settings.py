@@ -389,17 +389,36 @@ class UserCameraMediaSettings(CameraMediaSettings):
     height: int = Field(default=1080, gt=0, le=8192)
 
 
-class WorkspaceCameraMediaSettings(CameraMediaSettings):
-    """책상 전체 카메라의 기본 장치와 MediaMTX 경로를 정의한다."""
+class WorkspaceCameraMediaSettings(BaseModel):
+    """AI가 필요할 때 최신 JPEG를 읽는 책상 상단 카메라 설정이다."""
 
+    enabled: bool = False
     device: str = (
         "/dev/v4l/by-id/usb-SunplusIT_Inc_ABKO_APC930_QHD_WEBCAM_"
         "CY2M20201014V0-video-index0"
     )
-    publish_url: str = "http://127.0.0.1:8889/workspace-cam/whip"
-    receive_url: str = "http://127.0.0.1:8889/workspace-cam/whep"
+    input_format: str = "mjpeg"
     width: int = Field(default=2592, gt=0, le=8192)
     height: int = Field(default=1944, gt=0, le=8192)
+    # 실측된 최고 해상도 모드가 광고하는 최저 capture rate다. Pi가 켜지면
+    # v4l2-ctl --list-formats-ext로 다시 확인한다.
+    fps: int = Field(default=15, gt=0, le=240)
+    freshness_seconds: float = Field(default=2.0, gt=0, le=30, allow_inf_nan=False)
+
+    @field_validator("device", "input_format")
+    @classmethod
+    def normalize_required_string(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("책상 카메라 설정은 비어 있을 수 없습니다.")
+        return normalized
+
+    @field_validator("width", "height", "fps", mode="before")
+    @classmethod
+    def reject_boolean_capture_values(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("책상 카메라 capture 값은 bool일 수 없습니다.")
+        return value
 
 
 class PostureCameraMediaSettings(CameraMediaSettings):

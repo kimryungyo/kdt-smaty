@@ -2,5 +2,13 @@
 
 from smart_desk.modules.media.mjpeg import MjpegFrameSource
 from smart_desk.modules.media.webrtc import LatestFrame, WebRtcCameraPublisher, WebRtcFrameSource
+from smart_desk.modules.media.workspace import WorkspaceCameraSource, WorkspaceSnapshot
 
-__all__ = ["LatestFrame", "MjpegFrameSource", "WebRtcCameraPublisher", "WebRtcFrameSource"]
+__all__ = [
+    "LatestFrame",
+    "MjpegFrameSource",
+    "WebRtcCameraPublisher",
+    "WebRtcFrameSource",
+    "WorkspaceCameraSource",
+    "WorkspaceSnapshot",
+]
