@@ -466,6 +466,8 @@ def build_container(settings: Settings) -> AppContainer:
         target_tolerance_cm=settings.desk.target_tolerance_cm,
         usage=mode_usage,
     )
+    # 얼굴을 처음 알아본 자리에서 프로필의 기본 틸팅으로 맞춘다.
+    automation.set_tilt(container.tilt)
     container.automation = automation
     container.dashboard = DashboardService(desk, profiles, automation, activity_modes=activity_modes)
     container.register(ResourceRegistration(name="desk-automation", resource=automation,

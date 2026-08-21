@@ -86,19 +86,19 @@ class ActivityModeRepository:
                 (profile_id,),
             ).fetchall()
             return [_default_mode_from_profile(profile)] + [
-                _effective_mode_from_row(row) for row in rows
+                _effective_mode_from_row(row, profile) for row in rows
             ]
 
         return await self._database.read(list_rows)
 
     async def create_mode(
         self, profile_id: str, create: ActivityModeCreate
-    ) -> ActivityMode:
+    ) -> EffectiveActivityMode:
         mode_id = self._id_factory()
         normalized_name = normalize_activity_mode_name(create.name)
 
         def insert(connection: Connection) -> ActivityMode:
-            _get_profile_or_raise(connection, profile_id)
+            profile = _get_profile_or_raise(connection, profile_id)
             try:
                 connection.execute(
                     "INSERT INTO profile_modes "
@@ -111,8 +111,8 @@ class ActivityModeRepository:
                         profile_id,
                         create.name,
                         normalized_name,
-                        create.sitting_height_cm,
-                        create.standing_height_cm,
+                        profile.sitting_height_cm,
+                        profile.standing_height_cm,
                         create.led_color,
                         create.led_brightness,
                         encode_schedule(create.led_schedule),
@@ -126,12 +126,19 @@ class ActivityModeRepository:
                 if _is_mode_name_conflict(error):
                     raise ActivityModeConflictError("같은 프로필에 이미 같은 작업 모드 이름이 있습니다.") from error
                 raise
-            return _get_mode_or_raise(connection, mode_id)
+            return effective_mode_from_activity(
+                _get_mode_or_raise(connection, mode_id), profile
+            )
 
         return await self._database.write(insert)
 
-    async def update_mode(self, mode_id: str, update: ActivityModeUpdate) -> ActivityMode:
+    async def update_mode(
+        self, mode_id: str, update: ActivityModeUpdate
+    ) -> EffectiveActivityMode:
         changes = update.model_dump(exclude_unset=True, by_alias=False)
+        # 높이는 프로필이 소유한다. 예전 client가 보내와도 모드에 쓰지 않는다.
+        changes.pop("sitting_height_cm", None)
+        changes.pop("standing_height_cm", None)
         if "name" in changes:
             changes["normalized_name"] = normalize_activity_mode_name(changes["name"])
         # 색이나 밝기를 직접 고르면 그 값으로 고정한다. 스케줄을 남겨 두면
@@ -154,6 +161,13 @@ class ActivityModeRepository:
             if "normalized_name" in changes:
                 assignments.append("normalized_name = ?")
                 values.append(changes["normalized_name"])
+            # 높이만 온 요청은 버린 뒤 바꿀 것이 남지 않는다. 빈 SET을 만들지 않고
+            # 지금 상태를 그대로 돌려준다.
+            if not assignments:
+                mode = _get_mode_or_raise(connection, mode_id)
+                return effective_mode_from_activity(
+                    mode, _get_profile_or_raise(connection, mode.profile_id)
+                )
             try:
                 connection.execute(
                     f"UPDATE profile_modes SET {', '.join(assignments)} WHERE id = ?",
@@ -163,7 +177,10 @@ class ActivityModeRepository:
                 if _is_mode_name_conflict(error):
                     raise ActivityModeConflictError("같은 프로필에 이미 같은 작업 모드 이름이 있습니다.") from error
                 raise
-            return _get_mode_or_raise(connection, mode_id)
+            mode = _get_mode_or_raise(connection, mode_id)
+            return effective_mode_from_activity(
+                mode, _get_profile_or_raise(connection, mode.profile_id)
+            )
 
         return await self._database.write(update_row)
 
@@ -175,15 +192,21 @@ class ActivityModeRepository:
 
         await self._database.write(delete_row)
 
-    async def get_mode_for_profile(self, profile_id: str, mode_id: str) -> ActivityMode:
-        """후속 자동화가 custom mode의 profile 소유권을 확인할 때 사용한다."""
+    async def get_mode_for_profile(
+        self, profile_id: str, mode_id: str
+    ) -> tuple[ActivityMode, Profile]:
+        """후속 자동화가 custom mode의 profile 소유권을 확인할 때 사용한다.
 
-        def get_row(connection: Connection) -> ActivityMode:
-            _get_profile_or_raise(connection, profile_id)
+        높이는 프로필이 소유하므로, 공개 표현을 합성할 수 있도록 소유 프로필도
+        함께 돌려준다.
+        """
+
+        def get_row(connection: Connection) -> tuple[ActivityMode, Profile]:
+            profile = _get_profile_or_raise(connection, profile_id)
             mode = _get_mode_or_raise(connection, mode_id)
             if mode.profile_id != profile_id:
                 raise ActivityModeOwnershipError("요청한 프로필의 작업 모드가 아닙니다.")
-            return mode
+            return mode, profile
 
         return await self._database.read(get_row)
 
@@ -238,19 +261,25 @@ def _default_mode_from_profile(profile: Profile) -> EffectiveActivityMode:
     )
 
 
-def _effective_mode_from_row(row: Row) -> EffectiveActivityMode:
-    return effective_mode_from_activity(_activity_mode_from_row(row))
+def _effective_mode_from_row(row: Row, profile: Profile) -> EffectiveActivityMode:
+    return effective_mode_from_activity(_activity_mode_from_row(row), profile)
 
 
-def effective_mode_from_activity(mode: ActivityMode) -> EffectiveActivityMode:
-    """저장 custom row를 공개 합성 표현으로 바꾼다."""
+def effective_mode_from_activity(
+    mode: ActivityMode, profile: Profile
+) -> EffectiveActivityMode:
+    """저장 custom row를 공개 합성 표현으로 바꾼다.
+
+    높이는 프로필이 소유하므로 모드 row에 남아 있는 예전 값 대신 프로필의
+    앉기·서기 높이를 싣는다. 모드는 LED와 틸트만 정한다.
+    """
 
     return EffectiveActivityMode(
         key=mode.id,
         kind="CUSTOM",
         name=mode.name,
-        sitting_height_cm=mode.sitting_height_cm,
-        standing_height_cm=mode.standing_height_cm,
+        sitting_height_cm=profile.sitting_height_cm,
+        standing_height_cm=profile.standing_height_cm,
         led_color=mode.led_color,
         led_brightness=mode.led_brightness,
         led_schedule=mode.led_schedule,

@@ -311,14 +311,18 @@ async def test_dashboard_api_contract_and_storage_crud_ignore_global_readiness(
         assert custom.json()["kind"] == "CUSTOM"
         assert custom.json()["name"] == "독서"
         assert custom.json()["ledBrightness"] == 40
+        # 모드는 높이를 정하지 않으므로 프로필 높이가 실려 나온다.
+        assert custom.json()["sittingHeightCm"] == 80.0
+        assert custom.json()["standingHeightCm"] == 105.0
         mode_id = custom.json()["key"]
         assert (await client.post(
             f"/api/profiles/{profile_id}/activity-modes",
             json={"name": "독서", "sittingHeightCm": 82, "standingHeightCm": 108},
         )).status_code == 409
+        # 높이는 프로필이 소유한다. 모드로 높이를 고치려 해도 프로필 높이가 남는다.
         assert (await client.patch(
             f"/api/activity-modes/{mode_id}", json={"standingHeightCm": 109}
-        )).json()["standingHeightCm"] == 109.0
+        )).json()["standingHeightCm"] == 105.0
         assert (await client.patch(
             f"/api/activity-modes/{mode_id}", json={"unknown": True}
         )).status_code == 422

@@ -58,8 +58,9 @@ export type ActivityMode = {
 
 export type ActivityModeInput = {
   name: string;
-  sittingHeightCm: number;
-  standingHeightCm: number;
+  // 높이는 프로필이 소유한다. 작업 모드는 조명과 틸트만 정한다.
+  sittingHeightCm?: number;
+  standingHeightCm?: number;
   ledColor: string | null;
   ledBrightness: number | null;
   ledSchedule: LedSchedule | null;

@@ -187,8 +187,14 @@ class ActivityModeCreate(_ActivityModeModel):
     """사용자 정의 작업 모드 생성 입력이다."""
 
     name: str = Field(strict=True)
-    sitting_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
-    standing_height_cm: float = Field(strict=True, ge=75, le=115, allow_inf_nan=False)
+    # 높이는 프로필이 소유한다. 예전 client가 보내오면 받아만 두고, 저장할 때
+    # repository가 프로필 높이로 덮어쓴다.
+    sitting_height_cm: float | None = Field(
+        default=None, strict=True, ge=75, le=115, allow_inf_nan=False
+    )
+    standing_height_cm: float | None = Field(
+        default=None, strict=True, ge=75, le=115, allow_inf_nan=False
+    )
     led_color: str | None = Field(default=None, strict=True)
     led_brightness: int | None = Field(
         default=None, strict=True, ge=LED_BRIGHTNESS_MIN, le=LED_BRIGHTNESS_MAX
@@ -220,9 +226,7 @@ class ActivityModeUpdate(_ActivityModeModel):
     def require_valid_changes(self) -> ActivityModeUpdate:
         if not self.model_fields_set:
             raise ValueError("변경할 작업 모드 필드를 하나 이상 전달해야 합니다.")
-        for field_name in self.model_fields_set & {
-            "name", "sitting_height_cm", "standing_height_cm"
-        }:
+        for field_name in self.model_fields_set & {"name"}:
             if getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} 필드는 null일 수 없습니다.")
         return self

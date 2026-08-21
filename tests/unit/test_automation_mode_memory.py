@@ -1,5 +1,6 @@
 """자리를 비운 뒤 모드 기억과 사용 시간 정지 규칙을 검증한다."""
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -11,7 +12,7 @@ from smart_desk.modules.desk.models import (
     RelayEvent, RelaySnapshot, RelayState,
 )
 from smart_desk.modules.identity.models import CurrentUserSnapshot, SessionKind
-from smart_desk.modules.profiles.models import ActivityMode, EffectiveActivityMode
+from smart_desk.modules.profiles.models import ActivityMode, EffectiveActivityMode, Profile
 from smart_desk.modules.vision.models import (
     CameraObservation, PostureStatus, PresenceStatus, VisionSnapshot,
 )
@@ -55,20 +56,32 @@ class FakeModes:
 
     def __init__(self) -> None:
         self.missing: set[str] = set()
+        # 프로필이 정해 둔 기본 틸팅 단계. None이면 정하지 않은 것이다.
+        self.default_tilt_level: int | None = None
+        self.custom_tilt_level: int | None = None
 
     async def list_effective_modes(self, _profile_id: str) -> list[EffectiveActivityMode]:
         return [EffectiveActivityMode(
             key="default", kind="DEFAULT", name="기본", sitting_height_cm=75,
-            standing_height_cm=110, led_color=None, led_brightness=None, tilt_level=None,
+            standing_height_cm=110, led_color=None, led_brightness=None,
+            tilt_level=self.default_tilt_level,
             description=None, editable=False,
         )]
 
-    async def get_mode_for_profile(self, _profile_id: str, mode_id: str) -> ActivityMode:
+    async def get_mode_for_profile(
+        self, _profile_id: str, mode_id: str
+    ) -> tuple[ActivityMode, Profile]:
         if mode_id in self.missing:
             raise KeyError(mode_id)
+        # 높이는 프로필이 소유하므로 모드와 함께 소유 프로필을 돌려준다.
         return ActivityMode(
             id=mode_id, profile_id=PROFILE, name="공부", sitting_height_cm=80,
-            standing_height_cm=112, led_color=None, led_brightness=None, tilt_level=None, description=None,
+            standing_height_cm=112, led_color=None, led_brightness=None,
+            tilt_level=self.custom_tilt_level, description=None,
+        ), Profile(
+            id=PROFILE, name="공부하는 사람", sitting_height_cm=80,
+            standing_height_cm=112, led_color=None, led_brightness=None,
+            tilt_level=None, description=None,
         )
 
     async def delete_mode(self, _mode_id: str) -> None:
@@ -227,3 +240,123 @@ async def test_forgotten_mode_falls_back_to_default(parts) -> None:
         await service._read_mode(PROFILE, recalled)
     # 호출 측은 default로 되돌아간다.
     assert (await service._read_mode(PROFILE, "default")).key == "default"
+
+
+class FakeTilt:
+    """어느 단계로 옮기라는 요청을 받았는지만 남긴다."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.levels: list[int] = []
+        self.error = error
+
+    async def set_target(self, level: int) -> None:
+        self.levels.append(level)
+        if self.error is not None:
+            raise self.error
+
+
+async def drain_tilt(service: AutomationService) -> None:
+    """예약된 틸팅 요청이 끝날 때까지 기다린다."""
+
+    task = service._tilt_task
+    if task is not None:
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_tilt_moves_to_the_profile_default_on_first_sighting(parts) -> None:
+    """처음 알아본 자리에서만 기본 틸팅으로 맞춘다."""
+
+    service, users, modes, _usage, clock = parts
+    modes.default_tilt_level = 1
+    tilt = FakeTilt()
+    service.set_tilt(tilt)
+
+    await install(service, users, "session-a")
+    await drain_tilt(service)
+    assert tilt.levels == [1]                     # 처음 왔으니 1단계로 옮긴다
+
+    await service._end_session("session-a")
+    clock.advance(600)                            # 10분 뒤 복귀
+    await install(service, users, "session-b")
+    await drain_tilt(service)
+    assert tilt.levels == [1]                     # 같은 방문이라 건드리지 않는다
+
+    await service._end_session("session-b")
+    clock.advance(1801)                           # 30분을 넘겨 돌아왔다
+    await install(service, users, "session-c")
+    await drain_tilt(service)
+    assert tilt.levels == [1, 1]                  # 새 방문이라 다시 맞춘다
+
+
+async def test_tilt_stays_when_the_mode_sets_no_level(parts) -> None:
+    """단계를 정하지 않은 프로필은 지금 각도를 그대로 둔다."""
+
+    service, users, modes, _usage, _clock = parts
+    modes.default_tilt_level = None
+    tilt = FakeTilt()
+    service.set_tilt(tilt)
+
+    await install(service, users, "session-a")
+    await drain_tilt(service)
+
+    assert tilt.levels == []
+
+
+async def test_session_installs_even_when_tilt_fails(parts) -> None:
+    """틸팅이 거절해도 session 설치와 인사는 그대로 이어진다."""
+
+    service, users, modes, _usage, _clock = parts
+    modes.default_tilt_level = 2
+    tilt = FakeTilt(error=RuntimeError("틸팅 제어기가 실행 중이 아닙니다."))
+    greeter = FakeGreeter()
+    service.set_tilt(tilt)
+    service.set_greeter(greeter)
+
+    await install(service, users, "session-a")
+    await drain_tilt(service)
+
+    assert tilt.levels == [2]
+    assert greeter.greeted == [PROFILE]
+    assert service.get_snapshot().session_id == "session-a"
+
+
+async def test_tilt_moves_when_the_user_picks_a_mode(parts) -> None:
+    """모드를 고르면 그 모드가 정한 단계로 옮긴다.
+
+    session 설치와 달리 사용자가 방금 직접 고른 것이므로, 같은 방문 안에서
+    다시 골라도 매번 옮긴다.
+    """
+
+    service, users, modes, _usage, _clock = parts
+    modes.default_tilt_level = None
+    modes.custom_tilt_level = 3
+    tilt = FakeTilt()
+    service.set_tilt(tilt)
+
+    await install(service, users, "session-a")
+    await drain_tilt(service)
+    assert tilt.levels == []                      # 기본 모드는 단계를 정하지 않았다
+
+    await service.set_activity_mode(STUDY, "session-a")
+    await drain_tilt(service)
+    assert tilt.levels == [3]                     # 고른 모드의 단계로 옮긴다
+
+    await service.set_activity_mode(STUDY, "session-a")
+    await drain_tilt(service)
+    assert tilt.levels == [3, 3]                  # 다시 골랐으니 다시 맞춘다
+
+
+async def test_picking_a_mode_without_a_level_leaves_the_tilt_alone(parts) -> None:
+    """단계를 정하지 않은 모드를 고르면 지금 각도를 그대로 둔다."""
+
+    service, users, modes, _usage, _clock = parts
+    modes.default_tilt_level = None
+    modes.custom_tilt_level = None
+    tilt = FakeTilt()
+    service.set_tilt(tilt)
+
+    await install(service, users, "session-a")
+    await service.set_activity_mode(STUDY, "session-a")
+    await drain_tilt(service)
+
+    assert tilt.levels == []

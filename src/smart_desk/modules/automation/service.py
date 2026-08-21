@@ -22,7 +22,7 @@ from smart_desk.modules.profiles.activity_modes import (
     ActivityModeNotFoundError, ActivityModeOwnershipError, effective_mode_from_activity,
 )
 from smart_desk.modules.profiles.led_schedule import LedSchedule, parse_schedule
-from smart_desk.modules.profiles.models import ActivityMode, EffectiveActivityMode
+from smart_desk.modules.profiles.models import ActivityMode, EffectiveActivityMode, Profile
 from smart_desk.modules.vision.models import (
     BlockCode, PresenceStatus, PostureStatus, VisionSnapshot,
 )
@@ -48,7 +48,9 @@ class VisionPort(Protocol):
 
 class ActivityModePort(Protocol):
     async def list_effective_modes(self, profile_id: str) -> list[EffectiveActivityMode]: ...
-    async def get_mode_for_profile(self, profile_id: str, mode_id: str) -> ActivityMode: ...
+    async def get_mode_for_profile(
+        self, profile_id: str, mode_id: str
+    ) -> tuple[ActivityMode, Profile]: ...
     async def delete_mode(self, mode_id: str) -> None: ...
 
 
@@ -85,6 +87,12 @@ class GreetingPort(Protocol):
     """알아본 사용자에게 먼저 말을 거는 쪽. 부르는 자리를 붙잡지 않는다."""
 
     def greet(self, profile_id: str | None) -> None: ...
+
+
+class TiltPort(Protocol):
+    """상판 틸팅을 단계로 움직이는 쪽."""
+
+    async def set_target(self, level: int) -> None: ...
 
 
 class AutomationService:
@@ -136,6 +144,9 @@ class AutomationService:
         self._usage = usage
         # 음성은 automation보다 늦게 조립된다. 준비되면 set_greeter로 끼운다.
         self._greeter: GreetingPort | None = None
+        # 틸팅 하드웨어는 없을 수 있다. 있으면 set_tilt로 끼운다.
+        self._tilt: TiltPort | None = None
+        self._tilt_task: asyncio.Task[None] | None = None
         self._announcer: AnnouncerPort | None = None
         # 같은 높이를 두 번 말하지 않도록 마지막으로 알린 목표를 기억한다.
         self._announced_target_cm: float | None = None
@@ -191,12 +202,15 @@ class AutomationService:
                 live = self._invalidate_locked("LIFECYCLE_STOP")
                 loop_task, self._loop_task = self._loop_task, None
                 led_task, self._wled_task = self._wled_task, None
+                tilt_task, self._tilt_task = self._tilt_task, None
                 self._set_waiting_locked("LIFECYCLE_STOP")
-            for task in (loop_task, led_task):
+            for task in (loop_task, led_task, tilt_task):
                 if task is not None:
                     task.cancel()
-            await asyncio.gather(*(task for task in (loop_task, led_task) if task is not None),
-                                 return_exceptions=True)
+            await asyncio.gather(
+                *(task for task in (loop_task, led_task, tilt_task) if task is not None),
+                return_exceptions=True,
+            )
             if live:
                 await self._safe_stop("자동화 종료 안전 정지")
 
@@ -209,6 +223,11 @@ class AutomationService:
         """인사를 건넬 쪽을 끼운다. 음성이 꺼져 있으면 None으로 둔다."""
 
         self._greeter = greeter
+
+    def set_tilt(self, tilt: TiltPort | None) -> None:
+        """틸팅을 움직일 쪽을 끼운다. 하드웨어가 없으면 None으로 둔다."""
+
+        self._tilt = tilt
 
     def _on_session_change(self, _event: object) -> None:
         self._wake.set()
@@ -344,6 +363,9 @@ class AutomationService:
             # Mode selection and its LED are committed independently of the
             # Desk preemption outcome; a failed STOP must not roll either back.
             self._queue_led(*self._install_mode_lighting(selected))
+            # 모드를 고른 것은 그 모드의 각도로 가겠다는 뜻이다. session 설치와
+            # 달리 여기서는 사용자가 방금 직접 고른 것이므로 항상 옮긴다.
+            self._apply_mode_tilt(selected)
             self._remember_mode(owner_profile_id, selected.key)
             await self._begin_usage(owner_profile_id, selected)
             if live:
@@ -369,12 +391,12 @@ class AutomationService:
                     return mode
             raise AutomationNotFoundError("기본 작업 모드를 찾을 수 없습니다.")
         try:
-            mode = await self._modes.get_mode_for_profile(profile_id, key)
+            mode, profile = await self._modes.get_mode_for_profile(profile_id, key)
         except ActivityModeNotFoundError as error:
             raise AutomationNotFoundError("작업 모드를 찾을 수 없습니다.") from error
         except ActivityModeOwnershipError as error:
             raise AutomationConflictError("ACTIVITY_MODE_OWNERSHIP") from error
-        return effective_mode_from_activity(mode)
+        return effective_mode_from_activity(mode, profile)
 
     async def _make_manual(self, reason: str, expected_session_id: str | None = None) -> bool:
         # This validation deliberately does not hold the current-user lock
@@ -525,13 +547,19 @@ class AutomationService:
             self._last_pair = self._pair(vision)
             self._vision_recovery_baseline_required = unusable_upgrade
             expected_generation = self._snapshot.generation
-        # 아는 얼굴이면 먼저 인사를 건넨다. 다만 쓰던 모드를 아직 기억하고 있다면
-        # 잠깐 자리를 비웠다 돌아온 것이므로 같은 방문으로 보고 말을 걸지 않는다.
-        # 모드 기억과 같은 신호를 써서 두 시간이 어긋나지 않게 한다.
+        # 아는 얼굴을 '처음' 알아본 자리인지 가린다. 쓰던 모드를 아직 기억하고
+        # 있다면 잠깐 자리를 비웠다 돌아온 것이므로 같은 방문으로 본다. 모드
+        # 기억과 같은 신호를 써서 두 시간이 어긋나지 않게 한다.
         # (_remember_mode는 아래에서 갱신되므로 여기서는 직전 방문이 보인다.)
-        if (greet_profile_id is not None and self._greeter is not None
-                and self._recall_mode(greet_profile_id) is None):
+        first_sighting = (
+            greet_profile_id is not None and self._recall_mode(greet_profile_id) is None
+        )
+        if first_sighting and self._greeter is not None:
             self._greeter.greet(greet_profile_id)
+        # 처음 알아본 자리에서만 프로필의 기본 틸팅으로 맞춘다. 자리를 비웠다
+        # 돌아올 때마다 움직이면 손으로 바꿔 둔 각도를 덮어쓴다.
+        if first_sighting:
+            self._apply_mode_tilt(activity)
         # 새 모드가 걸렸으니 조명 계획을 다시 세운다.
         install_lighting = self._install_mode_lighting(activity)
         # 새 session이 모드를 물고 들어온 시점부터 사용 시간을 다시 센다.
@@ -1167,6 +1195,42 @@ class AutomationService:
             self._remembered_mode.pop(profile_id, None)
             return None
         return mode_key
+
+    def _apply_mode_tilt(self, mode: EffectiveActivityMode | None) -> None:
+        """모드가 정해 둔 기본 틸팅 단계로 옮긴다. 부르는 자리를 붙잡지 않는다.
+
+        단계를 정하지 않은 모드(None)는 지금 각도를 그대로 둔다는 뜻이다.
+        틸팅은 있으면 좋은 것이지 session 설치를 막을 일이 아니므로, 실패해도
+        기록만 남기고 넘어간다.
+        """
+
+        tilt = self._tilt
+        if tilt is None or mode is None or mode.tilt_level is None:
+            return
+        level = mode.tilt_level
+        previous = self._tilt_task
+
+        async def apply() -> None:
+            if previous is not None:
+                await asyncio.gather(previous, return_exceptions=True)
+            try:
+                await tilt.set_target(level)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                LOGGER.info(
+                    "기본 틸팅 단계로 옮기지 못했습니다.",
+                    extra={"component": "automation", "event": "tilt_install_failed",
+                           "error": str(error)},
+                )
+                return
+            LOGGER.info(
+                "기본 틸팅 단계로 옮깁니다.",
+                extra={"component": "automation", "event": "tilt_installed",
+                       "tilt_level": level},
+            )
+
+        self._tilt_task = asyncio.create_task(apply(), name="desk-automation-tilt")
 
     def _install_mode_lighting(self, mode: EffectiveActivityMode | None) -> LedSetting:
         """모드가 걸릴 때 조명 계획을 세우고 지금 적용할 값을 돌려준다."""

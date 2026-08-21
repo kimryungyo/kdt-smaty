@@ -17,7 +17,7 @@ from smart_desk.modules.desk.models import (
     HeightStatus, RelayEvent, RelaySnapshot, RelayState,
 )
 from smart_desk.modules.identity.models import CurrentUserSnapshot, SessionKind
-from smart_desk.modules.profiles.models import ActivityMode, EffectiveActivityMode
+from smart_desk.modules.profiles.models import ActivityMode, EffectiveActivityMode, Profile
 from smart_desk.modules.vision.models import (
     BlockCode, CameraObservation, PostureStatus, PresenceStatus, VisionSnapshot,
 )
@@ -86,13 +86,21 @@ class FakeModes:
 
     async def get_mode_for_profile(self, _profile_id: str, mode_id: str):  # type: ignore[no-untyped-def]
         if self.custom is not None and self.custom.key == mode_id:
+            # 높이는 프로필이 소유하므로 소유 프로필도 함께 돌려준다.
             return ActivityMode(id=mode_id, profile_id=PROFILE, name=self.custom.name,
                                 sitting_height_cm=self.custom.sitting_height_cm,
                                 standing_height_cm=self.custom.standing_height_cm,
                                 led_color=self.custom.led_color,
                                 led_brightness=self.custom.led_brightness,
                                 tilt_level=self.custom.tilt_level,
-                                description=self.custom.description)
+                                description=self.custom.description), Profile(
+                                    id=PROFILE, name=self.custom.name,
+                                    sitting_height_cm=self.custom.sitting_height_cm,
+                                    standing_height_cm=self.custom.standing_height_cm,
+                                    led_color=self.custom.led_color,
+                                    led_brightness=self.custom.led_brightness,
+                                    tilt_level=self.custom.tilt_level,
+                                    description=self.custom.description)
         raise AutomationNotFoundError("missing")
 
     async def delete_mode(self, _mode_id: str) -> None:

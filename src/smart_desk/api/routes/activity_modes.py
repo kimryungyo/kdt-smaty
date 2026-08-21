@@ -15,7 +15,6 @@ from smart_desk.modules.profiles.activity_modes import (
     ActivityModeNotFoundError,
     ActivityModeOwnershipError,
     ActivityModeRepositoryError,
-    effective_mode_from_activity,
 )
 from smart_desk.modules.profiles.models import (
     ActivityModeCreate,
@@ -60,16 +59,14 @@ async def list_activity_modes(profile_id: str) -> list[EffectiveActivityMode]:
 async def create_activity_mode(
     profile_id: str, create: ActivityModeCreate
 ) -> EffectiveActivityMode:
-    mode = await _run(lambda: get_activity_modes().create_mode(profile_id, create))
-    return effective_mode_from_activity(mode)
+    return await _run(lambda: get_activity_modes().create_mode(profile_id, create))
 
 
 @activity_modes_router.patch("/{mode_id}", response_model=EffectiveActivityMode)
 async def update_activity_mode(
     mode_id: str, update: ActivityModeUpdate
 ) -> EffectiveActivityMode:
-    mode = await _run(lambda: get_activity_modes().update_mode(mode_id, update))
-    return effective_mode_from_activity(mode)
+    return await _run(lambda: get_activity_modes().update_mode(mode_id, update))
 
 
 @activity_modes_router.delete("/{mode_id}", status_code=status.HTTP_204_NO_CONTENT)

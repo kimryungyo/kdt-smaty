@@ -41,10 +41,10 @@ async def test_default_is_synthesized_and_custom_modes_are_profile_scoped(tmp_pa
 
     assert [item.model_dump() for item in effective] == [
         {"key": "default", "kind": "DEFAULT", "name": "기본", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "FF0000", "ledBrightness": 200, "ledSchedule": None, "tiltLevel": None, "description": None, "editable": False},
-        {"key": created.id, "kind": "CUSTOM", "name": "독서", "sittingHeightCm": 82.0, "standingHeightCm": 108.0, "ledColor": "FFD080", "ledBrightness": 40, "ledSchedule": STUDY_RAW, "tiltLevel": None, "description": None, "editable": True},
+        {"key": created.key, "kind": "CUSTOM", "name": "독서", "sittingHeightCm": 80.0, "standingHeightCm": 105.0, "ledColor": "FFD080", "ledBrightness": 40, "ledSchedule": STUDY_RAW, "tiltLevel": None, "description": None, "editable": True},
     ]
     with pytest.raises(ActivityModeOwnershipError):
-        await modes.get_mode_for_profile(second.id, created.id)
+        await modes.get_mode_for_profile(second.id, created.key)
     await database.stop()
 
 
@@ -66,7 +66,7 @@ async def test_normalized_duplicate_is_rejected_and_profile_delete_cascades(tmp_
         profile.id, ActivityModeCreate(name="Study", sittingHeightCm=83, standingHeightCm=109)
     )
     with pytest.raises(ActivityModeConflictError):
-        await modes.update_mode(other.id, ActivityModeUpdate(name=" READING "))
+        await modes.update_mode(other.key, ActivityModeUpdate(name=" READING "))
 
     await ProfileRepository(database).delete_profile(profile.id)
     assert await database.read(
@@ -93,7 +93,7 @@ async def test_choosing_a_colour_turns_the_schedule_off(tmp_path) -> None:
     )
     assert created.led_schedule is not None
 
-    updated = await modes.update_mode(created.id, ActivityModeUpdate(ledColor="112233"))
+    updated = await modes.update_mode(created.key, ActivityModeUpdate(ledColor="112233"))
     assert updated.led_color == "112233"
     assert updated.led_schedule is None
 
