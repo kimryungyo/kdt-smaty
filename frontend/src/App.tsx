@@ -22,6 +22,7 @@ import {
 } from "./api/dashboard";
 import { LED_BRIGHTNESS_MAX, LED_BRIGHTNESS_MIN } from "./config";
 import { DebugPanel } from "./features/debug/DebugPanel";
+import { OnScreenKeyboard } from "./features/keyboard/OnScreenKeyboard";
 import { AssistantPanel } from "./features/assistant/AssistantPanel";
 import { chooseGoalHeight, shouldSaveToProfile } from "./features/desk/heightGoal";
 import { ProfileSettings } from "./features/profiles/ProfileSettings";
@@ -276,10 +277,15 @@ function Title({ icon, eyebrow, title }: { icon: Exclude<Panel, null>; eyebrow: 
 function Field({ title, children }: { title: string; children: React.ReactNode }) { return <label className="field"><span>{title}</span>{children}</label>; }
 function Primary(props: React.ButtonHTMLAttributes<HTMLButtonElement>) { return <button {...props} type="button" className="primary" />; }
 
-export default function App() {
+function Screen() {
   const pathname = usePathname();
   if (pathname.startsWith("/settings/profiles")) return <ProfileSettings pathname={pathname} />;
   if (pathname === "/debug/vision") return <DebugPanel />;
   if (pathname === "/reports/work-rhythm") return <WorkRhythm />;
   return <SmatyDashboard />;
+}
+
+export default function App() {
+  // 키보드는 화면 위에 겹쳐 뜨므로 라우팅 밖에 두어 어느 화면에서든 살아 있게 한다.
+  return <><Screen /><OnScreenKeyboard /></>;
 }

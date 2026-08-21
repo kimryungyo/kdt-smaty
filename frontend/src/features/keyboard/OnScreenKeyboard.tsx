@@ -4,19 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // Chromium 창 위에서 뜨지 않는다. 그래서 대시보드가 직접 키보드를 그린다.
 // 페이지 안의 DOM이므로 브라우저·컴포지터 설정과 무관하게 언제나 동작한다.
 
-type Mode = "letters" | "digits";
+const DIGIT_ROW = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 
 const LETTER_ROWS = [
   ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
   ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
   ["z", "x", "c", "v", "b", "n", "m"],
-];
-
-const DIGIT_ROWS = [
-  ["1", "2", "3"],
-  ["4", "5", "6"],
-  ["7", "8", "9"],
-  [".", "0"],
 ];
 
 // React가 관리하는 input에 값을 넣으려면 네이티브 setter를 거쳐야 한다.
@@ -43,7 +36,6 @@ const isTextual = (node: Element | null): node is HTMLInputElement | HTMLTextAre
 
 export const OnScreenKeyboard = () => {
   const [target, setTarget] = useState<HTMLInputElement | HTMLTextAreaElement | null>(null);
-  const [mode, setMode] = useState<Mode>("letters");
   const [shift, setShift] = useState(false);
   // 키를 누르는 순간 input에서 focus가 빠져나가면 키보드가 닫힌다.
   // pointerdown에서 기본 동작을 막아 focus를 유지하되, blur는 한 박자 늦게 확인한다.
@@ -55,8 +47,6 @@ export const OnScreenKeyboard = () => {
       const node = event.target as Element | null;
       if (isTextual(node)) {
         setTarget(node);
-        // 숫자 필드는 숫자판으로 시작해야 손이 덜 간다.
-        setMode(node instanceof HTMLInputElement && node.type === "number" ? "digits" : "letters");
       }
     };
     const onFocusOut = () => {
@@ -121,12 +111,6 @@ export const OnScreenKeyboard = () => {
     }
   }, [target]);
 
-  const clear = useCallback(() => {
-    if (target) {
-      setNativeValue(target, "");
-    }
-  }, [target]);
-
   const done = useCallback(() => {
     target?.blur();
     setTarget(null);
@@ -137,48 +121,53 @@ export const OnScreenKeyboard = () => {
     return null;
   }
 
-  const rows = mode === "letters" ? LETTER_ROWS : DIGIT_ROWS;
   // pointerdown을 막아야 입력창의 focus가 유지된다. click으로 실제 동작을 건다.
   const hold = (event: React.PointerEvent) => event.preventDefault();
+  const label = (key: string) => (shift ? key.toUpperCase() : key);
 
   return (
     <div className="osk" onPointerDown={hold}>
-      <div className="osk-rows">
-        {rows.map((row, index) => (
-          <div className="osk-row" key={index}>
-            {index === rows.length - 1 && mode === "letters" && (
-              <button type="button" className="osk-key wide" onClick={() => setShift((on) => !on)} aria-pressed={shift}>
-                {shift ? "▲" : "△"}
-              </button>
-            )}
-            {row.map((key) => (
-              <button type="button" className="osk-key" key={key} onClick={() => press(shift ? key.toUpperCase() : key)}>
-                {shift ? key.toUpperCase() : key}
-              </button>
-            ))}
-            {index === rows.length - 1 && (
-              <button type="button" className="osk-key wide" onClick={backspace} aria-label="한 글자 지우기">
-                ⌫
-              </button>
-            )}
-          </div>
+      <div className="osk-row">
+        {DIGIT_ROW.map((key) => (
+          <button type="button" className="osk-key" key={key} onClick={() => press(key)}>
+            {key}
+          </button>
+        ))}
+        <button type="button" className="osk-key osk-back" onClick={backspace} aria-label="한 글자 지우기">
+          ⌫
+        </button>
+      </div>
+      <div className="osk-row">
+        {LETTER_ROWS[0].map((key) => (
+          <button type="button" className="osk-key" key={key} onClick={() => press(label(key))}>
+            {label(key)}
+          </button>
         ))}
       </div>
-      <div className="osk-side">
-        <button type="button" className="osk-key" onClick={() => setMode((now) => (now === "letters" ? "digits" : "letters"))}>
-          {mode === "letters" ? "123" : "ABC"}
-        </button>
-        {mode === "letters" && (
-          <button type="button" className="osk-key" onClick={() => press(" ")}>
-            공백
+      <div className="osk-row">
+        <span className="osk-pad" aria-hidden="true" />
+        {LETTER_ROWS[1].map((key) => (
+          <button type="button" className="osk-key" key={key} onClick={() => press(label(key))}>
+            {label(key)}
           </button>
-        )}
-        <button type="button" className="osk-key" onClick={clear}>
-          전체 지우기
+        ))}
+        <span className="osk-pad" aria-hidden="true" />
+      </div>
+      <div className="osk-row">
+        <button type="button" className="osk-key osk-shift" onClick={() => setShift((on) => !on)} aria-pressed={shift}>
+          {shift ? "⬆" : "⇧"}
         </button>
-        <button type="button" className="osk-key done" onClick={done}>
+        {LETTER_ROWS[2].map((key) => (
+          <button type="button" className="osk-key" key={key} onClick={() => press(label(key))}>
+            {label(key)}
+          </button>
+        ))}
+        <button type="button" className="osk-key osk-done" onClick={done}>
           완료
         </button>
+      </div>
+      <div className="osk-row">
+        <button type="button" className="osk-key osk-space" onClick={() => press(" ")} aria-label="띄어쓰기" />
       </div>
     </div>
   );
