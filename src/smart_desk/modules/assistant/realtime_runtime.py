@@ -28,6 +28,10 @@ from smart_desk.modules.voice.models import VoiceFatalError
 PRIMARY_INSTRUCTIONS = """You are a concise Korean Smart Desk voice assistant.
 You own every final spoken reply. Use direct tools for clear Desk, Tilt, WLED, and
 activity-mode commands. Never claim a physical action before its tool returns ok=true.
+Use get_desk_status for questions about the current height or desk state, and use
+adjust_desk_height for relative requests such as raising the desk by 3 cm. The
+set_activity_mode tool accepts either the user's spoken mode name or its key.
+Use get_activity_usage for questions about today's or recent activity-mode time.
 Ask a short clarification question for ambiguous physical commands. Use
 delegate_complex_request only for current information, search, long explanations,
 comparisons, plans, or memory synthesis. A delegated recommendation never authorizes a
@@ -210,6 +214,8 @@ class RealtimeVoiceRuntime:
         wled: Any | None = None,
         tilt: Any | None = None,
         activity_modes: Any | None = None,
+        dashboard: Any | None = None,
+        mode_usage: Any | None = None,
         tilt_level_range: tuple[int, int] = (0, 3),
         recent_user: Any | None = None,
         delegate: Any | None = None,
@@ -265,6 +271,8 @@ class RealtimeVoiceRuntime:
                 turn_id=turn.turn_id,
                 turn_sequence=turn.sequence,
                 automation=automation,
+                dashboard=dashboard,
+                mode_usage=mode_usage,
                 wled=wled,
                 tilt=tilt,
                 activity_modes=activity_modes,

@@ -36,6 +36,9 @@ class SmartDeskAgentContext:
     tilt_level_range: tuple[int, int] = (0, 3)
     # 얼굴 인식이 끊긴 동안 개인화 명령이 참고할 직전 사용자. 없으면 None이다.
     recent_user: Any | None = None
+    # Dashboard snapshot과 작업 시간 집계는 짧은 시연용 읽기 도구가 재사용한다.
+    dashboard: Any | None = None
+    mode_usage: Any | None = None
     followup_requested: bool = False
     assistant_response: str = ""
 
@@ -98,6 +101,10 @@ def _error(code: str) -> dict[str, object]:
     return {"ok": False, "error": {"code": code}}
 
 
+def _enum_value(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
 def build_smart_desk_tools() -> list[Any]:
     """Build the local SDK function tools for a per-turn context."""
 
@@ -117,6 +124,38 @@ def build_smart_desk_tools() -> list[Any]:
             return _ok(action="stopped")
         except Exception:
             return _error("desk_command_failed")
+
+    @function_tool
+    async def get_desk_status(
+        ctx: RunContextWrapper[SmartDeskAgentContext],
+    ) -> dict[str, object]:
+        """Read the current desk height, motion, target, control mode, and activity mode."""
+        context = ctx.context
+        await context.tool_started()
+        if context.dashboard is None:
+            return _error("desk_status_unavailable")
+        try:
+            desk = context.dashboard.get_status()
+            automation = context.automation.get_snapshot()
+        except Exception:
+            return _error("desk_status_unavailable")
+        activity_mode = automation.activity_mode
+        return _ok(
+            height_cm=desk.height.height_cm,
+            height_status=_enum_value(desk.height.status),
+            desk_state=_enum_value(desk.state),
+            direction=_enum_value(desk.direction),
+            target_height_cm=desk.target_height_cm,
+            control_mode=_enum_value(automation.control_mode),
+            automation_state=_enum_value(automation.state),
+            activity_mode=(
+                {"key": activity_mode.key, "name": activity_mode.name}
+                if activity_mode is not None
+                else None
+            ),
+            posture=_enum_value(automation.posture_candidate),
+            blocked_reason_codes=list(automation.blocked_reason_codes),
+        )
 
     @function_tool
     async def hold_desk(
@@ -151,6 +190,31 @@ def build_smart_desk_tools() -> list[Any]:
             return _error("desk_command_failed")
 
     @function_tool
+    async def adjust_desk_height(
+        ctx: RunContextWrapper[SmartDeskAgentContext],
+        delta_cm: Annotated[float, Field(ge=-30, le=30)],
+    ) -> dict[str, object]:
+        """Raise or lower the desk relative to its current height in centimetres."""
+        context = await guarded(ctx)
+        if context is None:
+            return _error("session_mismatch")
+        if context.dashboard is None:
+            return _error("desk_status_unavailable")
+        try:
+            current_height = context.dashboard.get_status().height.height_cm
+            if current_height is None:
+                return _error("desk_height_unavailable")
+            target_height = round(current_height + delta_cm, 1)
+            await context.automation.set_target(target_height, expected_session_id=None)
+            return _ok(
+                previous_height_cm=current_height,
+                delta_cm=delta_cm,
+                target_height_cm=target_height,
+            )
+        except Exception:
+            return _error("desk_command_failed")
+
+    @function_tool
     async def set_control_mode(
         ctx: RunContextWrapper[SmartDeskAgentContext],
         mode: Annotated[str, Field(pattern="^(auto|manual)$")],
@@ -167,30 +231,44 @@ def build_smart_desk_tools() -> list[Any]:
 
     @function_tool
     async def set_activity_mode(
-        ctx: RunContextWrapper[SmartDeskAgentContext], key: Annotated[str, Field(min_length=1, max_length=80)]
+        ctx: RunContextWrapper[SmartDeskAgentContext],
+        mode: Annotated[str, Field(min_length=1, max_length=80)],
     ) -> dict[str, object]:
-        """Select the current registered user's activity-mode key."""
+        """Select an activity mode by its spoken name or key, such as '공부' or 'default'."""
         context = await guarded(ctx)
         if context is None:
             return _error("session_mismatch")
+        if context.activity_modes is None:
+            return _error("activity_modes_unavailable")
         profile_id = await context.personalization_profile_id()
         if profile_id is None:
             return _error("session_mismatch")
         try:
+            modes = await context.activity_modes.list_effective_modes(profile_id)
+            requested = mode.strip().casefold()
+            matches = [
+                item
+                for item in modes
+                if requested
+                in {
+                    item.key.casefold(),
+                    item.name.casefold(),
+                    f"{item.name} 모드".casefold(),
+                }
+            ]
+            if len(matches) != 1:
+                return _error("activity_mode_not_found")
+            selected = matches[0]
             await context.automation.set_activity_mode(
-                key, context.turn_context.session_id, profile_id=profile_id
+                selected.key, context.turn_context.session_id, profile_id=profile_id
             )
-            return _ok(key=key)
+            return _ok(key=selected.key, name=selected.name)
         except Exception:
             return _error("desk_command_failed")
 
     @function_tool
     async def list_activity_modes(ctx: RunContextWrapper[SmartDeskAgentContext]) -> dict[str, object]:
-        """List the current user's activity modes with the key set_activity_mode needs.
-
-        Call this before set_activity_mode: the user says a name such as "공부 모드",
-        and only this mapping gives the matching key.
-        """
+        """List the current user's activity modes and their names, keys, and settings."""
         context = ctx.context
         await context.tool_started()
         if context.activity_modes is None:
@@ -208,6 +286,27 @@ def build_smart_desk_tools() -> list[Any]:
              "tilt_level": mode.tilt_level}
             for mode in modes
         ])
+
+    @function_tool
+    async def get_activity_usage(
+        ctx: RunContextWrapper[SmartDeskAgentContext],
+        days: Annotated[int, Field(ge=1, le=31)] = 1,
+    ) -> dict[str, object]:
+        """Summarize the current user's activity-mode usage for the last 1 to 31 days."""
+        context = ctx.context
+        await context.tool_started()
+        if context.mode_usage is None:
+            return _error("activity_usage_unavailable")
+        profile_id = await context.personalization_profile_id()
+        if profile_id is None:
+            return _error("session_mismatch")
+        try:
+            summary = await context.mode_usage.summarize(
+                days=days, profile_id=profile_id
+            )
+        except Exception:
+            return _error("activity_usage_failed")
+        return {"ok": True, "result": summary}
 
     @function_tool
     async def get_tilt_state(ctx: RunContextWrapper[SmartDeskAgentContext]) -> dict[str, object]:
@@ -420,8 +519,9 @@ def build_smart_desk_tools() -> list[Any]:
         context.followup_requested = True
         return _ok(followup_requested=True)
 
-    return [stop_desk, hold_desk, set_desk_target, set_control_mode,
-            list_activity_modes, set_activity_mode,
+    return [stop_desk, get_desk_status, hold_desk, set_desk_target,
+            adjust_desk_height, set_control_mode,
+            list_activity_modes, set_activity_mode, get_activity_usage,
             get_tilt_state, set_tilt_level, stop_tilt,
             get_wled_state, get_wled_capabilities, turn_wled_off, turn_wled_on,
             set_wled_brightness, set_wled_color, set_wled_effect,

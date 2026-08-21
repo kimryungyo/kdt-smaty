@@ -34,6 +34,56 @@ class _Automation:
     async def set_activity_mode(self, *args: Any, **kwargs: Any) -> None:
         self.calls.append(("set_activity_mode", args, kwargs))
 
+    def get_snapshot(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            control_mode="AUTO",
+            state="OBSERVING",
+            activity_mode=SimpleNamespace(key="focus", name="공부"),
+            posture_candidate="SITTING",
+            blocked_reason_codes=(),
+        )
+
+
+class _Dashboard:
+    def __init__(self, height_cm: float | None = 82.5) -> None:
+        self.height_cm = height_cm
+
+    def get_status(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            height=SimpleNamespace(height_cm=self.height_cm, status="ONLINE"),
+            state="IDLE",
+            direction=None,
+            target_height_cm=None,
+        )
+
+
+class _ActivityModes:
+    async def list_effective_modes(self, profile_id: str) -> list[SimpleNamespace]:
+        assert profile_id == "profile-a"
+        return [
+            SimpleNamespace(
+                key="focus",
+                name="공부",
+                description="집중 작업",
+                led_color="FFFFFF",
+                led_brightness=120,
+                tilt_level=2,
+            )
+        ]
+
+
+class _ModeUsage:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, str]] = []
+
+    async def summarize(self, *, days: int, profile_id: str) -> dict[str, object]:
+        self.calls.append((days, profile_id))
+        return {
+            "totalSeconds": 3600,
+            "modes": [{"key": "focus", "name": "공부", "seconds": 3600}],
+            "days": [],
+        }
+
 
 class _Wled:
     def __init__(self) -> None:
@@ -73,7 +123,20 @@ async def _context(*, personalized: bool = True) -> tuple[SmartDeskAgentContext,
     captured = await sessions.capture(personalization_allowed=personalized)
     turn = await turns.create(selected.session_id, captured.profile_id)
     automation, wled, memory = _Automation(), _Wled(), _Memory()
-    return (SmartDeskAgentContext(captured, sessions, memory, turns, turn.turn_id, turn.sequence, automation, wled), users, automation, wled, memory, turns)
+    context = SmartDeskAgentContext(
+        captured,
+        sessions,
+        memory,
+        turns,
+        turn.turn_id,
+        turn.sequence,
+        automation,
+        wled,
+        activity_modes=_ActivityModes(),
+        dashboard=_Dashboard(),
+        mode_usage=_ModeUsage(),
+    )
+    return (context, users, automation, wled, memory, turns)
 
 
 async def _invoke(context: SmartDeskAgentContext, name: str, **arguments: Any) -> dict[str, object]:
@@ -88,6 +151,52 @@ async def test_device_control_uses_identity_independent_path_and_wled_effect() -
     assert (await _invoke(context, "set_wled_effect", effect_id=2, palette_id=3))["ok"] is True
     assert automation.calls[0][2]["expected_session_id"] is None
     assert wled.calls[0] == ("set_effect", (2,), {"expected_session_id": None, "palette_id": 3, "speed": 128, "intensity": 128, "color": None})
+
+
+async def test_desk_status_and_relative_height_use_current_dashboard_snapshot() -> None:
+    context, _users, automation, _wled, _memory, _turns = await _context()
+
+    status = await _invoke(context, "get_desk_status")
+    adjusted = await _invoke(context, "adjust_desk_height", delta_cm=3)
+
+    assert status["result"] == {
+        "height_cm": 82.5,
+        "height_status": "ONLINE",
+        "desk_state": "IDLE",
+        "direction": None,
+        "target_height_cm": None,
+        "control_mode": "AUTO",
+        "automation_state": "OBSERVING",
+        "activity_mode": {"key": "focus", "name": "공부"},
+        "posture": "SITTING",
+        "blocked_reason_codes": [],
+    }
+    assert adjusted["result"] == {
+        "previous_height_cm": 82.5,
+        "delta_cm": 3.0,
+        "target_height_cm": 85.5,
+    }
+    assert automation.calls[-1] == (
+        "set_target",
+        (85.5,),
+        {"expected_session_id": None},
+    )
+
+
+async def test_activity_mode_accepts_spoken_name_and_usage_uses_current_profile() -> None:
+    context, _users, automation, _wled, _memory, _turns = await _context()
+
+    selected = await _invoke(context, "set_activity_mode", mode="공부 모드")
+    usage = await _invoke(context, "get_activity_usage", days=7)
+
+    assert selected["result"] == {"key": "focus", "name": "공부"}
+    assert automation.calls[-1] == (
+        "set_activity_mode",
+        ("focus", "session-a"),
+        {"profile_id": "profile-a"},
+    )
+    assert usage["result"]["totalSeconds"] == 3600
+    assert context.mode_usage.calls == [(7, "profile-a")]
 
 
 async def test_successful_final_turn_contains_only_compact_assistant_response() -> None:
@@ -133,7 +242,7 @@ async def test_null_context_blocks_every_non_stop_mutation() -> None:
     context = SmartDeskAgentContext(captured, sessions, memory, turns, turn.turn_id, turn.sequence, automation, wled)
     # 등록 사용자가 없으면 개인화 명령만 막힌다. 기기 제어는 그대로 받는다.
     for name, arguments in (
-        ("set_activity_mode", {"key": "focus"}),
+        ("set_activity_mode", {"mode": "focus"}),
         ("remember_fact", {"fact": "likes tea"}),
         ("recall_facts", {"query": "tea"}),
     ):
