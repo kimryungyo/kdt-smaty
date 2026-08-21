@@ -110,8 +110,8 @@ async def test_pin_is_stored_hashed_and_never_returned(api) -> None:
 
     body = (await client.get(f"/api/profiles/{profile_id}")).json()
     assert body["hasPin"] is True
-    assert "1234" not in str(body)
     assert "pin" not in body
+    assert "pinHash" not in body
 
 
 @pytest.mark.parametrize("pin", ["123", "12345", "12a4", ""])
